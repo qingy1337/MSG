@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multiplayer Shooting Game</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="login-screen" class="screen">
+        <h1>Multiplayer Shooting Game</h1>
+        <div class="form-group">
+            <input type="text" id="name-input" placeholder="Enter your name">
+            <button id="join-btn">Join</button>
+        </div>
+    </div>
+
+    <div id="waiting-screen" class="screen hidden">
+        <h1>Waiting Room</h1>
+        <div class="player-list-container">
+            <h2>Players:</h2>
+            <ul id="waiting-players"></ul>
+        </div>
+        <button id="start-btn" disabled>Start Game (Need at least 2 players)</button>
+    </div>
+
+    <div id="game-screen" class="screen hidden">
+        <canvas id="game-canvas" width="900" height="600"></canvas>
+        <div id="game-info">
+            <div id="players-alive"></div>
+            <div id="game-message"></div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="waiting.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>

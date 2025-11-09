@@ -1,0 +1,99 @@
+body {
+    margin: 0;
+    padding: 0;
+    font-family: Arial, sans-serif;
+    background-color: #f0f0f0;
+}
+
+.screen {
+    width: 100%;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 20px;
+    text-align: center;
+}
+
+.hidden {
+    display: none;
+}
+
+h1 {
+    color: #333;
+}
+
+.form-group {
+    margin: 20px 0;
+}
+
+input {
+    padding: 10px;
+    font-size: 16px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    width: 200px;
+    margin-right: 10px;
+}
+
+button {
+    padding: 10px 20px;
+    font-size: 16px;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+button:hover {
+    background-color: #45a049;
+}
+
+button:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+}
+
+.player-list-container {
+    background-color: white;
+    border-radius: 8px;
+    padding: 15px;
+    margin: 20px auto;
+    max-width: 400px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+#waiting-players {
+    list-style: none;
+    padding: 0;
+}
+
+#waiting-players li {
+    padding: 8px;
+    margin: 5px 0;
+    border-radius: 4px;
+    color: white;
+    font-weight: bold;
+}
+
+#game-canvas {
+    background-color: #333;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+#game-info {
+    margin-top: 15px;
+    display: flex;
+    justify-content: space-between;
+}
+
+#game-message {
+    font-size: 18px;
+    font-weight: bold;
+    color: #333;
+}
+
+#players-alive {
+    font-size: 16px;
+    color: #666;
+}
