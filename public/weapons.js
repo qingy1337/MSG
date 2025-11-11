@@ -17,10 +17,10 @@ const WEAPONS = {
     key: 'autoRifle',
     name: 'Auto-Rifle',
     description: 'Hold mouse to fire a stream.',
-    weaponLength: 30,
-    bulletSpeed: 10,
-    bulletRadius: 5,
-    cooldownMs: 100, // ~10 shots/second
+    weaponLength: 40,
+    bulletSpeed: 12,
+    bulletRadius: 6,
+    cooldownMs: 80, // ~10 shots/second
     automatic: true,
   },
   sniper: {
@@ -36,4 +36,3 @@ const WEAPONS = {
 };
 
 const DEFAULT_WEAPON_KEY = 'pistol';
-

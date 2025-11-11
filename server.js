@@ -122,6 +122,18 @@ io.on("connection", (socket) => {
   socket.on("shoot", (bulletData) => {
     const player = activePlayers.find((p) => p.id === socket.id);
     if (player && player.alive) {
+      // Guard against shooting through walls: ignore shots whose spawn point is inside a wall
+      const bx = bulletData && typeof bulletData.x === 'number' ? bulletData.x : null;
+      const by = bulletData && typeof bulletData.y === 'number' ? bulletData.y : null;
+      if (bx == null || by == null) return;
+      // Use both point-inside and robust discrete segment check from player -> muzzle tip
+      if (
+        isPointInsideAnyWall(bx, by, gameWalls) ||
+        segmentCrossesWallDiscrete(player.x, player.y, bx, by, gameWalls, 2) ||
+        lineIntersectsAnyWall(player.x, player.y, bx, by, gameWalls)
+      ) {
+        return; // do not emit invalid bullet
+      }
       io.emit("newBullet", {
         ...bulletData,
         playerId: socket.id,
@@ -346,6 +358,71 @@ function generateWalls() {
   }
 
   return walls;
+}
+
+// Utility: check if a point lies inside any wall rectangle
+function isPointInsideAnyWall(x, y, walls) {
+  for (const wall of walls) {
+    if (
+      x >= wall.x &&
+      x <= wall.x + wall.width &&
+      y >= wall.y &&
+      y <= wall.y + wall.height
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Utility: line-rectangle intersection against any wall
+function lineIntersectsAnyWall(x0, y0, x1, y1, walls) {
+  for (const wall of walls) {
+    if (lineIntersectsRect(x0, y0, x1, y1, wall)) return true;
+  }
+  return false;
+}
+
+function lineIntersectsRect(x0, y0, x1, y1, rect) {
+  if (
+    (x0 >= rect.x && x0 <= rect.x + rect.width && y0 >= rect.y && y0 <= rect.y + rect.height) ||
+    (x1 >= rect.x && x1 <= rect.x + rect.width && y1 >= rect.y && y1 <= rect.y + rect.height)
+  ) return true;
+  const r = rect;
+  const edges = [
+    [r.x, r.y, r.x + r.width, r.y],
+    [r.x + r.width, r.y, r.x + r.width, r.y + r.height],
+    [r.x + r.width, r.y + r.height, r.x, r.y + r.height],
+    [r.x, r.y + r.height, r.x, r.y],
+  ];
+  for (const [ex0, ey0, ex1, ey1] of edges) {
+    if (segmentsIntersect(x0, y0, x1, y1, ex0, ey0, ex1, ey1)) return true;
+  }
+  return false;
+}
+
+function segmentsIntersect(x1, y1, x2, y2, x3, y3, x4, y4) {
+  const den = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+  if (den === 0) return false;
+  const t = ((x3 - x1) * (y3 - y4) - (y3 - y1) * (x3 - x4)) / den;
+  const u = ((x3 - x1) * (y1 - y2) - (y3 - y1) * (x1 - x2)) / den;
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+}
+
+// Robust discrete raycast along the path
+function segmentCrossesWallDiscrete(x0, y0, x1, y1, walls, step = 2) {
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len === 0) return false;
+  const steps = Math.max(1, Math.ceil(len / step));
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const px = x0 + dx * t;
+    const py = y0 + dy * t;
+    if (isPointInsideAnyWall(px, py, walls)) return true;
+  }
+  return false;
 }
 
 server.listen(3001, () => {
