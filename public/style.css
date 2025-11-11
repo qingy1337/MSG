@@ -97,3 +97,42 @@ button:disabled {
     font-size: 16px;
     color: #666;
 }
+
+/* Weapon selection UI */
+.weapon-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    margin: 20px auto;
+    max-width: 900px;
+}
+
+.weapon-card {
+    background: #fff;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    padding: 12px;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.2s ease;
+}
+
+.weapon-card:hover {
+    border-color: #888;
+}
+
+.weapon-card.selected {
+    border-color: #4CAF50;
+    box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);
+}
+
+.weapon-card h3 {
+    margin: 0 0 6px 0;
+    font-size: 18px;
+}
+
+.weapon-card p {
+    margin: 0;
+    color: #555;
+    font-size: 14px;
+}

@@ -2,32 +2,67 @@ const socket = io();
 
 // DOM elements
 const loginScreen = document.getElementById("login-screen");
+const weaponScreen = document.getElementById("weapon-screen");
 const waitingScreen = document.getElementById("waiting-screen");
 const gameScreen = document.getElementById("game-screen");
 const nameInput = document.getElementById("name-input");
 const joinBtn = document.getElementById("join-btn");
 const startBtn = document.getElementById("start-btn");
 const waitingPlayersList = document.getElementById("waiting-players");
+const weaponOptionsEl = document.getElementById("weapon-options");
+const weaponConfirmBtn = document.getElementById("weapon-confirm-btn");
 
 // Player data
 let playerName = "";
+let selectedWeaponKey = (typeof DEFAULT_WEAPON_KEY !== 'undefined' ? DEFAULT_WEAPON_KEY : 'pistol');
 
 // Event listeners
-joinBtn.addEventListener("click", joinWaitingRoom);
+joinBtn.addEventListener("click", goToWeaponSelection);
 startBtn.addEventListener("click", startGame);
 nameInput.addEventListener("keypress", (e) => {
-  if (e.key === "Enter") joinWaitingRoom();
+  if (e.key === "Enter") goToWeaponSelection();
 });
+weaponConfirmBtn.addEventListener("click", joinWaitingRoom);
 
 // Join waiting room
-function joinWaitingRoom() {
+function goToWeaponSelection() {
   playerName = nameInput.value.trim();
+  if (!playerName) return;
+  // Move to weapon selection step
+  loginScreen.classList.add("hidden");
+  weaponScreen.classList.remove("hidden");
+  renderWeaponOptions();
+}
 
-  if (playerName) {
-    socket.emit("join", playerName);
-    loginScreen.classList.add("hidden");
-    waitingScreen.classList.remove("hidden");
-  }
+// Join waiting room with selected weapon
+function joinWaitingRoom() {
+  if (!playerName) return;
+  if (!selectedWeaponKey) selectedWeaponKey = 'pistol';
+  socket.emit("join", { name: playerName, weapon: selectedWeaponKey });
+  weaponScreen.classList.add("hidden");
+  waitingScreen.classList.remove("hidden");
+}
+
+function renderWeaponOptions() {
+  if (typeof WEAPONS === 'undefined') return;
+  weaponOptionsEl.innerHTML = "";
+  Object.keys(WEAPONS).forEach((key) => {
+    const w = WEAPONS[key];
+    const card = document.createElement('div');
+    card.className = 'weapon-card' + (selectedWeaponKey === key ? ' selected' : '');
+    card.setAttribute('data-key', key);
+    card.innerHTML = `
+      <h3>${w.name}</h3>
+      <p>${w.description}</p>
+    `;
+    card.addEventListener('click', () => {
+      selectedWeaponKey = key;
+      // update selected
+      Array.from(weaponOptionsEl.children).forEach((c) => c.classList.remove('selected'));
+      card.classList.add('selected');
+    });
+    weaponOptionsEl.appendChild(card);
+  });
 }
 
 // Start game
@@ -68,5 +103,6 @@ socket.on("gameStarting", (gameData) => {
 socket.on("resetGame", () => {
   gameScreen.classList.add("hidden");
   loginScreen.classList.remove("hidden");
+  weaponScreen.classList.add("hidden");
   nameInput.value = "";
 });

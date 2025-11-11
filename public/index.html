@@ -15,6 +15,14 @@
         </div>
     </div>
 
+    <div id="weapon-screen" class="screen hidden">
+        <h1>Choose Your Weapon</h1>
+        <div id="weapon-options" class="weapon-options"></div>
+        <div class="form-group">
+            <button id="weapon-confirm-btn">Confirm</button>
+        </div>
+    </div>
+
     <div id="waiting-screen" class="screen hidden">
         <h1>Waiting Room</h1>
         <div class="player-list-container">
@@ -33,6 +41,7 @@
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
+    <script src="weapons.js"></script>
     <script src="waiting.js"></script>
     <script src="game.js"></script>
 </body>

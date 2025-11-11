@@ -10,6 +10,8 @@ let bullets = [];
 let walls = [];
 let keys = {};
 let gameActive = false;
+let firingInterval = null;
+let lastShotAt = 0;
 
 // Constants
 const PLAYER_RADIUS = 20;
@@ -36,7 +38,9 @@ function initGame(gamePlayers, gameWalls) {
 
   // Set up mouse controls
   canvas.addEventListener("mousemove", handleMouseMove);
-  canvas.addEventListener("click", handleMouseClick);
+  canvas.addEventListener("mousedown", handleMouseDown);
+  window.addEventListener("mouseup", handleMouseUp);
+  canvas.addEventListener("mouseleave", handleMouseUp);
 
   // Start game loop
   gameLoop();
@@ -105,10 +109,12 @@ function update() {
 function updateBullets() {
   for (let i = bullets.length - 1; i >= 0; i--) {
     const bullet = bullets[i];
+    const speed = typeof bullet.speed === 'number' ? bullet.speed : BULLET_SPEED;
+    const bRadius = typeof bullet.radius === 'number' ? bullet.radius : BULLET_RADIUS;
 
     // Move bullet
-    bullet.x += Math.cos(bullet.angle) * BULLET_SPEED;
-    bullet.y += Math.sin(bullet.angle) * BULLET_SPEED;
+    bullet.x += Math.cos(bullet.angle) * speed;
+    bullet.y += Math.sin(bullet.angle) * speed;
 
     // Check if bullet is out of bounds
     if (
@@ -122,7 +128,7 @@ function updateBullets() {
     }
 
     // Check wall collisions
-    if (checkWallCollision(bullet.x, bullet.y, BULLET_RADIUS)) {
+    if (checkWallCollision(bullet.x, bullet.y, bRadius)) {
       bullets.splice(i, 1);
       continue;
     }
@@ -134,9 +140,9 @@ function updateBullets() {
         const dy = player.y - bullet.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
 
-        if (distance < PLAYER_RADIUS + BULLET_RADIUS) {
+        if (distance < PLAYER_RADIUS + bRadius) {
           // Player hit
-          socket.emit("playerHit", player.id);
+          socket.emit("playerHit", { targetId: player.id, shooterId: bullet.playerId });
           bullets.splice(i, 1);
           break;
         }
@@ -169,21 +175,48 @@ function render() {
     ctx.arc(player.x, player.y, PLAYER_RADIUS, 0, Math.PI * 2);
     ctx.fill();
 
-    // Draw player name
+    // Draw player name (above health bar)
     ctx.fillStyle = "black";
     ctx.textAlign = "center";
     ctx.font = "14px Consolas";
-    ctx.fillText(player.name, player.x, player.y - PLAYER_RADIUS - 10);
+    ctx.fillText(player.name, player.x, player.y - PLAYER_RADIUS - 18);
 
-    // Draw weapon
+    // Draw health bar
+    const maxHealth = 100; // mirror server MAX_HEALTH
+    const health = Math.max(0, typeof player.health === 'number' ? player.health : maxHealth);
+    const pct = Math.max(0, Math.min(1, health / maxHealth));
+    const barWidth = 50;
+    const barHeight = 6;
+    const barX = player.x - barWidth / 2;
+    const barY = player.y - PLAYER_RADIUS - 12;
+    // Background
+    ctx.fillStyle = "#e0e0e0";
+    ctx.fillRect(barX, barY, barWidth, barHeight);
+    // Border
+    ctx.strokeStyle = "#333";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(barX, barY, barWidth, barHeight);
+    // Fill color based on percentage
+    let color = "#4CAF50"; // green
+    if (pct <= 0.3) color = "#F44336"; // red
+    else if (pct <= 0.6) color = "#FFC107"; // amber
+    ctx.fillStyle = color;
+    ctx.fillRect(barX, barY, barWidth * pct, barHeight);
+
+    // Draw weapon (length depends on player's weapon)
     ctx.strokeStyle = "black";
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(player.x, player.y);
-    ctx.lineTo(
-      player.x + Math.cos(player.angle) * WEAPON_LENGTH,
-      player.y + Math.sin(player.angle) * WEAPON_LENGTH,
-    );
+    {
+      const weaponKey = player.weapon || (typeof DEFAULT_WEAPON_KEY !== 'undefined' ? DEFAULT_WEAPON_KEY : 'pistol');
+      const cfg = (typeof WEAPONS !== 'undefined' && WEAPONS[weaponKey]) || (typeof WEAPONS !== 'undefined' && WEAPONS.pistol) || { weaponLength: WEAPON_LENGTH };
+      const len = typeof cfg.weaponLength === 'number' ? cfg.weaponLength : WEAPON_LENGTH;
+      ctx.lineTo(
+        player.x + Math.cos(player.angle) * len,
+        player.y + Math.sin(player.angle) * len,
+      );
+    }
     ctx.stroke();
   }
 
@@ -191,7 +224,8 @@ function render() {
   ctx.fillStyle = "black";
   for (const bullet of bullets) {
     ctx.beginPath();
-    ctx.arc(bullet.x, bullet.y, BULLET_RADIUS, 0, Math.PI * 2);
+    const r = typeof bullet.radius === 'number' ? bullet.radius : BULLET_RADIUS;
+    ctx.arc(bullet.x, bullet.y, r, 0, Math.PI * 2);
     ctx.fill();
   }
 
@@ -230,18 +264,49 @@ function handleMouseMove(e) {
   });
 }
 
-// Handle mouse click (shooting)
-function handleMouseClick(e) {
+// Handle mouse down/up (shooting)
+function handleMouseDown() {
   if (!localPlayer || !localPlayer.alive || !gameActive) return;
+  attemptFire();
+  const weaponKey = localPlayer.weapon || (typeof DEFAULT_WEAPON_KEY !== 'undefined' ? DEFAULT_WEAPON_KEY : 'pistol');
+  const cfg = (typeof WEAPONS !== 'undefined' && WEAPONS[weaponKey]) || WEAPONS.pistol;
+  if (cfg && cfg.automatic) {
+    const interval = Math.max(50, cfg.cooldownMs || 100);
+    clearInterval(firingInterval);
+    firingInterval = setInterval(attemptFire, interval);
+  }
+}
+
+function handleMouseUp() {
+  if (firingInterval) {
+    clearInterval(firingInterval);
+    firingInterval = null;
+  }
+}
+
+function attemptFire() {
+  if (!localPlayer || !localPlayer.alive || !gameActive) return;
+  const weaponKey = localPlayer.weapon || (typeof DEFAULT_WEAPON_KEY !== 'undefined' ? DEFAULT_WEAPON_KEY : 'pistol');
+  const cfg = (typeof WEAPONS !== 'undefined' && WEAPONS[weaponKey]) || WEAPONS.pistol;
+  const now = Date.now();
+  const cooldown = cfg && typeof cfg.cooldownMs === 'number' ? cfg.cooldownMs : 0;
+  if (cooldown > 0 && now - lastShotAt < cooldown) return;
+
+  const weaponLength = cfg && typeof cfg.weaponLength === 'number' ? cfg.weaponLength : WEAPON_LENGTH;
+  const bulletSpeed = cfg && typeof cfg.bulletSpeed === 'number' ? cfg.bulletSpeed : BULLET_SPEED;
+  const bulletRadius = cfg && typeof cfg.bulletRadius === 'number' ? cfg.bulletRadius : BULLET_RADIUS;
 
   const bulletData = {
-    x: localPlayer.x + Math.cos(localPlayer.angle) * WEAPON_LENGTH,
-    y: localPlayer.y + Math.sin(localPlayer.angle) * WEAPON_LENGTH,
+    x: localPlayer.x + Math.cos(localPlayer.angle) * weaponLength,
+    y: localPlayer.y + Math.sin(localPlayer.angle) * weaponLength,
     angle: localPlayer.angle,
+    speed: bulletSpeed,
+    radius: bulletRadius,
   };
 
   // Emit bullet to server
   socket.emit("shoot", bulletData);
+  lastShotAt = now;
 }
 
 // Check wall collision
@@ -284,6 +349,7 @@ socket.on("playerKilled", (playerId) => {
   const player = players.find((p) => p.id === playerId);
   if (player) {
     player.alive = false;
+    player.health = 0;
     updateGameInfo();
 
     if (playerId === socket.id) {

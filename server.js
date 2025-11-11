@@ -27,24 +27,49 @@ const colors = [
   "#33FFBD",
 ];
 
+// Health and damage config
+const MAX_HEALTH = 100;
+const WEAPON_DAMAGE = {
+  pistol: 25,     // ~4 shots to kill
+  autoRifle: 12,  // ~8-9 shots to kill, balances high ROF
+  sniper: 100,    // 1 shot to kill
+};
+
 io.on("connection", (socket) => {
   console.log("New connection:", socket.id);
 
   // Player joins waiting room
-  socket.on("join", (name) => {
+  socket.on("join", (payload) => {
     const playerColor = colors[Math.floor(Math.random() * colors.length)];
-    const playerName = name.substring(0, 10);
+    let playerName = '';
+    let weapon = 'pistol';
+
+    if (typeof payload === 'string') {
+      playerName = payload;
+    } else if (payload && typeof payload === 'object') {
+      playerName = String(payload.name || '');
+      if (typeof payload.weapon === 'string') {
+        const key = payload.weapon;
+        // Allow-listed weapons for now (keep extensible by adding here)
+        const allowed = new Set(['pistol', 'autoRifle', 'sniper']);
+        weapon = allowed.has(key) ? key : 'pistol';
+      }
+    }
+
+    playerName = playerName.substring(0, 10);
+
     const player = {
       id: socket.id,
       name: playerName,
       color: playerColor,
+      weapon,
     };
 
     waitingPlayers.push(player);
     socket.join("waiting");
 
     io.to("waiting").emit("updateWaitingList", waitingPlayers);
-    console.log(`${playerName} joined the waiting room`);
+    console.log(`${playerName} joined the waiting room with ${weapon}`);
   });
 
   // Start game
@@ -68,6 +93,7 @@ io.on("connection", (socket) => {
           y: spawnPosition.y,
           angle: 0,
           alive: true,
+          health: MAX_HEALTH,
         });
       }
 
@@ -104,20 +130,39 @@ io.on("connection", (socket) => {
   });
 
   // Player hit
-  socket.on("playerHit", (playerId) => {
-    const player = activePlayers.find((p) => p.id === playerId);
-    if (player && player.alive) {
-      player.alive = false;
-      io.emit("playerKilled", playerId);
+  socket.on("playerHit", (payload) => {
+    // Backward compatibility: if payload is a string, treat as target only
+    let targetId = typeof payload === 'string' ? payload : payload && payload.targetId;
+    const shooterId = payload && payload.shooterId ? payload.shooterId : null;
 
-      // Check if game is over (only one player left)
-      const alivePlayers = activePlayers.filter((p) => p.alive);
-      if (alivePlayers.length === 1) {
-        io.emit("gameOver", alivePlayers[0]);
-        setTimeout(() => {
-          resetGame();
-        }, 5000);
+    const target = activePlayers.find((p) => p.id === targetId);
+    if (!target || !target.alive) return;
+
+    // Determine damage from shooter's weapon; default to pistol damage
+    let damage = WEAPON_DAMAGE.pistol;
+    if (shooterId) {
+      const shooter = activePlayers.find((p) => p.id === shooterId);
+      if (shooter && typeof WEAPON_DAMAGE[shooter.weapon] === 'number') {
+        damage = WEAPON_DAMAGE[shooter.weapon];
       }
+    }
+
+    target.health = Math.max(0, (target.health ?? MAX_HEALTH) - damage);
+    if (target.health <= 0) {
+      target.alive = false;
+      io.emit("playerKilled", target.id);
+    }
+
+    // Broadcast updated state so clients can render health bars
+    io.emit("gameState", activePlayers);
+
+    // If only one alive remains, end game
+    const alivePlayers = activePlayers.filter((p) => p.alive);
+    if (alivePlayers.length === 1) {
+      io.emit("gameOver", alivePlayers[0]);
+      setTimeout(() => {
+        resetGame();
+      }, 5000);
     }
   });
 
