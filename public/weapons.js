@@ -6,11 +6,11 @@ const WEAPONS = {
   pistol: {
     key: 'pistol',
     name: 'Pistol',
-    description: 'Single-shot sidearm. Balanced default.',
+    description: 'Single-shot sidearm.',
     weaponLength: 30,
     bulletSpeed: 10,
     bulletRadius: 5,
-    cooldownMs: 0,
+    cooldownMs: 90,
     automatic: false,
   },
   autoRifle: {
@@ -19,8 +19,18 @@ const WEAPONS = {
     description: 'Hold mouse to fire a stream.',
     weaponLength: 40,
     bulletSpeed: 12,
-    bulletRadius: 6,
-    cooldownMs: 80, // ~10 shots/second
+    bulletRadius: 4,
+    cooldownMs: 90, // ~10 shots/second
+    automatic: true,
+  },
+  miniGun: {
+    key: 'miniGun',
+    name: 'Mini-Gun',
+    description: 'Weapon of math destruction',
+    weaponLength: 20,
+    bulletSpeed: 14,
+    bulletRadius: 5,
+    cooldownMs: 5, // ~10 shots/second
     automatic: true,
   },
   sniper: {

@@ -100,9 +100,11 @@ button:disabled {
 
 /* Weapon selection UI */
 .weapon-options {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    /* Use flex so incomplete rows center automatically */
+    display: flex;
+    flex-wrap: wrap;
     gap: 12px;
+    justify-content: center;
     margin: 20px auto;
     max-width: 900px;
 }
@@ -115,6 +117,8 @@ button:disabled {
     text-align: left;
     cursor: pointer;
     transition: border-color 0.2s ease;
+    /* Keep cards consistent and allow centering of last row */
+    flex: 0 1 220px;
 }
 
 .weapon-card:hover {

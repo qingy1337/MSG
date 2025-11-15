@@ -30,9 +30,10 @@ const colors = [
 // Health and damage config
 const MAX_HEALTH = 100;
 const WEAPON_DAMAGE = {
-  pistol: 25,     // ~4 shots to kill
-  autoRifle: 12,  // ~8-9 shots to kill, balances high ROF
-  sniper: 100,    // 1 shot to kill
+  pistol: 14,   // ~4 shots to kill
+  autoRifle: 9, // ~8-9 shots to kill, balances high ROF
+  sniper: 100,  // 1 shot
+  miniGun: 2.5,
 };
 
 io.on("connection", (socket) => {
@@ -51,7 +52,7 @@ io.on("connection", (socket) => {
       if (typeof payload.weapon === 'string') {
         const key = payload.weapon;
         // Allow-listed weapons for now (keep extensible by adding here)
-        const allowed = new Set(['pistol', 'autoRifle', 'sniper']);
+        const allowed = new Set([...Object.keys(WEAPON_DAMAGE)]);
         weapon = allowed.has(key) ? key : 'pistol';
       }
     }
@@ -85,7 +86,8 @@ io.on("connection", (socket) => {
       // Move all waiting players to active game
       while (waitingPlayers.length > 0) {
         const player = waitingPlayers.pop();
-        const spawnPosition = getValidSpawnPosition(walls);
+        // Space out spawns and ensure no direct LOS to existing players
+        const spawnPosition = getValidSpawnPosition(walls, activePlayers);
 
         activePlayers.push({
           ...player,
@@ -159,6 +161,8 @@ io.on("connection", (socket) => {
       }
     }
 
+    // let damage = 1;
+
     target.health = Math.max(0, (target.health ?? MAX_HEALTH) - damage);
     if (target.health <= 0) {
       target.alive = false;
@@ -215,43 +219,86 @@ function resetGame() {
   console.log("Game reset");
 }
 
-function getValidSpawnPosition(walls) {
+function getValidSpawnPosition(walls, existingPlayers = []) {
   const PLAYER_RADIUS = 20;
   const CANVAS_WIDTH = 900;
   const CANVAS_HEIGHT = 600;
+  const MIN_SPAWN_DISTANCE = 150; // keep players spaced to avoid instant kills
+  const MAX_ATTEMPTS = 1000; // generous to accommodate stricter constraints
 
-  let x, y;
-  let validPosition = false;
-
-  // Try up to 100 times to find a valid position
-  for (let attempt = 0; attempt < 100; attempt++) {
-    x = Math.random() * (CANVAS_WIDTH - 2 * PLAYER_RADIUS) + PLAYER_RADIUS;
-    y = Math.random() * (CANVAS_HEIGHT - 2 * PLAYER_RADIUS) + PLAYER_RADIUS;
-
-    validPosition = true;
-
-    // Check wall collisions
+  // Helper: circle-rect overlap
+  function overlapsAnyWall(px, py) {
     for (const wall of walls) {
-      // Find closest point on wall to the potential spawn position
-      const closestX = Math.max(wall.x, Math.min(x, wall.x + wall.width));
-      const closestY = Math.max(wall.y, Math.min(y, wall.y + wall.height));
-
-      // Calculate distance between spawn position and closest point
-      const distX = x - closestX;
-      const distY = y - closestY;
-      const distance = Math.sqrt(distX * distX + distY * distY);
-
-      // Check collision
-      if (distance < PLAYER_RADIUS) {
-        validPosition = false;
-        break;
-      }
+      const closestX = Math.max(wall.x, Math.min(px, wall.x + wall.width));
+      const closestY = Math.max(wall.y, Math.min(py, wall.y + wall.height));
+      const dx = px - closestX;
+      const dy = py - closestY;
+      if (Math.sqrt(dx * dx + dy * dy) < PLAYER_RADIUS) return true;
     }
-
-    if (validPosition) break;
+    return false;
   }
 
-  return { x, y };
+  // Evaluate candidate with respect to existing players
+  function candidateIsValid(cx, cy) {
+    // Not inside or overlapping walls
+    if (overlapsAnyWall(cx, cy)) return false;
+
+    for (const p of existingPlayers) {
+      if (!p || !p.alive) continue;
+      // Keep a minimum spacing
+      const dx = cx - p.x;
+      const dy = cy - p.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < MIN_SPAWN_DISTANCE) return false;
+      // Require at least one wall blocking direct LOS
+      const blocked = lineIntersectsAnyWall(cx, cy, p.x, p.y, walls);
+      if (!blocked) return false;
+    }
+    return true;
+  }
+
+  // Try random sampling; also track best fallback
+  let best = null;
+  let bestScore = -Infinity;
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const x = Math.random() * (CANVAS_WIDTH - 2 * PLAYER_RADIUS) + PLAYER_RADIUS;
+    const y = Math.random() * (CANVAS_HEIGHT - 2 * PLAYER_RADIUS) + PLAYER_RADIUS;
+
+    if (candidateIsValid(x, y)) {
+      return { x, y };
+    }
+
+    // Fallback scoring: maximize number of blocked LOS, then maximize min distance
+    let blockedCount = 0;
+    let minDist = Infinity;
+    for (const p of existingPlayers) {
+      if (!p || !p.alive) continue;
+      const dx = x - p.x;
+      const dy = y - p.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < minDist) minDist = dist;
+      if (lineIntersectsAnyWall(x, y, p.x, p.y, walls)) blockedCount++;
+    }
+    const score = blockedCount * 10000 + (isFinite(minDist) ? minDist : 0);
+    if (score > bestScore && !overlapsAnyWall(x, y)) {
+      bestScore = score;
+      best = { x, y };
+    }
+  }
+
+  // If strict constraints fail, use the best-scoring safe spot (still not overlapping walls)
+  if (best) return best;
+
+  // As a last resort, place anywhere not overlapping walls
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const x = Math.random() * (CANVAS_WIDTH - 2 * PLAYER_RADIUS) + PLAYER_RADIUS;
+    const y = Math.random() * (CANVAS_HEIGHT - 2 * PLAYER_RADIUS) + PLAYER_RADIUS;
+    if (!overlapsAnyWall(x, y)) return { x, y };
+  }
+
+  // Extremely unlikely fallback
+  return { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2 };
 }
 
 function generateWalls() {
