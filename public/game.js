@@ -203,12 +203,15 @@ function render() {
     ctx.fillStyle = color;
     ctx.fillRect(barX, barY, barWidth * pct, barHeight);
 
-    // Draw weapon (length depends on player's weapon)
-    ctx.strokeStyle = "black";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(player.x, player.y);
-    {
+    // Draw weapon (skin-aware)
+    if (typeof drawPlayerWeapon === "function") {
+      drawPlayerWeapon(ctx, player);
+    } else {
+      // Fallback simple line if skin helpers are unavailable
+      ctx.strokeStyle = "black";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(player.x, player.y);
       const weaponKey = player.weapon || (typeof DEFAULT_WEAPON_KEY !== 'undefined' ? DEFAULT_WEAPON_KEY : 'pistol');
       const cfg = (typeof WEAPONS !== 'undefined' && WEAPONS[weaponKey]) || (typeof WEAPONS !== 'undefined' && WEAPONS.pistol) || { weaponLength: WEAPON_LENGTH };
       const len = typeof cfg.weaponLength === 'number' ? cfg.weaponLength : WEAPON_LENGTH;
@@ -216,13 +219,20 @@ function render() {
         player.x + Math.cos(player.angle) * len,
         player.y + Math.sin(player.angle) * len,
       );
+      ctx.stroke();
     }
-    ctx.stroke();
   }
 
   // Draw bullets
-  ctx.fillStyle = "black";
   for (const bullet of bullets) {
+    let fill = "black";
+    if (typeof getBulletColorForPlayer === "function" && bullet.playerId) {
+      const shooter = players.find((p) => p.id === bullet.playerId);
+      if (shooter) {
+        fill = getBulletColorForPlayer(shooter) || fill;
+      }
+    }
+    ctx.fillStyle = fill;
     ctx.beginPath();
     const r = typeof bullet.radius === 'number' ? bullet.radius : BULLET_RADIUS;
     ctx.arc(bullet.x, bullet.y, r, 0, Math.PI * 2);

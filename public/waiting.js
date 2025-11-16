@@ -5,10 +5,14 @@ const loginScreen = document.getElementById("login-screen");
 const weaponScreen = document.getElementById("weapon-screen");
 const waitingScreen = document.getElementById("waiting-screen");
 const gameScreen = document.getElementById("game-screen");
+const shopScreen = document.getElementById("shop-screen");
 
 // Simple screen state helper so only one main screen shows at a time
 function setActiveScreen(target) {
-  const screens = [loginScreen, weaponScreen, waitingScreen, gameScreen];
+  const screens = [loginScreen, weaponScreen, waitingScreen, gameScreen, shopScreen];
+  if (target && target !== shopScreen && screens.includes(target)) {
+    lastNonShopScreen = target;
+  }
   screens.forEach((el) => {
     if (!el) return;
     if (el === target) {
@@ -17,6 +21,15 @@ function setActiveScreen(target) {
       el.classList.add("hidden");
     }
   });
+
+  if (coinsIndicatorEl) {
+    const inGame = target === gameScreen;
+    if (inGame) {
+      coinsIndicatorEl.classList.add("coins-indicator-disabled");
+    } else {
+      coinsIndicatorEl.classList.remove("coins-indicator-disabled");
+    }
+  }
 }
 
 // DOM elements - lobby
@@ -43,11 +56,32 @@ const userUsernameEl = document.getElementById("user-username");
 const logoutBtn = document.getElementById("logout-btn");
 const coinsIndicatorEl = document.getElementById("coins-indicator");
 const coinsValueEl = document.getElementById("coins-value");
+const shopBackBtn = document.getElementById("shop-back-btn");
+const shopStatusEl = document.getElementById("shop-status");
+const shopContentEl = document.getElementById("shop-content");
 
 // Player data
 let displayName = "";
 let selectedWeaponKey = (typeof DEFAULT_WEAPON_KEY !== 'undefined' ? DEFAULT_WEAPON_KEY : 'pistol');
 let currentUser = null;
+let lastNonShopScreen = loginScreen;
+let shopSkins = [];
+
+function setCoinsValue(coins) {
+  const safeCoins = typeof coins === "number" ? coins : 0;
+  if (coinsValueEl) {
+    coinsValueEl.textContent = safeCoins;
+  }
+  if (coinsIndicatorEl) {
+    coinsIndicatorEl.classList.remove("hidden");
+  }
+  if (currentUser) {
+    if (!currentUser.currencies || typeof currentUser.currencies !== "object") {
+      currentUser.currencies = {};
+    }
+    currentUser.currencies.Coins = safeCoins;
+  }
+}
 
 // --- Auth helpers ---
 
@@ -76,12 +110,7 @@ function applyAuthenticatedState(user) {
     typeof user.currencies.Coins === "number"
       ? user.currencies.Coins
       : 0;
-  if (coinsValueEl) {
-    coinsValueEl.textContent = coins;
-  }
-  if (coinsIndicatorEl) {
-    coinsIndicatorEl.classList.remove("hidden");
-  }
+  setCoinsValue(coins);
   if (authOverlay) {
     authOverlay.classList.add("hidden");
   }
@@ -243,6 +272,28 @@ if (registerTabBtn) {
   registerTabBtn.addEventListener("click", showRegisterTab);
 }
 
+if (coinsIndicatorEl) {
+  coinsIndicatorEl.addEventListener("click", () => {
+    if (!currentUser) {
+      applyLoggedOutState();
+      return;
+    }
+    const inGame =
+      gameScreen && !gameScreen.classList.contains("hidden");
+    if (inGame) {
+      return;
+    }
+    openShop();
+  });
+}
+
+if (shopBackBtn) {
+  shopBackBtn.addEventListener("click", () => {
+    const target = lastNonShopScreen || loginScreen;
+    setActiveScreen(target);
+  });
+}
+
 bootstrapAuth();
 
 socket.on("authError", (payload) => {
@@ -255,18 +306,7 @@ socket.on("authError", (payload) => {
 socket.on("coinsUpdated", (payload) => {
   if (!payload || typeof payload.coins !== "number") return;
   const coins = payload.coins;
-  if (coinsValueEl) {
-    coinsValueEl.textContent = coins;
-  }
-  if (coinsIndicatorEl) {
-    coinsIndicatorEl.classList.remove("hidden");
-  }
-  if (currentUser) {
-    if (!currentUser.currencies || typeof currentUser.currencies !== "object") {
-      currentUser.currencies = {};
-    }
-    currentUser.currencies.Coins = coins;
-  }
+  setCoinsValue(coins);
 });
 
 // Join waiting room
@@ -314,6 +354,345 @@ function renderWeaponOptions() {
     });
     weaponOptionsEl.appendChild(card);
   });
+}
+
+// --- Shop UI ---
+
+function setShopStatus(message) {
+  if (!shopStatusEl) return;
+  if (!message) {
+    shopStatusEl.textContent = "";
+  } else {
+    shopStatusEl.textContent = message;
+  }
+}
+
+async function openShop() {
+  setActiveScreen(shopScreen);
+  setShopStatus("Loading skins...");
+  if (shopContentEl) {
+    shopContentEl.innerHTML = "";
+  }
+  try {
+    const res = await fetch("/api/shop/skins", {
+      credentials: "include",
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setShopStatus(body.error || "Failed to load shop.");
+      return;
+    }
+    const data = await res.json();
+    shopSkins = Array.isArray(data.skins) ? data.skins : [];
+    if (data.currencies && typeof data.currencies.Coins === "number") {
+      setCoinsValue(data.currencies.Coins);
+    }
+    renderShop();
+    if (shopSkins.length === 0) {
+      setShopStatus("No skins available yet.");
+    } else {
+      setShopStatus("");
+    }
+  } catch (err) {
+    console.error("Failed to load shop:", err);
+    setShopStatus("Unable to reach server. Try again.");
+  }
+}
+
+function renderShop() {
+  if (!shopContentEl) return;
+  shopContentEl.innerHTML = "";
+  if (typeof WEAPONS === "undefined") return;
+
+  const byWeapon = {};
+  shopSkins.forEach((skin) => {
+    if (!skin || !skin.weaponKey) return;
+    if (!byWeapon[skin.weaponKey]) {
+      byWeapon[skin.weaponKey] = [];
+    }
+    byWeapon[skin.weaponKey].push(skin);
+  });
+
+  Object.keys(WEAPONS).forEach((weaponKey) => {
+    const skinsForWeapon = byWeapon[weaponKey];
+    if (!skinsForWeapon || skinsForWeapon.length === 0) return;
+    const weaponCfg = WEAPONS[weaponKey];
+
+    const section = document.createElement("section");
+    section.className = "shop-weapon-section";
+
+    // Header with title/description and a collapse toggle
+    const header = document.createElement("div");
+    header.className = "shop-weapon-header";
+
+    const headerMain = document.createElement("div");
+    headerMain.className = "shop-weapon-header-main";
+
+    const titleSpan = document.createElement("div");
+    titleSpan.className = "shop-weapon-title";
+    titleSpan.textContent = weaponCfg.name || weaponKey;
+
+    const subtitleP = document.createElement("p");
+    subtitleP.className = "shop-weapon-subtitle";
+    subtitleP.textContent = weaponCfg.description || "";
+
+    headerMain.appendChild(titleSpan);
+    headerMain.appendChild(subtitleP);
+
+    const toggleBtn = document.createElement("button");
+    toggleBtn.type = "button";
+    toggleBtn.className = "shop-weapon-toggle";
+    toggleBtn.setAttribute("aria-label", "Toggle skins");
+
+    const toggleIcon = document.createElement("span");
+    toggleIcon.textContent = "▾";
+    toggleBtn.appendChild(toggleIcon);
+
+    header.appendChild(headerMain);
+    header.appendChild(toggleBtn);
+    section.appendChild(header);
+
+    const body = document.createElement("div");
+    body.className = "shop-weapon-body collapsed";
+
+    const grid = document.createElement("div");
+    grid.className = "shop-grid";
+
+    skinsForWeapon
+      .slice()
+      .sort((a, b) => {
+        const priceA = typeof a.price === "number" ? a.price : 0;
+        const priceB = typeof b.price === "number" ? b.price : 0;
+        if (a.isDefault && !b.isDefault) return -1;
+        if (!a.isDefault && b.isDefault) return 1;
+        if (priceA !== priceB) return priceA - priceB;
+        return a.name.localeCompare(b.name);
+      })
+      .forEach((skin) => {
+        grid.appendChild(createSkinCard(weaponKey, skin));
+      });
+
+    body.appendChild(grid);
+    section.appendChild(body);
+
+    let collapsed = true;
+    function setCollapsed(next) {
+      collapsed = next;
+      if (collapsed) {
+        body.classList.add("collapsed");
+        toggleBtn.setAttribute("aria-expanded", "false");
+        toggleIcon.textContent = "▸";
+      } else {
+        body.classList.remove("collapsed");
+        toggleBtn.setAttribute("aria-expanded", "true");
+        toggleIcon.textContent = "▾";
+      }
+    }
+
+    setCollapsed(true);
+
+    toggleBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      setCollapsed(!collapsed);
+    });
+
+    headerMain.addEventListener("click", () => {
+      setCollapsed(!collapsed);
+    });
+
+    shopContentEl.appendChild(section);
+  });
+}
+
+function createSkinCard(weaponKey, skin) {
+  const card = document.createElement("div");
+  card.className = "shop-card";
+  if (skin.owned) {
+    card.classList.add("badge-owned");
+  }
+  if (skin.equipped) {
+    card.classList.add("badge-equipped");
+  }
+
+  const headerRow = document.createElement("div");
+  headerRow.className = "shop-card-header-row";
+
+  const title = document.createElement("div");
+  title.className = "shop-card-title";
+  title.textContent = skin.name;
+
+  const pill = document.createElement("div");
+  pill.className = "shop-card-pill";
+  pill.textContent = skin.isDefault ? "Default" : "Skin";
+
+  headerRow.appendChild(title);
+  headerRow.appendChild(pill);
+  card.appendChild(headerRow);
+
+  if (skin.description) {
+    const desc = document.createElement("p");
+    desc.className = "shop-card-description";
+    desc.textContent = skin.description;
+    card.appendChild(desc);
+  }
+
+  const previewWrapper = document.createElement("div");
+  previewWrapper.className = "shop-card-preview";
+  const canvas = document.createElement("canvas");
+  previewWrapper.appendChild(canvas);
+  card.appendChild(previewWrapper);
+
+  // Defer preview drawing to next tick so layout has size
+  requestAnimationFrame(() => {
+    if (typeof drawWeaponSkinPreview === "function") {
+      drawWeaponSkinPreview(canvas, weaponKey, skin.key);
+    }
+  });
+
+  const footer = document.createElement("div");
+  footer.className = "shop-card-footer";
+
+  const priceDiv = document.createElement("div");
+  priceDiv.className = "shop-price";
+  if (skin.price && skin.price > 0 && !skin.owned) {
+    const coin = document.createElement("span");
+    coin.className = "coin-icon";
+    const label = document.createElement("span");
+    label.className = "shop-price-label";
+    label.textContent = `${skin.price} Coins`;
+    priceDiv.appendChild(coin);
+    priceDiv.appendChild(label);
+  } else if (skin.isDefault) {
+    const label = document.createElement("span");
+    label.className = "shop-price-label";
+    label.textContent = "Owned (starter)";
+    priceDiv.appendChild(label);
+  } else if (skin.owned) {
+    const label = document.createElement("span");
+    label.className = "shop-price-label";
+    label.textContent = "Owned";
+    priceDiv.appendChild(label);
+  } else {
+    const label = document.createElement("span");
+    label.className = "shop-price-label";
+    label.textContent = "Free";
+    priceDiv.appendChild(label);
+  }
+
+  footer.appendChild(priceDiv);
+
+  const actionBtn = document.createElement("button");
+  actionBtn.className = "btn btn-primary btn-xs";
+
+  function updateButtonState() {
+    const coins =
+      currentUser &&
+      currentUser.currencies &&
+      typeof currentUser.currencies.Coins === "number"
+        ? currentUser.currencies.Coins
+        : 0;
+    if (skin.equipped) {
+      actionBtn.textContent = "Equipped";
+      actionBtn.disabled = true;
+    } else if (skin.owned) {
+      actionBtn.textContent = "Equip";
+      actionBtn.disabled = false;
+    } else if (skin.price && skin.price > 0 && coins < skin.price) {
+      actionBtn.textContent = "Not enough Coins";
+      actionBtn.disabled = true;
+    } else {
+      actionBtn.textContent =
+        skin.price && skin.price > 0
+          ? `Buy for ${skin.price}`
+          : "Unlock";
+      actionBtn.disabled = false;
+    }
+  }
+
+  updateButtonState();
+
+  actionBtn.addEventListener("click", async () => {
+    if (!currentUser) {
+      applyLoggedOutState();
+      return;
+    }
+    if (skin.owned && !skin.equipped) {
+      await equipSkin(skin.key);
+    } else if (!skin.owned) {
+      await purchaseSkin(skin.key);
+    }
+  });
+
+  footer.appendChild(actionBtn);
+  card.appendChild(footer);
+
+  return card;
+}
+
+async function purchaseSkin(skinKey) {
+  setShopStatus("Purchasing skin...");
+  try {
+    const res = await fetch("/api/shop/purchase", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ skinKey }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setShopStatus(data.error || "Purchase failed.");
+      return;
+    }
+    if (data.user && data.user.currencies && typeof data.user.currencies.Coins === "number") {
+      currentUser = {
+        ...(currentUser || {}),
+        currencies: data.user.currencies,
+      };
+      setCoinsValue(data.user.currencies.Coins);
+    }
+    // Refresh shop state
+    await openShop();
+    setShopStatus("Skin purchased.");
+  } catch (err) {
+    console.error("Purchase failed:", err);
+    setShopStatus("Unable to reach server. Try again.");
+  }
+}
+
+async function equipSkin(skinKey) {
+  setShopStatus("Equipping skin...");
+  try {
+    const res = await fetch("/api/shop/equip", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ skinKey }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setShopStatus(data.error || "Equip failed.");
+      return;
+    }
+    if (data.user) {
+      // Keep currentUser in sync on skins + currencies
+      currentUser = {
+        ...(currentUser || {}),
+        currencies: data.user.currencies || (currentUser && currentUser.currencies) || {},
+        skins: data.user.skins || (currentUser && currentUser.skins) || {},
+        username: data.user.username || (currentUser && currentUser.username),
+        id: data.user.id || (currentUser && currentUser.id),
+      };
+      if (data.user.currencies && typeof data.user.currencies.Coins === "number") {
+        setCoinsValue(data.user.currencies.Coins);
+      }
+    }
+    // Refresh shop UI to reflect equipped state
+    await openShop();
+    setShopStatus("Skin equipped.");
+  } catch (err) {
+    console.error("Equip failed:", err);
+    setShopStatus("Unable to reach server. Try again.");
+  }
 }
 
 // Start game

@@ -136,6 +136,8 @@ body {
     padding: 16px 10px 10px;
     display: flex;
     position: relative;
+    min-height: 0;
+    overflow-y: auto;
 }
 
 .screen {
@@ -318,6 +320,213 @@ button:disabled,
     color: var(--text-muted);
 }
 
+/* Shop */
+
+#shop-screen {
+    align-items: stretch;
+    justify-content: flex-start;
+    text-align: left;
+    height: 100%;
+}
+
+.shop-shell {
+    width: 100%;
+    height: 100%;
+    max-width: 1040px;
+    margin: 0 auto;
+    padding: 16px 8px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
+}
+
+.shop-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.shop-title {
+    margin: 0 0 4px;
+    font-size: 26px;
+}
+
+.shop-status {
+    min-height: 18px;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.shop-content {
+    padding-right: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.shop-weapon-section {
+    background: var(--bg-elevated-soft);
+    border-radius: var(--radius-md);
+    padding: 12px 12px 12px;
+    border: 1px solid var(--border-subtle);
+}
+
+.shop-weapon-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.shop-weapon-title {
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.shop-weapon-subtitle {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.shop-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+}
+
+.shop-card {
+    background: #ffffff;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(148, 163, 184, 0.5);
+    padding: 8px 10px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.shop-weapon-header-main {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.shop-weapon-toggle {
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.7);
+    background: #f9fafb;
+    color: var(--text-muted);
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    padding: 0;
+}
+
+.shop-weapon-toggle:hover {
+    background: #e5e7eb;
+    border-color: rgba(148, 163, 184, 1);
+}
+
+.shop-weapon-body {
+    margin-top: 8px;
+}
+
+.shop-weapon-body.collapsed {
+    display: none;
+}
+
+.shop-card-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.shop-card-title {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.shop-card-pill {
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    border: 1px solid rgba(37, 99, 235, 0.45);
+}
+
+.shop-card-description {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.shop-card-preview {
+    margin-top: 4px;
+    margin-bottom: 4px;
+    background: #f9fafb;
+    border-radius: 9px;
+    padding: 4px 6px;
+    border: 1px solid rgba(148, 163, 184, 0.7);
+}
+
+.shop-card-preview canvas {
+    width: 100%;
+    height: 54px;
+    display: block;
+}
+
+.shop-card-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 2px;
+}
+
+.shop-price {
+    font-size: 13px;
+    font-weight: 600;
+    color: #92400e;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.shop-price .coin-icon {
+    box-shadow: none;
+}
+
+.shop-card.badge-owned .shop-price {
+    color: var(--text-muted);
+}
+
+.shop-card.badge-owned .shop-price-label {
+    font-weight: 500;
+}
+
+.shop-card.badge-equipped {
+    border-color: var(--accent-strong);
+    box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.22);
+}
+
+.shop-card.badge-equipped .shop-card-pill {
+    background: #dcfce7;
+    color: #166534;
+    border-color: rgba(22, 101, 52, 0.8);
+}
+
+.shop-card .btn {
+    white-space: nowrap;
+}
+
 #game-message {
     font-size: 15px;
     font-weight: 500;
@@ -464,6 +673,14 @@ button:disabled,
     box-shadow:
         0 0 0 1px rgba(253, 224, 71, 0.6),
         0 0 18px rgba(251, 191, 36, 0.25);
+}
+
+.coins-indicator:not(.coins-indicator-disabled) {
+    cursor: pointer;
+}
+
+.coins-indicator.coins-indicator-disabled {
+    opacity: 0.75;
 }
 
 .coin-icon {

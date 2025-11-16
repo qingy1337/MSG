@@ -85,6 +85,22 @@
                 <button id="start-btn" class="btn btn-accent" disabled>Start Game (Need at least 2 players)</button>
             </div>
 
+            <div id="shop-screen" class="screen hidden">
+                <div class="shop-shell">
+                    <div class="shop-header-row">
+                        <div>
+                            <h1 class="shop-title">Armory</h1>
+                            <p class="screen-subtitle">
+                                Spend Coins on weapon skins. Equip them per weapon and they’ll follow you into matches.
+                            </p>
+                        </div>
+                        <button id="shop-back-btn" class="btn btn-ghost">Back</button>
+                    </div>
+                    <div id="shop-status" class="shop-status"></div>
+                    <div id="shop-content" class="shop-content"></div>
+                </div>
+            </div>
+
             <div id="game-screen" class="screen hidden">
                 <div class="game-shell">
                     <canvas id="game-canvas" width="900" height="600"></canvas>
@@ -99,6 +115,8 @@
 
     <script src="/socket.io/socket.io.js"></script>
     <script src="weapons.js"></script>
+    <script src="skins.js"></script>
+    <script src="skinRendering.js"></script>
     <script src="waiting.js"></script>
     <script src="game.js"></script>
 </body>

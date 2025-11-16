@@ -4,6 +4,7 @@ const socketIO = require("socket.io");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
+const { WEAPON_SKINS } = require("./public/skins");
 
 const app = express();
 const server = http.createServer(app);
@@ -25,6 +26,68 @@ if (!fs.existsSync(DATA_DIR)) {
 const usersByUsername = new Map();
 let nextUserId = 1;
 
+// --- Skins helpers (shared with client via public/skins.js) ---
+
+const ALL_SKINS_BY_KEY = {};
+const DEFAULT_SKIN_BY_WEAPON = {};
+
+if (WEAPON_SKINS && typeof WEAPON_SKINS === "object") {
+  for (const weaponKey of Object.keys(WEAPON_SKINS)) {
+    const list = WEAPON_SKINS[weaponKey] || [];
+    let defaultForWeapon = null;
+    for (const skin of list) {
+      if (!skin || !skin.key) continue;
+      ALL_SKINS_BY_KEY[skin.key] = skin;
+      if (!defaultForWeapon && skin.isDefault) {
+        defaultForWeapon = skin;
+      }
+    }
+    if (!defaultForWeapon && list.length > 0) {
+      defaultForWeapon = list[0];
+    }
+    if (defaultForWeapon && defaultForWeapon.key) {
+      DEFAULT_SKIN_BY_WEAPON[weaponKey] = defaultForWeapon.key;
+    }
+  }
+}
+
+function ensureUserCurrencies(user) {
+  if (!user.currencies || typeof user.currencies !== "object") {
+    user.currencies = {};
+  }
+  if (typeof user.currencies.Coins !== "number") {
+    user.currencies.Coins = 0;
+  }
+}
+
+function ensureUserSkins(user) {
+  if (!user) return;
+  if (!user.skins || typeof user.skins !== "object") {
+    user.skins = {};
+  }
+  if (!Array.isArray(user.skins.owned)) {
+    user.skins.owned = [];
+  }
+  if (
+    !user.skins.equippedByWeapon ||
+    typeof user.skins.equippedByWeapon !== "object"
+  ) {
+    user.skins.equippedByWeapon = {};
+  }
+
+  // Guarantee that each weapon has its default skin owned and equipped.
+  Object.keys(DEFAULT_SKIN_BY_WEAPON).forEach((weaponKey) => {
+    const defaultSkinKey = DEFAULT_SKIN_BY_WEAPON[weaponKey];
+    if (!defaultSkinKey) return;
+    if (!user.skins.owned.includes(defaultSkinKey)) {
+      user.skins.owned.push(defaultSkinKey);
+    }
+    if (!user.skins.equippedByWeapon[weaponKey]) {
+      user.skins.equippedByWeapon[weaponKey] = defaultSkinKey;
+    }
+  });
+}
+
 function loadUsers() {
   if (!fs.existsSync(USERS_FILE)) return;
   try {
@@ -34,6 +97,8 @@ function loadUsers() {
     if (Array.isArray(data)) {
       data.forEach((u) => {
         if (!u || !u.username) return;
+        ensureUserCurrencies(u);
+        ensureUserSkins(u);
         usersByUsername.set(u.username, u);
         if (typeof u.id === "number" && u.id >= nextUserId) {
           nextUserId = u.id + 1;
@@ -154,10 +219,19 @@ function getUserFromRequest(req) {
 
 function publicUser(user) {
   if (!user) return null;
+  ensureUserCurrencies(user);
+  ensureUserSkins(user);
   return {
     id: user.id,
     username: user.username,
     currencies: user.currencies || {},
+    skins: {
+      owned: Array.isArray(user.skins && user.skins.owned)
+        ? user.skins.owned.slice()
+        : [],
+      equippedByWeapon:
+        (user.skins && user.skins.equippedByWeapon) || {},
+    },
   };
 }
 
@@ -191,7 +265,13 @@ app.post("/api/register", (req, res) => {
     currencies: {
       Coins: 0,
     },
+    skins: {
+      owned: [],
+      equippedByWeapon: {},
+    },
   };
+  ensureUserCurrencies(user);
+  ensureUserSkins(user);
   usersByUsername.set(cleanUsername, user);
   saveUsers();
 
@@ -241,6 +321,169 @@ app.get("/api/me", (req, res) => {
   res.json(publicUser(user));
 });
 
+function requireUser(req, res) {
+  const user = getUserFromRequest(req);
+  if (!user) {
+    res.status(401).json({ error: "Not authenticated." });
+    return null;
+  }
+  ensureUserCurrencies(user);
+  ensureUserSkins(user);
+  return user;
+}
+
+// --- Shop routes ---
+
+app.get("/api/shop/skins", (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+
+  const responseSkins = [];
+  Object.keys(WEAPON_SKINS || {}).forEach((weaponKey) => {
+    const list = WEAPON_SKINS[weaponKey] || [];
+    list.forEach((skin) => {
+      if (!skin || !skin.key) return;
+      const owned =
+        Array.isArray(user.skins.owned) &&
+        user.skins.owned.includes(skin.key);
+      const equipped =
+        user.skins.equippedByWeapon[weaponKey] === skin.key;
+      responseSkins.push({
+        key: skin.key,
+        weaponKey,
+        name: skin.name,
+        description: skin.description,
+        price: typeof skin.price === "number" ? skin.price : 0,
+        isDefault: !!skin.isDefault,
+        owned,
+        equipped,
+      });
+    });
+  });
+
+  res.json({
+    skins: responseSkins,
+    currencies: user.currencies || {},
+  });
+});
+
+app.post("/api/shop/purchase", (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+
+  const { skinKey } = req.body || {};
+  if (!skinKey || typeof skinKey !== "string") {
+    return res
+      .status(400)
+      .json({ error: "skinKey is required." });
+  }
+  const skin = ALL_SKINS_BY_KEY[skinKey];
+  if (!skin) {
+    return res.status(404).json({ error: "Skin not found." });
+  }
+
+  ensureUserSkins(user);
+  ensureUserCurrencies(user);
+
+  if (
+    Array.isArray(user.skins.owned) &&
+    user.skins.owned.includes(skinKey)
+  ) {
+    return res.json({
+      ok: true,
+      alreadyOwned: true,
+      user: publicUser(user),
+    });
+  }
+
+  const price =
+    typeof skin.price === "number" && skin.price > 0
+      ? skin.price
+      : 0;
+  if (price > 0) {
+    const currentCoins =
+      typeof user.currencies.Coins === "number"
+        ? user.currencies.Coins
+        : 0;
+    if (currentCoins < price) {
+      return res
+        .status(400)
+        .json({ error: "Not enough Coins." });
+    }
+    user.currencies.Coins = currentCoins - price;
+  }
+
+  if (!Array.isArray(user.skins.owned)) {
+    user.skins.owned = [];
+  }
+  user.skins.owned.push(skinKey);
+  saveUsers();
+
+  res.json({
+    ok: true,
+    skinKey,
+    user: publicUser(user),
+  });
+});
+
+app.post("/api/shop/equip", (req, res) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+
+  const { skinKey } = req.body || {};
+  if (!skinKey || typeof skinKey !== "string") {
+    return res
+      .status(400)
+      .json({ error: "skinKey is required." });
+  }
+  const skin = ALL_SKINS_BY_KEY[skinKey];
+  if (!skin || !skin.weaponKey) {
+    return res.status(404).json({ error: "Skin not found." });
+  }
+
+  ensureUserSkins(user);
+
+  if (
+    !Array.isArray(user.skins.owned) ||
+    !user.skins.owned.includes(skinKey)
+  ) {
+    return res
+      .status(400)
+      .json({ error: "You do not own this skin." });
+  }
+
+  const weaponKey = skin.weaponKey;
+  if (
+    !user.skins.equippedByWeapon ||
+    typeof user.skins.equippedByWeapon !== "object"
+  ) {
+    user.skins.equippedByWeapon = {};
+  }
+  user.skins.equippedByWeapon[weaponKey] = skinKey;
+
+  // If this player is currently active in a match, update their weaponSkinKey.
+  activePlayers.forEach((p) => {
+    if (
+      p &&
+      p.accountUsername === user.username &&
+      p.weapon === weaponKey
+    ) {
+      p.weaponSkinKey = skinKey;
+    }
+  });
+  if (activePlayers.length > 0) {
+    io.emit("gameState", activePlayers);
+  }
+
+  saveUsers();
+  res.json({
+    ok: true,
+    skinKey,
+    weaponKey,
+    user: publicUser(user),
+  });
+});
+
 // Game state
 const waitingPlayers = [];
 const activePlayers = [];
@@ -276,6 +519,8 @@ io.on("connection", (socket) => {
   const user = getUserFromCookieHeader(cookieHeader);
   if (user) {
     socket.user = user;
+    ensureUserCurrencies(socket.user);
+    ensureUserSkins(socket.user);
   }
 
   console.log(
@@ -326,6 +571,13 @@ io.on("connection", (socket) => {
       accountUsername: socket.user.username,
       color: playerColor,
       weapon,
+      weaponSkinKey:
+        (socket.user &&
+          socket.user.skins &&
+          socket.user.skins.equippedByWeapon &&
+          socket.user.skins.equippedByWeapon[weapon]) ||
+        DEFAULT_SKIN_BY_WEAPON[weapon] ||
+        null,
     };
 
     waitingPlayers.push(player);
@@ -436,21 +688,33 @@ io.on("connection", (socket) => {
       if (shooterId) {
         const shooter = activePlayers.find((p) => p.id === shooterId);
         if (shooter && shooter.accountUsername) {
-          const accountUser = usersByUsername.get(shooter.accountUsername);
-          if (accountUser) {
-            if (!accountUser.currencies || typeof accountUser.currencies !== "object") {
-              accountUser.currencies = {};
-            }
-            const currentCoins =
-              typeof accountUser.currencies.Coins === "number"
-                ? accountUser.currencies.Coins
-                : 0;
-            const newCoins = currentCoins + 5;
-            accountUser.currencies.Coins = newCoins;
-            saveUsers();
+          const shooterUsername = shooter.accountUsername;
+          const targetUsername = target && target.accountUsername;
+          // Prevent farming coins by eliminating a player tied to the same account
+          const sameAccountKill =
+            typeof targetUsername === "string" && shooterUsername === targetUsername;
 
-            // Notify the shooter so their UI can update immediately
-            io.to(shooterId).emit("coinsUpdated", { coins: newCoins });
+          if (!sameAccountKill) {
+            const accountUser = usersByUsername.get(shooterUsername);
+            if (accountUser) {
+              if (!accountUser.currencies || typeof accountUser.currencies !== "object") {
+                accountUser.currencies = {};
+              }
+              const currentCoins =
+                typeof accountUser.currencies.Coins === "number"
+                  ? accountUser.currencies.Coins
+                  : 0;
+              const newCoins = currentCoins + 5;
+              accountUser.currencies.Coins = newCoins;
+              saveUsers();
+
+              // Notify the shooter so their UI can update immediately
+              io.to(shooterId).emit("coinsUpdated", { coins: newCoins });
+            }
+          } else {
+            console.log(
+              `Skipping coin reward: ${shooterUsername} eliminated same-account player.`,
+            );
           }
         }
       }
