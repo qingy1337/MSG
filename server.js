@@ -2,12 +2,244 @@ const express = require("express");
 const http = require("http");
 const socketIO = require("socket.io");
 const path = require("path");
+const fs = require("fs");
+const crypto = require("crypto");
 
 const app = express();
 const server = http.createServer(app);
 const io = socketIO(server);
 
+app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
+
+// --- Simple persistent user store + auth ---
+
+const DATA_DIR = path.join(__dirname, "data");
+const USERS_FILE = path.join(DATA_DIR, "users.json");
+const AUTH_SECRET = process.env.AUTH_SECRET || "change-me-dev-secret";
+
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+const usersByUsername = new Map();
+let nextUserId = 1;
+
+function loadUsers() {
+  if (!fs.existsSync(USERS_FILE)) return;
+  try {
+    const raw = fs.readFileSync(USERS_FILE, "utf8");
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (Array.isArray(data)) {
+      data.forEach((u) => {
+        if (!u || !u.username) return;
+        usersByUsername.set(u.username, u);
+        if (typeof u.id === "number" && u.id >= nextUserId) {
+          nextUserId = u.id + 1;
+        }
+      });
+    }
+  } catch (err) {
+    console.error("Failed to load users:", err);
+  }
+}
+
+function saveUsers() {
+  const arr = Array.from(usersByUsername.values());
+  try {
+    fs.writeFileSync(USERS_FILE, JSON.stringify(arr, null, 2), "utf8");
+  } catch (err) {
+    console.error("Failed to save users:", err);
+  }
+}
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const iterations = 120000;
+  const keylen = 32;
+  const digest = "sha256";
+  const hash = crypto
+    .pbkdf2Sync(password, salt, iterations, keylen, digest)
+    .toString("hex");
+  return `${iterations}:${salt}:${hash}`;
+}
+
+function verifyPassword(password, stored) {
+  if (!stored || typeof stored !== "string") return false;
+  const parts = stored.split(":");
+  if (parts.length !== 3) return false;
+  const [iterationsStr, salt, hashHex] = parts;
+  const iterations = parseInt(iterationsStr, 10);
+  if (!iterations || !salt || !hashHex) return false;
+  const keylen = Buffer.from(hashHex, "hex").length;
+  const digest = "sha256";
+  const derived = crypto.pbkdf2Sync(
+    password,
+    salt,
+    iterations,
+    keylen,
+    digest,
+  );
+  const expected = Buffer.from(hashHex, "hex");
+  if (expected.length !== derived.length) return false;
+  return crypto.timingSafeEqual(expected, derived);
+}
+
+function signAuthToken(payload) {
+  const data = Buffer.from(JSON.stringify(payload)).toString("base64");
+  const sig = crypto
+    .createHmac("sha256", AUTH_SECRET)
+    .update(data)
+    .digest("base64");
+  return `${data}.${sig}`;
+}
+
+function verifyAuthToken(token) {
+  if (!token || typeof token !== "string") return null;
+  const parts = token.split(".");
+  if (parts.length !== 2) return null;
+  const [data, sig] = parts;
+  let expectedSig;
+  try {
+    expectedSig = crypto
+      .createHmac("sha256", AUTH_SECRET)
+      .update(data)
+      .digest("base64");
+  } catch (err) {
+    return null;
+  }
+  const bufSig = Buffer.from(sig);
+  const bufExpected = Buffer.from(expectedSig);
+  if (bufSig.length !== bufExpected.length) return null;
+  if (!crypto.timingSafeEqual(bufSig, bufExpected)) return null;
+  try {
+    const json = Buffer.from(data, "base64").toString("utf8");
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
+function parseCookies(header) {
+  const out = {};
+  if (!header) return out;
+  const parts = header.split(";");
+  for (const part of parts) {
+    const [k, v] = part.split("=");
+    if (!k) continue;
+    const key = k.trim();
+    const value = (v || "").trim();
+    if (!key) continue;
+    out[key] = decodeURIComponent(value);
+  }
+  return out;
+}
+
+function getUserFromCookieHeader(cookieHeader) {
+  if (!cookieHeader) return null;
+  const cookies = parseCookies(cookieHeader);
+  const token = cookies.auth_token;
+  if (!token) return null;
+  const payload = verifyAuthToken(token);
+  if (!payload || !payload.username) return null;
+  const user = usersByUsername.get(payload.username);
+  if (!user) return null;
+  return user;
+}
+
+function getUserFromRequest(req) {
+  return getUserFromCookieHeader(req.headers.cookie || "");
+}
+
+function publicUser(user) {
+  if (!user) return null;
+  return {
+    id: user.id,
+    username: user.username,
+    currencies: user.currencies || {},
+  };
+}
+
+loadUsers();
+
+// --- Auth routes ---
+
+app.post("/api/register", (req, res) => {
+  const { username, password } = req.body || {};
+  const cleanUsername =
+    typeof username === "string" ? username.trim().toLowerCase() : "";
+  if (!cleanUsername || cleanUsername.length < 3 || cleanUsername.length > 24) {
+    return res
+      .status(400)
+      .json({ error: "Username must be 3-24 characters long." });
+  }
+  if (typeof password !== "string" || password.length < 4) {
+    return res
+      .status(400)
+      .json({ error: "Password must be at least 4 characters." });
+  }
+  if (usersByUsername.has(cleanUsername)) {
+    return res.status(409).json({ error: "Username is already taken." });
+  }
+
+  const user = {
+    id: nextUserId++,
+    username: cleanUsername,
+    passwordHash: hashPassword(password),
+    // Currency store is extensible; start with Coins for this task.
+    currencies: {
+      Coins: 0,
+    },
+  };
+  usersByUsername.set(cleanUsername, user);
+  saveUsers();
+
+  const token = signAuthToken({ username: user.username });
+  res
+    .cookie("auth_token", token, {
+      httpOnly: true,
+      sameSite: "lax",
+      maxAge: 1000 * 60 * 60 * 24 * 365, // ~1 year
+    })
+    .json(publicUser(user));
+});
+
+app.post("/api/login", (req, res) => {
+  const { username, password } = req.body || {};
+  const cleanUsername =
+    typeof username === "string" ? username.trim().toLowerCase() : "";
+  if (!cleanUsername || typeof password !== "string") {
+    return res.status(400).json({ error: "Username and password required." });
+  }
+  const user = usersByUsername.get(cleanUsername);
+  if (!user || !verifyPassword(password, user.passwordHash)) {
+    return res.status(401).json({ error: "Invalid username or password." });
+  }
+  const token = signAuthToken({ username: user.username });
+  res
+    .cookie("auth_token", token, {
+      httpOnly: true,
+      sameSite: "lax",
+      maxAge: 1000 * 60 * 60 * 24 * 365,
+    })
+    .json(publicUser(user));
+});
+
+app.post("/api/logout", (req, res) => {
+  res
+    .clearCookie("auth_token", {
+      httpOnly: true,
+      sameSite: "lax",
+    })
+    .json({ ok: true });
+});
+
+app.get("/api/me", (req, res) => {
+  const user = getUserFromRequest(req);
+  if (!user) return res.status(401).json({ error: "Not authenticated." });
+  res.json(publicUser(user));
+});
 
 // Game state
 const waitingPlayers = [];
@@ -37,18 +269,42 @@ const WEAPON_DAMAGE = {
 };
 
 io.on("connection", (socket) => {
-  console.log("New connection:", socket.id);
+  const cookieHeader =
+    (socket.handshake && socket.handshake.headers && socket.handshake.headers.cookie) ||
+    (socket.request && socket.request.headers && socket.request.headers.cookie) ||
+    "";
+  const user = getUserFromCookieHeader(cookieHeader);
+  if (user) {
+    socket.user = user;
+  }
+
+  console.log(
+    "New connection:",
+    socket.id,
+    socket.user ? `as ${socket.user.username}` : "(unauthenticated)",
+  );
 
   // Player joins waiting room
   socket.on("join", (payload) => {
+    if (!socket.user) {
+      socket.emit("authError", {
+        message: "You must be logged in to join the game.",
+      });
+      return;
+    }
+
     const playerColor = colors[Math.floor(Math.random() * colors.length)];
-    let playerName = '';
+    let displayName = "";
     let weapon = 'pistol';
 
     if (typeof payload === 'string') {
-      playerName = payload;
+      // Backwards compatibility if older client sends plain string
+      displayName = payload;
     } else if (payload && typeof payload === 'object') {
-      playerName = String(payload.name || '');
+      // Support both legacy "name" and new "displayName" field
+      displayName = String(
+        payload.displayName || payload.name || '',
+      );
       if (typeof payload.weapon === 'string') {
         const key = payload.weapon;
         // Allow-listed weapons for now (keep extensible by adding here)
@@ -57,11 +313,17 @@ io.on("connection", (socket) => {
       }
     }
 
-    playerName = playerName.substring(0, 10);
+    displayName = displayName.substring(0, 16);
+    if (!displayName) {
+      displayName = socket.user.username;
+    }
 
     const player = {
       id: socket.id,
-      name: playerName,
+      // Keep name for rendering, but do not treat it as account username.
+      name: displayName,
+      displayName,
+      accountUsername: socket.user.username,
       color: playerColor,
       weapon,
     };
@@ -70,7 +332,9 @@ io.on("connection", (socket) => {
     socket.join("waiting");
 
     io.to("waiting").emit("updateWaitingList", waitingPlayers);
-    console.log(`${playerName} joined the waiting room with ${weapon}`);
+    console.log(
+      `${socket.user.username} joined the waiting room as "${displayName}" with ${weapon}`,
+    );
   });
 
   // Start game

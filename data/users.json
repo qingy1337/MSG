@@ -1,0 +1,18 @@
+[
+  {
+    "id": 1,
+    "username": "qing",
+    "passwordHash": "120000:527376a4c7facb358546550205746662:8803cf5b1c16b4a2f9a8f8be0478fa4bec09c8104df42842cc397818c661e2ff",
+    "currencies": {
+      "Coins": 0
+    }
+  },
+  {
+    "id": 2,
+    "username": "ggg",
+    "passwordHash": "120000:a49be03d05b22fc1548a7f81c13c9932:055e6938a50d6f05905763f50149b26e797ba7ea1bae352c4a8481f5699fd325",
+    "currencies": {
+      "Coins": 0
+    }
+  }
+]

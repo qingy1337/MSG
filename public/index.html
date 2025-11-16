@@ -7,37 +7,94 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div id="login-screen" class="screen">
-        <h1>Multiplayer Shooting Game</h1>
-        <div class="form-group">
-            <input type="text" id="name-input" placeholder="Enter your name">
-            <button id="join-btn">Join</button>
-        </div>
-    </div>
+    <div class="app-shell">
+        <header class="app-header">
+            <div class="header-left">
+                <div class="brand-copy">
+                    <div class="brand-title">Multiplayer Shooting Game</div>
+                    <div class="brand-subtitle">Fast rounds, tighter corridors.</div>
+                </div>
+            </div>
+            <div class="header-center">
+                <div id="coins-indicator" class="coins-indicator hidden">
+                    <span class="coin-icon"></span>
+                    <span id="coins-value">0</span>
+                </div>
+            </div>
+            <div class="header-right">
+                <div id="user-info" class="user-info hidden">
+                    <span id="user-username" class="user-name"></span>
+                    <button id="logout-btn" class="btn btn-ghost btn-xs">Log out</button>
+                </div>
+            </div>
+        </header>
 
-    <div id="weapon-screen" class="screen hidden">
-        <h1>Choose Your Weapon</h1>
-        <div id="weapon-options" class="weapon-options"></div>
-        <div class="form-group">
-            <button id="weapon-confirm-btn">Confirm</button>
-        </div>
-    </div>
+        <main class="app-main">
+            <!-- Auth overlay -->
+            <div id="auth-overlay" class="auth-overlay">
+                <div class="auth-card">
+                    <h2 class="auth-title">Sign in to play</h2>
+                    <p class="auth-subtitle">
+                        Your account keeps things like Coins and preferences tied to you.
+                    </p>
+                    <div class="auth-tabs">
+                        <button id="tab-login" class="auth-tab active">Log in</button>
+                        <button id="tab-register" class="auth-tab">Create account</button>
+                    </div>
+                    <form id="login-form" class="auth-form">
+                        <input id="login-username" class="auth-input" type="text" autocomplete="username" placeholder="Username">
+                        <input id="login-password" class="auth-input" type="password" autocomplete="current-password" placeholder="Password">
+                        <button type="submit" class="btn btn-primary full-width">Log in</button>
+                    </form>
+                    <form id="register-form" class="auth-form hidden">
+                        <input id="register-username" class="auth-input" type="text" autocomplete="username" placeholder="Username (3–24 chars)">
+                        <input id="register-password" class="auth-input" type="password" autocomplete="new-password" placeholder="Password (min 4 chars)">
+                        <button type="submit" class="btn btn-primary full-width">Create account</button>
+                    </form>
+                    <div id="auth-error" class="auth-error hidden"></div>
+                </div>
+            </div>
 
-    <div id="waiting-screen" class="screen hidden">
-        <h1>Waiting Room</h1>
-        <div class="player-list-container">
-            <h2>Players:</h2>
-            <ul id="waiting-players"></ul>
-        </div>
-        <button id="start-btn" disabled>Start Game (Need at least 2 players)</button>
-    </div>
+            <!-- Lobby / display name screen -->
+            <div id="login-screen" class="screen">
+                <h1>Lobby</h1>
+                <p class="screen-subtitle">
+                    Choose how you’ll appear in this match. This can be different from your account name.
+                </p>
+                <div class="form-group">
+                    <input type="text" id="name-input" placeholder="Display Name">
+                    <button id="join-btn" class="btn btn-primary">Join lobby</button>
+                </div>
+            </div>
 
-    <div id="game-screen" class="screen hidden">
-        <canvas id="game-canvas" width="900" height="600"></canvas>
-        <div id="game-info">
-            <div id="players-alive"></div>
-            <div id="game-message"></div>
-        </div>
+            <div id="weapon-screen" class="screen hidden">
+                <h1>Choose Your Weapon</h1>
+                <!--<p class="screen-subtitle">Each weapon trades damage, speed, and control. Pick your style.</p>-->
+                <div id="weapon-options" class="weapon-options"></div>
+                <div class="form-group">
+                    <button id="weapon-confirm-btn" class="btn btn-primary">Lock in</button>
+                </div>
+            </div>
+
+            <div id="waiting-screen" class="screen hidden">
+                <h1>Waiting Room</h1>
+                <div class="player-list-container">
+                    <h2>Players</h2>
+                    <ul id="waiting-players"></ul>
+                </div>
+                <button id="start-btn" class="btn btn-accent" disabled>Start Game (Need at least 2 players)</button>
+            </div>
+
+            <div id="game-screen" class="screen hidden">
+                <div class="game-shell">
+                    <canvas id="game-canvas" width="900" height="600"></canvas>
+                    <div id="game-info">
+                        <div id="players-alive"></div>
+                        <div id="game-message"></div>
+                    </div>
+                </div>
+            </div>
+        </main>
     </div>
 
     <script src="/socket.io/socket.io.js"></script>

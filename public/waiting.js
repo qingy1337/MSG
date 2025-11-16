@@ -1,10 +1,12 @@
-const socket = io();
+const socket = io({ autoConnect: false });
 
-// DOM elements
+// DOM elements - screens
 const loginScreen = document.getElementById("login-screen");
 const weaponScreen = document.getElementById("weapon-screen");
 const waitingScreen = document.getElementById("waiting-screen");
 const gameScreen = document.getElementById("game-screen");
+
+// DOM elements - lobby
 const nameInput = document.getElementById("name-input");
 const joinBtn = document.getElementById("join-btn");
 const startBtn = document.getElementById("start-btn");
@@ -12,22 +14,238 @@ const waitingPlayersList = document.getElementById("waiting-players");
 const weaponOptionsEl = document.getElementById("weapon-options");
 const weaponConfirmBtn = document.getElementById("weapon-confirm-btn");
 
+// DOM elements - auth + header
+const authOverlay = document.getElementById("auth-overlay");
+const loginForm = document.getElementById("login-form");
+const registerForm = document.getElementById("register-form");
+const loginUsernameInput = document.getElementById("login-username");
+const loginPasswordInput = document.getElementById("login-password");
+const registerUsernameInput = document.getElementById("register-username");
+const registerPasswordInput = document.getElementById("register-password");
+const loginTabBtn = document.getElementById("tab-login");
+const registerTabBtn = document.getElementById("tab-register");
+const authErrorEl = document.getElementById("auth-error");
+const userInfoEl = document.getElementById("user-info");
+const userUsernameEl = document.getElementById("user-username");
+const logoutBtn = document.getElementById("logout-btn");
+const coinsIndicatorEl = document.getElementById("coins-indicator");
+const coinsValueEl = document.getElementById("coins-value");
+
 // Player data
-let playerName = "";
+let displayName = "";
 let selectedWeaponKey = (typeof DEFAULT_WEAPON_KEY !== 'undefined' ? DEFAULT_WEAPON_KEY : 'pistol');
+let currentUser = null;
+
+// --- Auth helpers ---
+
+function setAuthError(message) {
+  if (!authErrorEl) return;
+  if (!message) {
+    authErrorEl.textContent = "";
+    authErrorEl.classList.add("hidden");
+  } else {
+    authErrorEl.textContent = message;
+    authErrorEl.classList.remove("hidden");
+  }
+}
+
+function applyAuthenticatedState(user) {
+  currentUser = user;
+  if (userUsernameEl) {
+    userUsernameEl.textContent = user.username;
+  }
+  if (userInfoEl) {
+    userInfoEl.classList.remove("hidden");
+  }
+  const coins =
+    user &&
+    user.currencies &&
+    typeof user.currencies.Coins === "number"
+      ? user.currencies.Coins
+      : 0;
+  if (coinsValueEl) {
+    coinsValueEl.textContent = coins;
+  }
+  if (coinsIndicatorEl) {
+    coinsIndicatorEl.classList.remove("hidden");
+  }
+  if (authOverlay) {
+    authOverlay.classList.add("hidden");
+  }
+  setAuthError("");
+  if (!socket.connected) {
+    socket.connect();
+  }
+}
+
+function applyLoggedOutState() {
+  currentUser = null;
+  if (userInfoEl) {
+    userInfoEl.classList.add("hidden");
+  }
+  if (coinsIndicatorEl) {
+    coinsIndicatorEl.classList.add("hidden");
+  }
+  if (authOverlay) {
+    authOverlay.classList.remove("hidden");
+  }
+  setAuthError("");
+  if (socket.connected) {
+    socket.disconnect();
+  }
+}
+
+async function bootstrapAuth() {
+  try {
+    const res = await fetch("/api/me", {
+      credentials: "include",
+    });
+    if (!res.ok) {
+      applyLoggedOutState();
+      return;
+    }
+    const data = await res.json();
+    applyAuthenticatedState(data);
+  } catch (err) {
+    console.error("Failed to bootstrap auth:", err);
+    applyLoggedOutState();
+  }
+}
+
+async function handleLoginSubmit(event) {
+  event.preventDefault();
+  const username = loginUsernameInput.value.trim();
+  const password = loginPasswordInput.value;
+  if (!username || !password) {
+    setAuthError("Username and password are required.");
+    return;
+  }
+  try {
+    const res = await fetch("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ username, password }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setAuthError(body.error || "Login failed.");
+      return;
+    }
+    const data = await res.json();
+    applyAuthenticatedState(data);
+  } catch (err) {
+    console.error("Login failed:", err);
+    setAuthError("Unable to reach server. Try again.");
+  }
+}
+
+async function handleRegisterSubmit(event) {
+  event.preventDefault();
+  const username = registerUsernameInput.value.trim();
+  const password = registerPasswordInput.value;
+  if (!username || !password) {
+    setAuthError("Username and password are required.");
+    return;
+  }
+  try {
+    const res = await fetch("/api/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ username, password }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setAuthError(body.error || "Registration failed.");
+      return;
+    }
+    const data = await res.json();
+    applyAuthenticatedState(data);
+  } catch (err) {
+    console.error("Register failed:", err);
+    setAuthError("Unable to reach server. Try again.");
+  }
+}
+
+async function handleLogoutClick() {
+  try {
+    await fetch("/api/logout", {
+      method: "POST",
+      credentials: "include",
+    });
+  } catch (err) {
+    console.error("Logout request failed:", err);
+  } finally {
+    applyLoggedOutState();
+  }
+}
+
+function showLoginTab() {
+  if (!loginForm || !registerForm) return;
+  loginForm.classList.remove("hidden");
+  registerForm.classList.add("hidden");
+  if (loginTabBtn) loginTabBtn.classList.add("active");
+  if (registerTabBtn) registerTabBtn.classList.remove("active");
+  setAuthError("");
+}
+
+function showRegisterTab() {
+  if (!loginForm || !registerForm) return;
+  loginForm.classList.add("hidden");
+  registerForm.classList.remove("hidden");
+  if (loginTabBtn) loginTabBtn.classList.remove("active");
+  if (registerTabBtn) registerTabBtn.classList.add("active");
+  setAuthError("");
+}
 
 // Event listeners
-joinBtn.addEventListener("click", goToWeaponSelection);
-startBtn.addEventListener("click", startGame);
-nameInput.addEventListener("keypress", (e) => {
-  if (e.key === "Enter") goToWeaponSelection();
+if (joinBtn) {
+  joinBtn.addEventListener("click", goToWeaponSelection);
+}
+if (startBtn) {
+  startBtn.addEventListener("click", startGame);
+}
+if (nameInput) {
+  nameInput.addEventListener("keypress", (e) => {
+    if (e.key === "Enter") goToWeaponSelection();
+  });
+}
+if (weaponConfirmBtn) {
+  weaponConfirmBtn.addEventListener("click", joinWaitingRoom);
+}
+if (loginForm) {
+  loginForm.addEventListener("submit", handleLoginSubmit);
+}
+if (registerForm) {
+  registerForm.addEventListener("submit", handleRegisterSubmit);
+}
+if (logoutBtn) {
+  logoutBtn.addEventListener("click", handleLogoutClick);
+}
+if (loginTabBtn) {
+  loginTabBtn.addEventListener("click", showLoginTab);
+}
+if (registerTabBtn) {
+  registerTabBtn.addEventListener("click", showRegisterTab);
+}
+
+bootstrapAuth();
+
+socket.on("authError", (payload) => {
+  if (!payload || !payload.message) return;
+  setAuthError(payload.message);
+  applyLoggedOutState();
 });
-weaponConfirmBtn.addEventListener("click", joinWaitingRoom);
 
 // Join waiting room
 function goToWeaponSelection() {
-  playerName = nameInput.value.trim();
-  if (!playerName) return;
+  if (!currentUser) {
+    applyLoggedOutState();
+    return;
+  }
+  displayName = nameInput.value.trim();
+  if (!displayName) return;
   // Move to weapon selection step
   loginScreen.classList.add("hidden");
   weaponScreen.classList.remove("hidden");
@@ -36,9 +254,13 @@ function goToWeaponSelection() {
 
 // Join waiting room with selected weapon
 function joinWaitingRoom() {
-  if (!playerName) return;
+  if (!currentUser) {
+    applyLoggedOutState();
+    return;
+  }
+  if (!displayName) return;
   if (!selectedWeaponKey) selectedWeaponKey = 'pistol';
-  socket.emit("join", { name: playerName, weapon: selectedWeaponKey });
+  socket.emit("join", { displayName, weapon: selectedWeaponKey });
   weaponScreen.classList.add("hidden");
   waitingScreen.classList.remove("hidden");
 }
