@@ -251,6 +251,24 @@ socket.on("authError", (payload) => {
   applyLoggedOutState();
 });
 
+// Live coin updates from the server (e.g., on kills)
+socket.on("coinsUpdated", (payload) => {
+  if (!payload || typeof payload.coins !== "number") return;
+  const coins = payload.coins;
+  if (coinsValueEl) {
+    coinsValueEl.textContent = coins;
+  }
+  if (coinsIndicatorEl) {
+    coinsIndicatorEl.classList.remove("hidden");
+  }
+  if (currentUser) {
+    if (!currentUser.currencies || typeof currentUser.currencies !== "object") {
+      currentUser.currencies = {};
+    }
+    currentUser.currencies.Coins = coins;
+  }
+});
+
 // Join waiting room
 function goToWeaponSelection() {
   if (!currentUser) {

@@ -431,6 +431,29 @@ io.on("connection", (socket) => {
     if (target.health <= 0) {
       target.alive = false;
       io.emit("playerKilled", target.id);
+
+      // Award coins to the shooter for a kill
+      if (shooterId) {
+        const shooter = activePlayers.find((p) => p.id === shooterId);
+        if (shooter && shooter.accountUsername) {
+          const accountUser = usersByUsername.get(shooter.accountUsername);
+          if (accountUser) {
+            if (!accountUser.currencies || typeof accountUser.currencies !== "object") {
+              accountUser.currencies = {};
+            }
+            const currentCoins =
+              typeof accountUser.currencies.Coins === "number"
+                ? accountUser.currencies.Coins
+                : 0;
+            const newCoins = currentCoins + 5;
+            accountUser.currencies.Coins = newCoins;
+            saveUsers();
+
+            // Notify the shooter so their UI can update immediately
+            io.to(shooterId).emit("coinsUpdated", { coins: newCoins });
+          }
+        }
+      }
     }
 
     // Broadcast updated state so clients can render health bars
