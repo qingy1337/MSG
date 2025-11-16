@@ -468,8 +468,18 @@ socket.on("gameOver", (winner) => {
   gameMessage.textContent = `Game Over! ${winner.name} wins!`;
 
   setTimeout(() => {
-    gameScreen.classList.add("hidden");
-    loginScreen.classList.remove("hidden");
+    if (typeof setActiveScreen === "function") {
+      setActiveScreen(loginScreen);
+    } else {
+      gameScreen.classList.add("hidden");
+      loginScreen.classList.remove("hidden");
+      if (typeof waitingScreen !== "undefined" && waitingScreen) {
+        waitingScreen.classList.add("hidden");
+      }
+      if (typeof weaponScreen !== "undefined" && weaponScreen) {
+        weaponScreen.classList.add("hidden");
+      }
+    }
     nameInput.value = "";
     gameMessage.textContent = "";
   }, 5000);

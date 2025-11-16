@@ -6,6 +6,19 @@ const weaponScreen = document.getElementById("weapon-screen");
 const waitingScreen = document.getElementById("waiting-screen");
 const gameScreen = document.getElementById("game-screen");
 
+// Simple screen state helper so only one main screen shows at a time
+function setActiveScreen(target) {
+  const screens = [loginScreen, weaponScreen, waitingScreen, gameScreen];
+  screens.forEach((el) => {
+    if (!el) return;
+    if (el === target) {
+      el.classList.remove("hidden");
+    } else {
+      el.classList.add("hidden");
+    }
+  });
+}
+
 // DOM elements - lobby
 const nameInput = document.getElementById("name-input");
 const joinBtn = document.getElementById("join-btn");
@@ -247,8 +260,7 @@ function goToWeaponSelection() {
   displayName = nameInput.value.trim();
   if (!displayName) return;
   // Move to weapon selection step
-  loginScreen.classList.add("hidden");
-  weaponScreen.classList.remove("hidden");
+  setActiveScreen(weaponScreen);
   renderWeaponOptions();
 }
 
@@ -261,8 +273,7 @@ function joinWaitingRoom() {
   if (!displayName) return;
   if (!selectedWeaponKey) selectedWeaponKey = 'pistol';
   socket.emit("join", { displayName, weapon: selectedWeaponKey });
-  weaponScreen.classList.add("hidden");
-  waitingScreen.classList.remove("hidden");
+  setActiveScreen(waitingScreen);
 }
 
 function renderWeaponOptions() {
@@ -315,16 +326,13 @@ socket.on("updateWaitingList", (players) => {
 });
 
 socket.on("gameStarting", (gameData) => {
-  waitingScreen.classList.add("hidden");
-  gameScreen.classList.remove("hidden");
+  setActiveScreen(gameScreen);
 
   // Initialize game
   initGame(gameData.players, gameData.walls);
 });
 
 socket.on("resetGame", () => {
-  gameScreen.classList.add("hidden");
-  loginScreen.classList.remove("hidden");
-  weaponScreen.classList.add("hidden");
+  setActiveScreen(loginScreen);
   nameInput.value = "";
 });
