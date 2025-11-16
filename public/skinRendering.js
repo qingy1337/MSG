@@ -143,6 +143,46 @@ function drawWeaponShapes(
       ctx.closePath();
       ctx.fill();
       ctx.restore();
+    } else if (shape.type === "circle") {
+      const cx = (shape.cx || 0) * length;
+      const cy = (shape.cy || 0) * length;
+      const radius =
+        typeof shape.radius === "number"
+          ? shape.radius * length
+          : 0.1 * length;
+      const [wx, wy] = localToWorld(cx, cy);
+      ctx.save();
+      ctx.fillStyle = shape.color || "#111827";
+      ctx.beginPath();
+      ctx.arc(wx, wy, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    } else if (shape.type === "rectcoord") {
+      const tlx = (shape.topLeftX || 0) * length;
+      const tly = (shape.topLeftY || 0) * length;
+      const trx = (shape.topRightX || 0) * length;
+      const tryY = (shape.topRightY || 0) * length;
+      const blx = (shape.bottomLeftX || 0) * length;
+      const bly = (shape.bottomLeftY || 0) * length;
+      const brx = (shape.bottomRightX || 0) * length;
+      const bry = (shape.bottomRightY || 0) * length;
+      const cornersLocal = [
+        [tlx, tly],
+        [trx, tryY],
+        [brx, bry],
+        [blx, bly],
+      ];
+      ctx.save();
+      ctx.fillStyle = shape.color || "#111827";
+      ctx.beginPath();
+      cornersLocal.forEach(([lx, ly], idx) => {
+        const [wx, wy] = localToWorld(lx, ly);
+        if (idx === 0) ctx.moveTo(wx, wy);
+        else ctx.lineTo(wx, wy);
+      });
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
     }
   });
 }
@@ -214,4 +254,3 @@ function drawWeaponSkinPreview(canvas, weaponKey, skinKey) {
 
   ctx.restore();
 }
-
