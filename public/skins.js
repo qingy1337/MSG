@@ -44,6 +44,42 @@ const WEAPON_SKINS = {
         },
       ],
     },
+    {
+      key: "pistol_cybernetic",
+      weaponKey: "pistol",
+      name: "Cybernetic Pistol",
+      description: "P/STOL",
+      price: 100,
+      isDefault: false,
+      bulletColor: "#3c91c2", // blue
+      shapes: [
+        {
+          type: "line",
+          fromX: 0,
+          fromY: 0.3,
+          toX: 1,
+          toY: 0,
+          lineWidth: 4,
+          color: "#3c91c2", // blue barrel
+        },
+        {
+          type: "line",
+          fromX: 0,
+          fromY: -0.3,
+          toX: 1,
+          toY: 0,
+          lineWidth: 4,
+          color: "#3c91c2", // blue barrel
+        },
+        {
+          type: "circle",
+          cx: 0.05,
+          cy: 0,
+          radius: 0.15,
+          color: "#3c91c2", // blue barrel
+        }
+      ],
+    },
   ],
   autoRifle: [
     {
@@ -69,7 +105,7 @@ const WEAPON_SKINS = {
     {
       key: "autoRifle_cybernetic",
       weaponKey: "autoRifle",
-      name: "Cybernetic",
+      name: "Cybernetic Auto Rifle",
       description: "Twin blue rails near the grip.",
       price: 75,
       isDefault: false,
@@ -122,8 +158,9 @@ const WEAPON_SKINS = {
           toX: 1,
           toY: 0,
           lineWidth: 8,
-          color: "#96150c",
+          color: "#c41d12",
         },
+        // Green stripe
         {
           type: "line",
           fromX: 0.1,
