@@ -1,4 +1,47 @@
 // Helpers for drawing weapon skins both in-game and in shop previews.
+// --------------------------------------------------------------------
+// Weapon shapes are used to define the visual appearance of a weapon skin.
+// Each shape object in the `shapes` array defines a geometric element to draw.
+// Below are examples of valid shape configurations:
+//
+// Line (a straight line from one point to another):
+// {
+//   type: "line",
+//   fromX: 0, fromY: 0,
+//   toX: 1, toY: 0,
+//   lineWidth: 3,
+//   color: "#111827"
+// }
+//
+// Rectangle (centered at cx, cy with given width and height):
+// {
+//   type: "rect",
+//   cx: 0.5, cy: 0,
+//   width: 0.2, height: 0.1,
+//   color: "#111827"
+// }
+//
+// Circle (centered at cx, cy with a given radius):
+// {
+//   type: "circle",
+//   cx: 0.5, cy: 0,
+//   radius: 0.1,
+//   color: "#111827"
+// }
+//
+// Arbitrary quadrilateral using 4 corners:
+// {
+//   type: "rectcoord",
+//   topLeftX: 0,     topLeftY: -0.05,
+//   topRightX: 1,    topRightY: -0.05,
+//   bottomRightX: 1, bottomRightY: 0.05,
+//   bottomLeftX: 0,  bottomLeftY: 0.05,
+//   color: "#111827"
+// }
+//
+// All coordinates are relative to the weapon length and rotated by the weapon angle.
+// Colors can be any valid CSS color string.
+// --------------------------------------------------------------------
 
 function getDefaultSkinKeyByWeapon() {
   const map = {};
@@ -253,4 +296,215 @@ function drawWeaponSkinPreview(canvas, weaponKey, skinKey) {
   );
 
   ctx.restore();
+}
+
+// --- Shop weapon mini-preview ("little game canvas") ---
+// This runs a tiny local animation inside a given canvas so players
+// can see how the weapon + bullet color feel without starting a match.
+
+function stopWeaponSkinMiniPreview(canvas) {
+  if (!canvas || !canvas.__weaponPreview) return;
+  const preview = canvas.__weaponPreview;
+  if (preview.active && typeof preview.stop === "function") {
+    preview.stop();
+  }
+  preview.active = false;
+}
+
+function startWeaponSkinMiniPreview(canvas, weaponKey, skinKey) {
+  if (!canvas || !canvas.getContext) return;
+
+  // If a preview is already running, restart it fresh.
+  if (canvas.__weaponPreview && canvas.__weaponPreview.active) {
+    stopWeaponSkinMiniPreview(canvas);
+  }
+
+  const ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+  const cssWidth = canvas.clientWidth || canvas.width || 140;
+  const cssHeight = canvas.clientHeight || canvas.height || 70;
+
+  canvas.width = cssWidth * dpr;
+  canvas.height = cssHeight * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const cfg =
+    (typeof WEAPONS !== "undefined" &&
+      WEAPONS[weaponKey || "pistol"]) ||
+    (typeof WEAPONS !== "undefined" && WEAPONS.pistol) || {
+      weaponLength: 30,
+      bulletSpeed: 10,
+      bulletRadius: 4,
+      cooldownMs: 200,
+    };
+
+  const weaponLength =
+    typeof cfg.weaponLength === "number" ? cfg.weaponLength : 30;
+  const bulletSpeed =
+    typeof cfg.bulletSpeed === "number" ? cfg.bulletSpeed : 10;
+  const bulletRadius =
+    typeof cfg.bulletRadius === "number" ? cfg.bulletRadius : 4;
+  const cooldownMs =
+    typeof cfg.cooldownMs === "number" ? cfg.cooldownMs : 200;
+
+  const state = {
+    angle: 0,
+    targetAngle: 0,
+    bullets: [],
+    lastFireAt: 0,
+    hasMouse: false,
+    running: true,
+  };
+
+  function handleMouseMove(e) {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const dx = mx - cssWidth / 2;
+    const dy = my - cssHeight * 0.7;
+    state.targetAngle = Math.atan2(dy, dx);
+    state.hasMouse = true;
+  }
+
+  function handleMouseLeave() {
+    state.hasMouse = false;
+  }
+
+  function handleMouseDown() {
+    fire();
+  }
+
+  function fire() {
+    const now = performance.now();
+    if (now - state.lastFireAt < cooldownMs) return;
+    state.lastFireAt = now;
+
+    const barrelLength = Math.min(weaponLength, cssWidth * 0.55);
+    const originX = cssWidth / 2;
+    const originY = cssHeight * 0.7;
+
+    const tipX = originX + Math.cos(state.angle) * barrelLength;
+    const tipY = originY + Math.sin(state.angle) * barrelLength;
+
+    const color =
+      typeof getBulletColorForWeaponSkin === "function"
+        ? getBulletColorForWeaponSkin(weaponKey, skinKey)
+        : "#000000";
+
+    state.bullets.push({
+      x: tipX,
+      y: tipY,
+      angle: state.angle,
+      color,
+    });
+  }
+
+  canvas.addEventListener("mousemove", handleMouseMove);
+  canvas.addEventListener("mouseleave", handleMouseLeave);
+  canvas.addEventListener("mousedown", handleMouseDown);
+
+  const preview = {
+    active: true,
+    stop() {
+      state.running = false;
+      canvas.removeEventListener("mousemove", handleMouseMove);
+      canvas.removeEventListener("mouseleave", handleMouseLeave);
+      canvas.removeEventListener("mousedown", handleMouseDown);
+    },
+  };
+
+  canvas.__weaponPreview = preview;
+
+  function step() {
+    if (!preview.active || !state.running) return;
+
+    // Stop if the canvas is no longer in the document.
+    if (!document.body.contains(canvas)) {
+      stopWeaponSkinMiniPreview(canvas);
+      return;
+    }
+
+    const now = performance.now();
+
+    // If the mouse isn't over the canvas, gently sway the aim.
+    if (!state.hasMouse) {
+      const t = now / 1000;
+      state.targetAngle = Math.sin(t * 1.3) * 0.4;
+    }
+
+    // Smoothly move current angle toward target.
+    const lerpFactor = 0.18;
+    const delta = state.targetAngle - state.angle;
+    state.angle += delta * lerpFactor;
+
+    // Auto-fire occasionally when idle so the bullets are visible.
+    if (!state.hasMouse && now - state.lastFireAt > cooldownMs + 250) {
+      fire();
+    }
+
+    // Advance bullets.
+    state.bullets.forEach((b) => {
+      b.x += Math.cos(b.angle) * bulletSpeed * 0.5;
+      b.y += Math.sin(b.angle) * bulletSpeed * 0.5;
+    });
+    state.bullets = state.bullets.filter(
+      (b) =>
+        b.x > -40 &&
+        b.x < cssWidth + 40 &&
+        b.y > -40 &&
+        b.y < cssHeight + 40,
+    );
+
+    // Draw background.
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssWidth, cssHeight);
+    ctx.fillStyle = "#e5e7eb";
+    ctx.fillRect(0, 0, cssWidth, cssHeight);
+
+    const groundY = cssHeight * 0.7;
+
+    // Ground line.
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.9)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, groundY + 8);
+    ctx.lineTo(cssWidth, groundY + 8);
+    ctx.stroke();
+
+    // Bullets.
+    state.bullets.forEach((b) => {
+      ctx.fillStyle = b.color || "#000000";
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, bulletRadius, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // Weapon.
+    const barrelLength = Math.min(weaponLength, cssWidth * 0.55);
+    drawWeaponShapes(
+      ctx,
+      cssWidth / 2,
+      groundY,
+      state.angle,
+      barrelLength,
+      weaponKey || "pistol",
+      skinKey,
+    );
+
+    // Simple muzzle flash shortly after firing.
+    if (now - state.lastFireAt < 120) {
+      const tipX =
+        cssWidth / 2 + Math.cos(state.angle) * barrelLength;
+      const tipY =
+        groundY + Math.sin(state.angle) * barrelLength;
+      ctx.fillStyle = "rgba(252, 211, 77, 0.9)";
+      ctx.beginPath();
+      ctx.arc(tipX, tipY, bulletRadius + 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    requestAnimationFrame(step);
+  }
+
+  requestAnimationFrame(step);
 }

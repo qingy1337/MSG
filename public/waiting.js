@@ -66,6 +66,7 @@ let selectedWeaponKey = (typeof DEFAULT_WEAPON_KEY !== 'undefined' ? DEFAULT_WEA
 let currentUser = null;
 let lastNonShopScreen = loginScreen;
 let shopSkins = [];
+let shopSectionCollapseState = {};
 
 function setCoinsValue(coins) {
   const safeCoins = typeof coins === "number" ? coins : 0;
@@ -476,20 +477,53 @@ function renderShop() {
     section.appendChild(body);
 
     let collapsed = true;
+    if (
+      shopSectionCollapseState &&
+      Object.prototype.hasOwnProperty.call(shopSectionCollapseState, weaponKey)
+    ) {
+      collapsed = !!shopSectionCollapseState[weaponKey];
+    }
+
     function setCollapsed(next) {
       collapsed = next;
+      if (shopSectionCollapseState) {
+        shopSectionCollapseState[weaponKey] = collapsed;
+      }
       if (collapsed) {
         body.classList.add("collapsed");
         toggleBtn.setAttribute("aria-expanded", "false");
         toggleIcon.textContent = "▸";
+        // Stop any running mini-previews when the section is closed.
+        if (typeof stopWeaponSkinMiniPreview === "function") {
+          const canvases = body.querySelectorAll("canvas");
+          canvases.forEach((c) => {
+            stopWeaponSkinMiniPreview(c);
+          });
+        }
       } else {
         body.classList.remove("collapsed");
         toggleBtn.setAttribute("aria-expanded", "true");
         toggleIcon.textContent = "▾";
+        // When we first show this section, some previews may have been
+        // drawn while hidden (zero width), which can distort them.
+        // Re-draw all static previews now that layout is stable.
+        if (typeof drawWeaponSkinPreview === "function") {
+          const canvases = body.querySelectorAll("canvas");
+          // Use a frame tick so clientWidth/clientHeight are up to date.
+          requestAnimationFrame(() => {
+            canvases.forEach((c) => {
+              // Skip canvases that currently have an active mini-preview.
+              if (c.__weaponPreview && c.__weaponPreview.active) return;
+              const wKey = c.dataset.weaponKey || weaponKey;
+              const sKey = c.dataset.skinKey || "";
+              drawWeaponSkinPreview(c, wKey, sKey);
+            });
+          });
+        }
       }
     }
 
-    setCollapsed(true);
+    setCollapsed(collapsed);
 
     toggleBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -539,8 +573,34 @@ function createSkinCard(weaponKey, skin) {
   const previewWrapper = document.createElement("div");
   previewWrapper.className = "shop-card-preview";
   const canvas = document.createElement("canvas");
+  // Remember which weapon/skin this canvas represents so we can
+  // re-draw it later when its section is expanded.
+  canvas.dataset.weaponKey = weaponKey;
+  canvas.dataset.skinKey = skin.key;
   previewWrapper.appendChild(canvas);
   card.appendChild(previewWrapper);
+
+  // Clicking anywhere in the preview box toggles a tiny
+  // interactive "mini game" preview for this weapon skin.
+  previewWrapper.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!canvas) return;
+    const hasActivePreview =
+      canvas.__weaponPreview && canvas.__weaponPreview.active;
+    if (hasActivePreview) {
+      if (typeof stopWeaponSkinMiniPreview === "function") {
+        stopWeaponSkinMiniPreview(canvas);
+      }
+      if (typeof drawWeaponSkinPreview === "function") {
+        drawWeaponSkinPreview(canvas, weaponKey, skin.key);
+      }
+    } else {
+      if (typeof startWeaponSkinMiniPreview === "function") {
+        startWeaponSkinMiniPreview(canvas, weaponKey, skin.key);
+      }
+    }
+  });
 
   // Defer preview drawing to next tick so layout has size
   requestAnimationFrame(() => {

@@ -4,7 +4,7 @@
     "username": "qing",
     "passwordHash": "120000:527376a4c7facb358546550205746662:8803cf5b1c16b4a2f9a8f8be0478fa4bec09c8104df42842cc397818c661e2ff",
     "currencies": {
-      "Coins": 125
+      "Coins": 40
     },
     "skins": {
       "owned": [
@@ -14,13 +14,15 @@
         "sniper_default",
         "autoRifle_cybernetic",
         "pistol_basicBlue",
-        "autoRifle_christmas"
+        "autoRifle_christmas",
+        "sniper_mario",
+        "miniGun_infiniti"
       ],
       "equippedByWeapon": {
         "pistol": "pistol_basicBlue",
         "autoRifle": "autoRifle_christmas",
-        "miniGun": "miniGun_default",
-        "sniper": "sniper_default"
+        "miniGun": "miniGun_infiniti",
+        "sniper": "sniper_mario"
       }
     }
   },
@@ -29,7 +31,7 @@
     "username": "ggg",
     "passwordHash": "120000:a49be03d05b22fc1548a7f81c13c9932:055e6938a50d6f05905763f50149b26e797ba7ea1bae352c4a8481f5699fd325",
     "currencies": {
-      "Coins": 30
+      "Coins": 100
     },
     "skins": {
       "owned": [
@@ -39,12 +41,13 @@
         "sniper_default",
         "autoRifle_cybernetic",
         "pistol_basicBlue",
-        "autoRifle_christmas"
+        "autoRifle_christmas",
+        "miniGun_infiniti"
       ],
       "equippedByWeapon": {
         "pistol": "pistol_basicBlue",
         "autoRifle": "autoRifle_cybernetic",
-        "miniGun": "miniGun_default",
+        "miniGun": "miniGun_infiniti",
         "sniper": "sniper_default"
       }
     }
@@ -54,7 +57,7 @@
     "username": "yxli",
     "passwordHash": "120000:ae5baf6ccdc8ffeb57e9bd18294b2f85:64c2709e73d2e5c7c59c01bf905c65b8e777790c68e8597d6948377f9e2fd2f5",
     "currencies": {
-      "Coins": 30
+      "Coins": 50
     },
     "skins": {
       "owned": [
