@@ -582,8 +582,10 @@ def main() -> None:
     max_steps=args.max_steps,
     weapon=weapon,
     fps=args.fps,
+    seed=random.randint(1,500),
   )
 
 
 if __name__ == "__main__":
   main()
+

@@ -36,6 +36,7 @@ function setActiveScreen(target) {
 const nameInput = document.getElementById("name-input");
 const joinBtn = document.getElementById("join-btn");
 const startBtn = document.getElementById("start-btn");
+const enableBotsCheckbox = document.getElementById("enable-bots-toggle");
 const waitingPlayersList = document.getElementById("waiting-players");
 const weaponOptionsEl = document.getElementById("weapon-options");
 const weaponConfirmBtn = document.getElementById("weapon-confirm-btn");
@@ -67,6 +68,7 @@ let currentUser = null;
 let lastNonShopScreen = loginScreen;
 let shopSkins = [];
 let shopSectionCollapseState = {};
+let lastWaitingPlayersCount = 0;
 
 function setCoinsValue(coins) {
   const safeCoins = typeof coins === "number" ? coins : 0;
@@ -248,6 +250,9 @@ if (joinBtn) {
 }
 if (startBtn) {
   startBtn.addEventListener("click", startGame);
+}
+if (enableBotsCheckbox) {
+  enableBotsCheckbox.addEventListener("change", updateStartButtonState);
 }
 if (nameInput) {
   nameInput.addEventListener("keypress", (e) => {
@@ -757,7 +762,31 @@ async function equipSkin(skinKey) {
 
 // Start game
 function startGame() {
-  socket.emit("startGame");
+  const enableBots =
+    enableBotsCheckbox && enableBotsCheckbox.checked;
+  socket.emit("startGame", { enableBots });
+}
+
+function updateStartButtonState() {
+  if (!startBtn) return;
+  const humanCount = lastWaitingPlayersCount;
+  const botsEnabled =
+    enableBotsCheckbox && enableBotsCheckbox.checked;
+  let canStart = humanCount >= 2;
+  let label = "Start Game";
+
+  if (!canStart && botsEnabled && humanCount >= 1) {
+    canStart = true;
+    label = "Start Game (with bots)";
+  }
+
+  if (canStart) {
+    startBtn.disabled = false;
+    startBtn.textContent = label;
+  } else {
+    startBtn.disabled = true;
+    startBtn.textContent = "Start Game (Need at least 2 players)";
+  }
 }
 
 // Socket event handlers
@@ -772,14 +801,8 @@ socket.on("updateWaitingList", (players) => {
     waitingPlayersList.appendChild(li);
   });
 
-  // Enable or disable start button
-  if (players.length >= 2) {
-    startBtn.disabled = false;
-    startBtn.textContent = "Start Game";
-  } else {
-    startBtn.disabled = true;
-    startBtn.textContent = "Start Game (Need at least 2 players)";
-  }
+  lastWaitingPlayersCount = Array.isArray(players) ? players.length : 0;
+  updateStartButtonState();
 });
 
 socket.on("gameStarting", (gameData) => {

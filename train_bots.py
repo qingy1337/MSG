@@ -743,7 +743,7 @@ def main():
     device="auto",  # will use GPU if available
   )
 
-  total_timesteps = 500_000
+  total_timesteps = 5_000_000
   model.learn(total_timesteps=total_timesteps)
   model.save("bot_policy")
   print("Training finished. Saved policy to bot_policy.zip")
@@ -751,3 +751,4 @@ def main():
 
 if __name__ == "__main__":
   main()
+

@@ -489,6 +489,20 @@ const waitingPlayers = [];
 const activePlayers = [];
 const gameInProgress = { status: false };
 const gameWalls = [];
+// Simple server-side bot config (step 0: scripted bots)
+const BOT_CONFIG = {
+  // When bots are enabled, try to roughly fill up to this many total players.
+  targetTotalPlayers: 4,
+  maxPerMatch: 4,
+  moveSpeedPerTick: 4,
+  fireCooldownMs: 180,
+  weaponKey: "pistol",
+  playerRadius: 20,
+  canvasWidth: 900,
+  canvasHeight: 600,
+  weaponLength: 30,
+};
+let nextBotId = 1;
 const colors = [
   "#FF5733",
   "#33FF57",
@@ -590,38 +604,70 @@ io.on("connection", (socket) => {
   });
 
   // Start game
-  socket.on("startGame", () => {
-    if (waitingPlayers.length >= 2 && !gameInProgress.status) {
-      gameInProgress.status = true;
+  socket.on("startGame", (options) => {
+    if (gameInProgress.status) return;
 
-      // Generate walls
-      const walls = generateWalls();
-      gameWalls.length = 0;
-      gameWalls.push(...walls);
+    const config =
+      options && typeof options === "object" ? options : {};
+    const enableBots = !!config.enableBots;
 
-      // Move all waiting players to active game
-      while (waitingPlayers.length > 0) {
-        const player = waitingPlayers.pop();
-        // Space out spawns and ensure no direct LOS to existing players
-        const spawnPosition = getValidSpawnPosition(walls, activePlayers);
-
-        activePlayers.push({
-          ...player,
-          x: spawnPosition.x,
-          y: spawnPosition.y,
-          angle: 0,
-          alive: true,
-          health: MAX_HEALTH,
-        });
+    const humanCount = waitingPlayers.length;
+    let botCount = 0;
+    if (enableBots) {
+      const targetPlayers = BOT_CONFIG.targetTotalPlayers;
+      const maxBots = BOT_CONFIG.maxPerMatch;
+      const missing = Math.max(0, targetPlayers - humanCount);
+      botCount = Math.min(maxBots, missing);
+      // If there is exactly one human, ensure at least one bot so the game can start.
+      if (humanCount === 1 && botCount === 0 && maxBots > 0) {
+        botCount = 1;
       }
-
-      // Notify all clients that game is starting
-      io.emit("gameStarting", { players: activePlayers, walls: walls });
-
-      // Move players from waiting room to game room
-      io.socketsLeave("waiting");
-      console.log("Game started with", activePlayers.length, "players");
     }
+
+    const totalPlayers = humanCount + botCount;
+    if (totalPlayers < 2) {
+      return;
+    }
+
+    gameInProgress.status = true;
+
+    // Generate walls
+    const walls = generateWalls();
+    gameWalls.length = 0;
+    gameWalls.push(...walls);
+
+    // Move all waiting players to active game
+    while (waitingPlayers.length > 0) {
+      const player = waitingPlayers.pop();
+      // Space out spawns and ensure no direct LOS to existing players
+      const spawnPosition = getValidSpawnPosition(walls, activePlayers);
+
+      activePlayers.push({
+        ...player,
+        x: spawnPosition.x,
+        y: spawnPosition.y,
+        angle: 0,
+        alive: true,
+        health: MAX_HEALTH,
+      });
+    }
+
+    // Add simple scripted bots if requested
+    if (botCount > 0) {
+      createBotsForCurrentMatch(botCount);
+    }
+
+    // Notify all clients that game is starting
+    io.emit("gameStarting", { players: activePlayers, walls: walls });
+
+    // Move players from waiting room to game room
+    io.socketsLeave("waiting");
+    console.log(
+      "Game started with",
+      activePlayers.length,
+      "players",
+      botCount > 0 ? `(including ${botCount} bot${botCount > 1 ? "s" : ""})` : "",
+    );
   });
 
   // Player movement update
@@ -766,6 +812,7 @@ function resetGame() {
   activePlayers.length = 0;
   gameWalls.length = 0;
   gameInProgress.status = false;
+  nextBotId = 1;
   io.emit("resetGame");
   console.log("Game reset");
 }
@@ -1022,6 +1069,229 @@ function segmentCrossesWallDiscrete(x0, y0, x1, y1, walls, step = 2) {
   }
   return false;
 }
+
+// --- Simple server-side bots (step 0) ---
+
+function createBotsForCurrentMatch(count) {
+  const numBots = Math.max(
+    0,
+    Math.min(count || 0, BOT_CONFIG.maxPerMatch),
+  );
+  if (numBots === 0) return;
+
+  for (let i = 0; i < numBots; i++) {
+    const botId = `bot-${nextBotId++}`;
+    const color =
+      colors[(activePlayers.length + i) % colors.length] || "#888888";
+    const spawn = getValidSpawnPosition(gameWalls, activePlayers);
+    const bot = {
+      id: botId,
+      name: `BOT ${i + 1}`,
+      displayName: `BOT ${i + 1}`,
+      accountUsername: null,
+      color,
+      weapon: BOT_CONFIG.weaponKey,
+      weaponSkinKey:
+        DEFAULT_SKIN_BY_WEAPON[BOT_CONFIG.weaponKey] || null,
+      x: spawn.x,
+      y: spawn.y,
+      angle: 0,
+      alive: true,
+      health: MAX_HEALTH,
+      isBot: true,
+      botState: {
+        lastShotAt: 0,
+      },
+    };
+    activePlayers.push(bot);
+  }
+}
+
+function computeScriptedBotAction(bot, players, walls) {
+  if (!bot || !bot.alive) {
+    return {
+      moveX: 0,
+      moveY: 0,
+      aimAngle: bot ? bot.angle || 0 : 0,
+      shoot: false,
+    };
+  }
+
+  let target = null;
+  let closestDistSq = Infinity;
+  for (const p of players) {
+    if (!p || !p.alive || p.id === bot.id) continue;
+    const dx = p.x - bot.x;
+    const dy = p.y - bot.y;
+    const distSq = dx * dx + dy * dy;
+    if (distSq < closestDistSq) {
+      closestDistSq = distSq;
+      target = p;
+    }
+  }
+
+  if (!target) {
+    return {
+      moveX: 0,
+      moveY: 0,
+      aimAngle: bot.angle || 0,
+      shoot: false,
+    };
+  }
+
+  const dx = target.x - bot.x;
+  const dy = target.y - bot.y;
+  const dist = Math.sqrt(dx * dx + dy * dy) || 1e-6;
+  const dirX = dx / dist;
+  const dirY = dy / dist;
+
+  const desiredDistance = 220;
+  const distanceBand = 40;
+  let moveX = 0;
+  let moveY = 0;
+
+  if (dist > desiredDistance + distanceBand) {
+    // Close in
+    moveX = dirX;
+    moveY = dirY;
+  } else if (dist < desiredDistance - distanceBand) {
+    // Back up
+    moveX = -dirX;
+    moveY = -dirY;
+  } else {
+    // Strafe sideways around the target
+    moveX = -dirY;
+    moveY = dirX;
+  }
+
+  const aimAngle = Math.atan2(dy, dx);
+  const hasLineOfSight = !lineIntersectsAnyWall(
+    bot.x,
+    bot.y,
+    target.x,
+    target.y,
+    walls,
+  );
+  const shouldShoot = hasLineOfSight && dist < 550;
+
+  return { moveX, moveY, aimAngle, shoot: shouldShoot };
+}
+
+function circleCollidesAnyWall(cx, cy, radius, walls) {
+  for (const wall of walls) {
+    const closestX = Math.max(wall.x, Math.min(cx, wall.x + wall.width));
+    const closestY = Math.max(wall.y, Math.min(cy, wall.y + wall.height));
+    const dx = cx - closestX;
+    const dy = cy - closestY;
+    if (Math.sqrt(dx * dx + dy * dy) < radius) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function fireBulletFromBot(bot) {
+  if (!bot || !bot.alive) return false;
+  const weaponLength = BOT_CONFIG.weaponLength;
+  const tipX = bot.x + Math.cos(bot.angle) * weaponLength;
+  const tipY = bot.y + Math.sin(bot.angle) * weaponLength;
+
+  if (
+    isPointInsideAnyWall(tipX, tipY, gameWalls) ||
+    segmentCrossesWallDiscrete(bot.x, bot.y, tipX, tipY, gameWalls, 2) ||
+    lineIntersectsAnyWall(bot.x, bot.y, tipX, tipY, gameWalls)
+  ) {
+    return false;
+  }
+
+  io.emit("newBullet", {
+    x: tipX,
+    y: tipY,
+    angle: bot.angle,
+    playerId: bot.id,
+  });
+  return true;
+}
+
+function applyBotAction(bot, action, now) {
+  if (!bot || !bot.alive || !action) return false;
+
+  const radius = BOT_CONFIG.playerRadius;
+  const width = BOT_CONFIG.canvasWidth;
+  const height = BOT_CONFIG.canvasHeight;
+  const moveSpeed = BOT_CONFIG.moveSpeedPerTick;
+
+  let moved = false;
+
+  const mx = action.moveX || 0;
+  const my = action.moveY || 0;
+  const length = Math.sqrt(mx * mx + my * my);
+
+  if (length > 0.001) {
+    const dirX = mx / length;
+    const dirY = my / length;
+    let proposedX = bot.x + dirX * moveSpeed;
+    let proposedY = bot.y + dirY * moveSpeed;
+
+    // Clamp to arena bounds
+    proposedX = Math.max(radius, Math.min(proposedX, width - radius));
+    proposedY = Math.max(radius, Math.min(proposedY, height - radius));
+
+    // Try sliding along walls, similar to client
+    if (!circleCollidesAnyWall(proposedX, bot.y, radius, gameWalls)) {
+      bot.x = proposedX;
+      moved = true;
+    }
+    if (!circleCollidesAnyWall(bot.x, proposedY, radius, gameWalls)) {
+      bot.y = proposedY;
+      moved = true;
+    }
+  }
+
+  if (typeof action.aimAngle === "number") {
+    bot.angle = action.aimAngle;
+  }
+
+  if (action.shoot) {
+    const botState = bot.botState || (bot.botState = {});
+    const lastShotAt =
+      typeof botState.lastShotAt === "number" ? botState.lastShotAt : 0;
+    if (now - lastShotAt >= BOT_CONFIG.fireCooldownMs) {
+      if (fireBulletFromBot(bot)) {
+        botState.lastShotAt = now;
+      }
+    }
+  }
+
+  return moved;
+}
+
+function runBotsTick() {
+  if (!gameInProgress.status) return;
+  if (!Array.isArray(activePlayers) || activePlayers.length === 0) return;
+
+  const bots = activePlayers.filter((p) => p && p.isBot && p.alive);
+  if (bots.length === 0) return;
+
+  const snapshotPlayers = activePlayers.slice();
+  const now = Date.now();
+  let anyBotMoved = false;
+
+  for (const bot of bots) {
+    const action = computeScriptedBotAction(bot, snapshotPlayers, gameWalls);
+    const moved = applyBotAction(bot, action, now);
+    if (moved) {
+      anyBotMoved = true;
+    }
+  }
+
+  if (anyBotMoved) {
+    io.emit("gameState", activePlayers);
+  }
+}
+
+const BOT_TICK_MS = 50;
+setInterval(runBotsTick, BOT_TICK_MS);
 
 server.listen(3001, () => {
   console.log("Server running on http://localhost:3001");
