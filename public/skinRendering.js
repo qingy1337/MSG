@@ -154,9 +154,24 @@ function drawWeaponShapes(
       const [wx0, wy0] = localToWorld(fromX, fromY);
       const [wx1, wy1] = localToWorld(toX, toY);
       ctx.save();
-      ctx.strokeStyle = shape.color || "#111827";
-      ctx.lineWidth =
+      const lineWidth =
         typeof shape.lineWidth === "number" ? shape.lineWidth : 3;
+
+      if (shape.outlineColor) {
+        const outlineWidth =
+          typeof shape.outlineWidth === "number"
+            ? shape.outlineWidth
+            : lineWidth + 1;
+        ctx.strokeStyle = shape.outlineColor;
+        ctx.lineWidth = outlineWidth;
+        ctx.beginPath();
+        ctx.moveTo(wx0, wy0);
+        ctx.lineTo(wx1, wy1);
+        ctx.stroke();
+      }
+
+      ctx.strokeStyle = shape.color || "#111827";
+      ctx.lineWidth = lineWidth;
       ctx.beginPath();
       ctx.moveTo(wx0, wy0);
       ctx.lineTo(wx1, wy1);

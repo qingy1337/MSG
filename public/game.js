@@ -60,48 +60,50 @@ function gameLoop() {
 
 // Update game state
 function update() {
-  if (!localPlayer || !localPlayer.alive) return;
+  // Always advance bullets so spectators see live action.
+  // Only process local movement/controls if we have a living local player.
+  if (localPlayer && localPlayer.alive) {
+    // Player movement
+    let dx = 0;
+    let dy = 0;
 
-  // Player movement
-  let dx = 0;
-  let dy = 0;
+    if (keys["w"] || keys["ArrowUp"]) dy -= PLAYER_SPEED;
+    if (keys["s"] || keys["ArrowDown"]) dy += PLAYER_SPEED;
+    if (keys["a"] || keys["ArrowLeft"]) dx -= PLAYER_SPEED;
+    if (keys["d"] || keys["ArrowRight"]) dx += PLAYER_SPEED;
 
-  if (keys["w"] || keys["ArrowUp"]) dy -= PLAYER_SPEED;
-  if (keys["s"] || keys["ArrowDown"]) dy += PLAYER_SPEED;
-  if (keys["a"] || keys["ArrowLeft"]) dx -= PLAYER_SPEED;
-  if (keys["d"] || keys["ArrowRight"]) dx += PLAYER_SPEED;
+    if (dx !== 0 || dy !== 0) {
+      // Try to move in both directions separately to implement sliding along walls
+      let newX = localPlayer.x + dx;
+      let newY = localPlayer.y + dy;
 
-  if (dx !== 0 || dy !== 0) {
-    // Try to move in both directions separately to implement sliding along walls
-    let newX = localPlayer.x + dx;
-    let newY = localPlayer.y + dy;
+      // Check boundary constraints
+      newX = Math.max(
+        PLAYER_RADIUS,
+        Math.min(newX, canvas.width - PLAYER_RADIUS),
+      );
+      newY = Math.max(
+        PLAYER_RADIUS,
+        Math.min(newY, canvas.height - PLAYER_RADIUS),
+      );
 
-    // Check boundary constraints
-    newX = Math.max(
-      PLAYER_RADIUS,
-      Math.min(newX, canvas.width - PLAYER_RADIUS),
-    );
-    newY = Math.max(
-      PLAYER_RADIUS,
-      Math.min(newY, canvas.height - PLAYER_RADIUS),
-    );
+      // Try to move in both directions separately
+      let canMoveX = !checkWallCollision(newX, localPlayer.y, PLAYER_RADIUS);
+      let canMoveY = !checkWallCollision(localPlayer.x, newY, PLAYER_RADIUS);
 
-    // Try to move in both directions separately
-    let canMoveX = !checkWallCollision(newX, localPlayer.y, PLAYER_RADIUS);
-    let canMoveY = !checkWallCollision(localPlayer.x, newY, PLAYER_RADIUS);
+      if (canMoveX) localPlayer.x = newX;
+      if (canMoveY) localPlayer.y = newY;
 
-    if (canMoveX) localPlayer.x = newX;
-    if (canMoveY) localPlayer.y = newY;
-
-    // Emit player position update
-    socket.emit("playerUpdate", {
-      x: localPlayer.x,
-      y: localPlayer.y,
-      angle: localPlayer.angle,
-    });
+      // Emit player position update
+      socket.emit("playerUpdate", {
+        x: localPlayer.x,
+        y: localPlayer.y,
+        angle: localPlayer.angle,
+      });
+    }
   }
 
-  // Update bullets
+  // Update bullets for all viewers (including spectators)
   updateBullets();
 }
 
