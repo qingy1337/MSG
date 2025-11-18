@@ -452,8 +452,17 @@ def render_frame(
   ax.set_title(f"Bot self-play battle — step {step_idx}", color="white")
 
   fig.canvas.draw()
-  image = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-  image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+  canvas = fig.canvas
+  width, height = canvas.get_width_height()
+  if hasattr(canvas, "tostring_rgb"):
+    buf = canvas.tostring_rgb()
+    image = np.frombuffer(buf, dtype=np.uint8).reshape(height, width, 3)
+  else:
+    # Fallback for backends that only expose ARGB
+    buf = canvas.tostring_argb()
+    argb = np.frombuffer(buf, dtype=np.uint8).reshape(height, width, 4)
+    # Drop alpha and reorder ARGB -> RGB
+    image = argb[:, :, 1:4]
   return image
 
 
@@ -578,4 +587,3 @@ def main() -> None:
 
 if __name__ == "__main__":
   main()
-
