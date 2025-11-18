@@ -443,7 +443,8 @@ class ShootingBotEnv(gym.Env):
 
     # Handle shooting
     reward = 0.0
-    done = False
+    terminated = False
+    truncated = False
 
     # Agent 0 shooting
     if shoot_flag == 1:
@@ -460,19 +461,19 @@ class ShootingBotEnv(gym.Env):
     # Episode termination conditions
     if not agent.alive:
       reward -= 1.0  # dying is bad
-      done = True
+      terminated = True
 
     opponents_alive = any(p.alive for p in self.players[1:])
     if not opponents_alive:
       reward += 1.0  # win bonus
-      done = True
+      terminated = True
 
     if self.step_count >= self.max_steps:
-      done = True
+      truncated = True
 
     obs = self._get_obs()
     info = {}
-    return obs, reward, done, info
+    return obs, reward, terminated, truncated, info
 
   # --- Internal helpers ---
 
