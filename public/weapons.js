@@ -8,7 +8,7 @@ const WEAPONS = {
     name: 'Pistol',
     description: 'Single-shot sidearm.',
     weaponLength: 30,
-    bulletSpeed: 10,
+    bulletSpeed: 11.5,
     bulletRadius: 5,
     cooldownMs: 90,
     automatic: false,

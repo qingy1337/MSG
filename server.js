@@ -507,7 +507,7 @@ const MAX_HEALTH = 100;
 const WEAPON_DAMAGE = {
   pistol: 14,   // ~4 shots to kill
   autoRifle: 9, // ~8-9 shots to kill, balances high ROF
-  sniper: 100,  // 1 shot
+  sniper: 45,  // 1 shot
   miniGun: 2.5,
 };
 
