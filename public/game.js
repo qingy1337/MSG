@@ -142,7 +142,11 @@ function updateBullets() {
 
         if (distance < PLAYER_RADIUS + bRadius) {
           // Player hit
-          socket.emit("playerHit", { targetId: player.id, shooterId: bullet.playerId });
+          socket.emit("playerHit", {
+            targetId: player.id,
+            shooterId: bullet.playerId,
+            bulletId: typeof bullet.bulletId === "number" ? bullet.bulletId : undefined,
+          });
           bullets.splice(i, 1);
           break;
         }

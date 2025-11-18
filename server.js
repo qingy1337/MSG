@@ -494,7 +494,8 @@ const BOT_CONFIG = {
   // When bots are enabled, try to roughly fill up to this many total players.
   targetTotalPlayers: 4,
   maxPerMatch: 4,
-  moveSpeedPerTick: 4,
+  // Tuned so bots feel closer to human speed (~300 units/sec at 20 ticks/sec).
+  moveSpeedPerTick: 8,
   fireCooldownMs: 180,
   weaponKey: "pistol",
   playerRadius: 20,
@@ -519,11 +520,17 @@ const colors = [
 // Health and damage config
 const MAX_HEALTH = 100;
 const WEAPON_DAMAGE = {
-  pistol: 14,   // ~4 shots to kill
-  autoRifle: 9, // ~8-9 shots to kill, balances high ROF
-  sniper: 45,  // 1 shot
-  miniGun: 2.5,
+  // These values are the *actual* per-shot damage used on the server.
+  // They were manually doubled after fixing the old "double hit" bug.
+  pistol: 28,
+  autoRifle: 18,
+  sniper: 90,
+  miniGun: 5,
 };
+
+// Bullet bookkeeping so each bullet only ever applies damage once.
+let nextBulletId = 1;
+const processedBulletHits = new Set();
 
 io.on("connection", (socket) => {
   const cookieHeader =
@@ -700,6 +707,7 @@ io.on("connection", (socket) => {
       }
       io.emit("newBullet", {
         ...bulletData,
+        bulletId: nextBulletId++,
         playerId: socket.id,
       });
     }
@@ -710,6 +718,18 @@ io.on("connection", (socket) => {
     // Backward compatibility: if payload is a string, treat as target only
     let targetId = typeof payload === 'string' ? payload : payload && payload.targetId;
     const shooterId = payload && payload.shooterId ? payload.shooterId : null;
+    const bulletId =
+      payload && typeof payload.bulletId === "number"
+        ? payload.bulletId
+        : null;
+
+    // If we've already processed a hit for this bullet, ignore duplicates
+    if (bulletId != null) {
+      if (processedBulletHits.has(bulletId)) {
+        return;
+      }
+      processedBulletHits.add(bulletId);
+    }
 
     const target = activePlayers.find((p) => p.id === targetId);
     if (!target || !target.alive) return;
@@ -813,6 +833,9 @@ function resetGame() {
   gameWalls.length = 0;
   gameInProgress.status = false;
   nextBotId = 1;
+   // Reset bullet bookkeeping between matches
+  nextBulletId = 1;
+  processedBulletHits.clear();
   io.emit("resetGame");
   console.log("Game reset");
 }
@@ -1205,6 +1228,7 @@ function fireBulletFromBot(bot) {
   }
 
   io.emit("newBullet", {
+    bulletId: nextBulletId++,
     x: tipX,
     y: tipY,
     angle: bot.angle,
