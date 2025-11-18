@@ -495,7 +495,7 @@ const BOT_CONFIG = {
   targetTotalPlayers: 4,
   maxPerMatch: 4,
   // Tuned so bots feel closer to human speed (~300 units/sec at 20 ticks/sec).
-  moveSpeedPerTick: 8,
+  moveSpeedPerTick: 10,
   fireCooldownMs: 180,
   weaponKey: "pistol",
   playerRadius: 20,
@@ -1196,6 +1196,43 @@ function computeScriptedBotAction(bot, players, walls) {
     walls,
   );
   const shouldShoot = hasLineOfSight && dist < 550;
+
+  // Occasionally pause movement so bots don't orbit forever in stalemates.
+  const now = Date.now();
+  const botState =
+    bot.botState && typeof bot.botState === "object"
+      ? bot.botState
+      : (bot.botState = {});
+  const PAUSE_INTERVAL_MS = 20000; // roughly "once every 20 seconds"
+  const MIN_PAUSE_MS = 800;
+  const MAX_PAUSE_MS = 1600;
+
+  if (typeof botState.pauseUntil === "number") {
+    if (now < botState.pauseUntil) {
+      // Currently paused: stop movement but still allow aiming/shooting.
+      moveX = 0;
+      moveY = 0;
+    } else {
+      // Pause expired.
+      botState.pauseUntil = null;
+    }
+  } else {
+    const lastDecision =
+      typeof botState.lastPauseDecisionAt === "number"
+        ? botState.lastPauseDecisionAt
+        : 0;
+    if (now - lastDecision >= PAUSE_INTERVAL_MS) {
+      botState.lastPauseDecisionAt = now;
+      // Randomize whether we actually pause at this interval boundary.
+      if (Math.random() < 0.6) {
+        const duration =
+          MIN_PAUSE_MS + Math.random() * (MAX_PAUSE_MS - MIN_PAUSE_MS);
+        botState.pauseUntil = now + duration;
+        moveX = 0;
+        moveY = 0;
+      }
+    }
+  }
 
   return { moveX, moveY, aimAngle, shoot: shouldShoot };
 }
