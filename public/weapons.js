@@ -20,7 +20,7 @@ const WEAPONS = {
     weaponLength: 40,
     bulletSpeed: 12,
     bulletRadius: 4,
-    cooldownMs: 90, // ~10 shots/second
+    cooldownMs: 80, // ~10 shots/second
     automatic: true,
   },
   miniGun: {
