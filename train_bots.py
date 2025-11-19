@@ -9,6 +9,7 @@ import random
 import wandb
 from dataclasses import dataclass
 from typing import List, Tuple
+from stable_baselines3.common.vec_env import DummyVecEnv, VecVideoRecorder
 from wandb.integration.sb3 import WandbCallback
 import numpy as np
 
@@ -479,9 +480,17 @@ class ShootingBotEnv(gym.Env):
 
 def main():
     # STAGE 0
+    stage = 0
     print("--- STAGE 0: Training with RecurrentPPO & Projectiles ---")
 
-    env = ShootingBotEnv(num_opponents=1, difficulty="easy")
+    env = ShootingBotEnv(num_opponents=1, difficulty="static")
+    env = VecVideoRecorder(
+        env,
+        f"videos/recurrent_rl_{stage}",
+        record_video_trigger = lambda x: x % 10000 == 0,
+        video_length = 200,
+    )
+    stage += 1
 
     # RecurrentPPO automatically handles the LSTM hidden states
     model = RecurrentPPO(
@@ -506,6 +515,7 @@ def main():
         config=config,
         sync_tensorboard=True,
         monitor_gym=True,
+        save_code=True,
     )
 
     model.learn(total_timesteps=500_000, callback=WandbCallback())
@@ -514,6 +524,13 @@ def main():
     # STAGE 1: Train vs 1 Easy Bot
     print("--- STAGE 1: 1v1 vs Easy Bot ---")
     env = ShootingBotEnv(num_opponents=1, difficulty="easy")
+    env = VecVideoRecorder(
+        env,
+        f"videos/recurrent_rl_{stage}",
+        record_video_trigger = lambda x: x % 10000 == 0,
+        video_length = 200,
+    )
+    stage += 1
 
     model.set_env(env)
     model.learn(total_timesteps=1_000_000, callback=WandbCallback())
@@ -522,6 +539,13 @@ def main():
     # STAGE 2: Train vs 2 Easy Bot
     print("--- STAGE 2: 1v2 vs Easy Bot ---")
     env = ShootingBotEnv(num_opponents=2, difficulty="easy")
+    env = VecVideoRecorder(
+        env,
+        f"videos/recurrent_rl_{stage}",
+        record_video_trigger = lambda x: x % 10000 == 0,
+        video_length = 200,
+    )
+    stage += 1
 
     model.set_env(env)
     model.learn(total_timesteps=1_000_000, callback=WandbCallback())
@@ -530,6 +554,13 @@ def main():
     # STAGE 3: Train vs 3 Easy Bot
     print("--- STAGE 3: 1v3 vs Easy Bot ---")
     env = ShootingBotEnv(num_opponents=3, difficulty="easy")
+    env = VecVideoRecorder(
+        env,
+        f"videos/recurrent_rl_{stage}",
+        record_video_trigger = lambda x: x % 10000 == 0,
+        video_length = 200,
+    )
+    stage += 1
 
     model.set_env(env)
     model.learn(total_timesteps=1_000_000, callback=WandbCallback())
@@ -538,6 +569,12 @@ def main():
     # STAGE 4: Train vs 3 Hard Bots
     print("--- STAGE 4: 1v3 vs Hard Bots ---")
     env = ShootingBotEnv(num_opponents=3, difficulty="hard")
+    env = VecVideoRecorder(
+        env,
+        f"videos/recurrent_rl_{stage}",
+        record_video_trigger = lambda x: x % 100000 == 0,
+        video_length = 200,
+    )
 
     # Load previous weights
     model.set_env(env)
