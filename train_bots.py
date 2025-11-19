@@ -213,10 +213,10 @@ class ShootingBotEnv(gym.Env):
 
         # Survival Reward
         if agent.alive:
-            reward += 0.01
+            reward -= 0.005
 
         # Damage Dealt Reward (Delayed!)
-        reward += bullet_hits_damage * 0.2
+        reward += bullet_hits_damage * 0.5
 
         # Orientation Reward (Aim at enemy)
         reward += self._orientation_reward() * 0.01
@@ -224,13 +224,14 @@ class ShootingBotEnv(gym.Env):
         # Death Penalty
         terminated = False
         if not agent.alive:
-            reward -= 1.0
+            reward -= 2.0
             terminated = True
 
         # Win Reward
         opponents_alive = sum(1 for p in self.players[1:] if p.alive)
         if opponents_alive == 0:
-            reward += 5.0 # Big bonus for winning
+            reward += 20.0 # Big bonus for winning
+            reward += (self.max_steps - self.step_count) * 0.01
             terminated = True
 
         truncated = (self.step_count >= self.max_steps)
