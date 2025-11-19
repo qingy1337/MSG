@@ -341,6 +341,11 @@ class ShootingBotEnv(gym.Env):
 
         p.cooldown_steps = weapon_cooldown_steps("pistol")
 
+        # Make enemies (non-agent players) shoot half as fast
+        # by giving them double the cooldown compared to the agent.
+        if idx != 0:
+            p.cooldown_steps *= 2
+
     def _step_opponent(self, idx):
         bot = self.players[idx]
         target = self.players[0]
