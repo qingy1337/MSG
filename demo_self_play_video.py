@@ -1,16 +1,13 @@
 """
-Demo script: have trained PPO bots battle each other and save a video.
+Demo script: have trained PPO bots battle each other (PISTOL ONLY) and save a video.
 
 Usage (after training with train_bots.py on your GPU machine):
 
   pip install "stable-baselines3[extra]" matplotlib imageio
   python demo_self_play_video.py --model bot_policy.zip --out bot_battle.mp4
 
-This script:
-  - Loads the PPO policy trained in train_bots.py.
-  - Creates a small self-play arena where N bots all use the same policy.
-  - Runs one episode and records frames using matplotlib.
-  - Writes an MP4 (or GIF) via imageio.
+This script includes fixes to ensure bots prioritize aiming at ALIVE enemies
+instead of staring at dead bodies.
 """
 
 from __future__ import annotations
@@ -25,27 +22,27 @@ import numpy as np
 
 try:
   from stable_baselines3 import PPO
-except ImportError as exc:  # pragma: no cover - import hint only
+except ImportError as exc:
   raise ImportError(
     "stable-baselines3 is required. Try: pip install 'stable-baselines3[extra]'"
   ) from exc
 
 try:
   import matplotlib.pyplot as plt
-except ImportError as exc:  # pragma: no cover - import hint only
+except ImportError as exc:
   raise ImportError(
     "matplotlib is required for rendering. Try: pip install matplotlib"
   ) from exc
 
 try:
   import imageio.v2 as imageio
-except ImportError as exc:  # pragma: no cover - import hint only
+except ImportError as exc:
   raise ImportError(
     "imageio is required for video writing. Try: pip install imageio[ffmpeg]"
   ) from exc
 
 # Import shared geometry + constants from the training script
-from train_bots import (  # type: ignore
+from train_bots import (
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
   PLAYER_RADIUS,
@@ -70,8 +67,7 @@ from train_bots import (  # type: ignore
 class BattleConfig:
   num_bots: int = 2
   max_steps: int = 600
-  randomize_weapon: bool = True
-  fixed_weapon: str | None = None
+  fixed_weapon: str = "pistol" # Force pistol default
   fps: int = 20
 
 
@@ -80,7 +76,6 @@ class SelfPlayArena:
   Lightweight self-play arena:
     - All players are controlled by the same PPO policy.
     - Physics / geometry mirror train_bots.ShootingBotEnv.
-    - No gym dependency; we just step the world manually.
   """
 
   def __init__(self, cfg: BattleConfig) -> None:
@@ -92,7 +87,7 @@ class SelfPlayArena:
 
     # Movement / shooting parameters (mirrors ShootingBotEnv)
     self.move_speed = 5.0
-    self.turn_speed = 0.2
+    self.turn_speed = 0.15 # Matches training script
     self.aim_cone_rad = 0.3
 
   def reset(self, *, seed: int | None = None) -> None:
@@ -107,12 +102,9 @@ class SelfPlayArena:
     for _ in range(self.cfg.num_bots):
       x, y = sample_spawn_position(self.walls, self.players)
       angle = random.uniform(-math.pi, math.pi)
-      if self.cfg.fixed_weapon is not None:
-        weapon_key = self.cfg.fixed_weapon
-      elif self.cfg.randomize_weapon:
-        weapon_key = random.choice(WEAPON_KEYS)
-      else:
-        weapon_key = "autoRifle"
+      # Force configured weapon (default pistol)
+      weapon_key = self.cfg.fixed_weapon
+
       self.players.append(
         PlayerState(
           x=x,
@@ -134,7 +126,10 @@ class SelfPlayArena:
       agent_index: int,
   ) -> np.ndarray:
     """
-    Build observation for one agent, matching train_bots.ShootingBotEnv._get_obs.
+    Build observation for one agent.
+    CRITICAL FIX: Sort enemies by ALIVE status first, then DISTANCE.
+    This ensures the network sees the immediate live threat in the first input slots,
+    rather than staring at the dead body of index 1.
     """
     agent = players[agent_index]
 
@@ -150,6 +145,9 @@ class SelfPlayArena:
     if agent.weapon_key in WEAPON_KEYS:
       w_idx = WEAPON_KEYS.index(agent.weapon_key)
       w_one_hot[w_idx] = 1.0
+    else:
+      # fallback pistol
+      w_one_hot[0] = 1.0
 
     # Wall raycasts (8 directions around the agent)
     num_rays = 8
@@ -162,22 +160,32 @@ class SelfPlayArena:
       d_norm = (d / max_dist) * 2.0 - 1.0
       ray_feats.append(d_norm)
 
-    # Other players (up to 4)
-    other_feats: List[float] = []
-    max_others = 4
-    others: List[PlayerState] = []
+    # --- SORTING LOGIC START ---
+    potential_enemies = []
     for idx, other in enumerate(players):
       if idx == agent_index:
         continue
-      others.append(other)
-      if len(others) >= max_others:
-        break
 
-    for other in others:
-      alive_flag = 1.0 if other.alive else 0.0
       dx = other.x - agent.x
       dy = other.y - agent.y
       dist = math.hypot(dx, dy)
+      is_dead = not other.alive
+
+      # Sort Keys: 1. Dead? (False < True), 2. Distance (Low < High)
+      potential_enemies.append((is_dead, dist, other))
+
+    potential_enemies.sort(key=lambda x: (x[0], x[1]))
+    # --- SORTING LOGIC END ---
+
+    other_feats: List[float] = []
+    max_others = 4
+
+    # Process top N sorted enemies
+    for _, dist, other in potential_enemies[:max_others]:
+      alive_flag = 1.0 if other.alive else 0.0
+      dx = other.x - agent.x
+      dy = other.y - agent.y
+
       rel_x = (dx / CANVAS_WIDTH) * 2.0
       rel_y = (dy / CANVAS_HEIGHT) * 2.0
       dist_norm = (dist / max_dist) * 2.0 - 1.0
@@ -185,6 +193,7 @@ class SelfPlayArena:
       cos_rel = math.cos(rel_angle)
       sin_rel = math.sin(rel_angle)
       health_norm_other = (other.health / MAX_HEALTH) * 2.0 - 1.0
+
       other_feats.extend(
         [
           alive_flag,
@@ -287,7 +296,7 @@ class SelfPlayArena:
   def _fire_weapon(self, shooter_idx: int) -> None:
     """
     Perform a hitscan shot from shooter. Mutates health / alive / cooldown.
-    Mirrors ShootingBotEnv._fire_weapon, but without reward shaping.
+    Mirrors ShootingBotEnv._fire_weapon.
     """
     shooter = self.players[shooter_idx]
     if not shooter.alive:
@@ -297,23 +306,27 @@ class SelfPlayArena:
 
     weapon_key = shooter.weapon_key
     dmg = weapon_damage(weapon_key)
-    max_range = WEAPONS[weapon_key]["range"]
+    max_range = WEAPONS.get(weapon_key, WEAPONS["pistol"])["range"]
 
     x0, y0 = shooter.x, shooter.y
-    x1 = x0 + math.cos(shooter.angle) * max_range
-    y1 = y0 + math.sin(shooter.angle) * max_range
 
-    hit_any = False
-
+    # Sort targets by distance to ensure we hit the closest valid target
+    potential_targets = []
     for t_idx, target in enumerate(self.players):
       if t_idx == shooter_idx or not target.alive:
         continue
+      dist = math.hypot(target.x - x0, target.y - y0)
+      potential_targets.append((dist, target))
+
+    potential_targets.sort(key=lambda x: x[0])
+
+    hit_any = False
+
+    for dist, target in potential_targets:
+      if dist > max_range: continue
 
       dx = target.x - x0
       dy = target.y - y0
-      dist = math.hypot(dx, dy)
-      if dist <= 1e-6 or dist > max_range:
-        continue
 
       angle_to_target = math.atan2(dy, dx)
       diff = abs(smallest_angle_diff(angle_to_target, shooter.angle))
@@ -331,13 +344,15 @@ class SelfPlayArena:
       if target.health <= 0 and target.alive:
         target.alive = False
 
+      # Hitscan only hits the first valid target
+      break
+
     if hit_any:
       shooter.cooldown_steps = weapon_cooldown_steps(weapon_key)
 
   def step(self, actions: List[int]) -> bool:
     """
     Apply one step for all bots.
-
     Returns:
       done (bool): True if battle finished (one or zero bots alive or max_steps).
     """
@@ -407,7 +422,7 @@ def render_frame(
   colors = ["tab:blue", "tab:red", "tab:green", "tab:orange", "tab:purple"]
   for idx, player in enumerate(arena.players):
     color = colors[idx % len(colors)]
-    alpha = 1.0 if player.alive else 0.2
+    alpha = 1.0 if player.alive else 0.15 # Made dead bodies fainter
 
     circ = plt.Circle(
       (player.x, player.y),
@@ -424,32 +439,33 @@ def render_frame(
     nose_y = player.y + math.sin(player.angle) * PLAYER_RADIUS
     ax.plot([player.x, nose_x], [player.y, nose_y], color="white", linewidth=1.0)
 
-    # Health bar
-    health_frac = max(0.0, min(1.0, player.health / MAX_HEALTH))
-    bar_width = 30.0
-    bar_height = 4.0
-    bar_x = player.x - bar_width / 2.0
-    bar_y = player.y + PLAYER_RADIUS + 6.0
-    ax.add_patch(
-      plt.Rectangle(
-        (bar_x, bar_y),
-        bar_width,
-        bar_height,
-        color="black",
-        alpha=0.6,
-      )
-    )
-    ax.add_patch(
-      plt.Rectangle(
-        (bar_x, bar_y),
-        bar_width * health_frac,
-        bar_height,
-        color="limegreen",
-        alpha=0.9,
-      )
-    )
+    # Health bar (only if alive)
+    if player.alive:
+        health_frac = max(0.0, min(1.0, player.health / MAX_HEALTH))
+        bar_width = 30.0
+        bar_height = 4.0
+        bar_x = player.x - bar_width / 2.0
+        bar_y = player.y + PLAYER_RADIUS + 6.0
+        ax.add_patch(
+          plt.Rectangle(
+            (bar_x, bar_y),
+            bar_width,
+            bar_height,
+            color="black",
+            alpha=0.6,
+          )
+        )
+        ax.add_patch(
+          plt.Rectangle(
+            (bar_x, bar_y),
+            bar_width * health_frac,
+            bar_height,
+            color="limegreen",
+            alpha=0.9,
+          )
+        )
 
-  ax.set_title(f"Bot self-play battle — step {step_idx}", color="white")
+  ax.set_title(f"Bot self-play battle (Pistol) — step {step_idx}", color="white")
 
   fig.canvas.draw()
   canvas = fig.canvas
@@ -472,17 +488,16 @@ def run_battle_video(
     num_bots: int = 2,
     max_steps: int = 600,
     seed: int | None = 123,
-    weapon: str | None = None,
     fps: int = 20,
 ) -> None:
   """
   Run one self-play battle and save it as a video.
   """
+  # Enforce pistol in config
   cfg = BattleConfig(
     num_bots=num_bots,
     max_steps=max_steps,
-    randomize_weapon=weapon is None,
-    fixed_weapon=weapon,
+    fixed_weapon="pistol",
     fps=fps,
   )
   arena = SelfPlayArena(cfg)
@@ -525,38 +540,31 @@ def run_battle_video(
 
 def _parse_args() -> argparse.Namespace:
   parser = argparse.ArgumentParser(
-    description="Run a self-play battle between PPO bots and save a video."
+    description="Run a self-play battle between PPO bots (Pistol Only)."
   )
   parser.add_argument(
     "--model",
     type=str,
     default="bot_policy.zip",
-    help="Path to trained PPO model (bot_policy.zip from train_bots.py).",
+    help="Path to trained PPO model.",
   )
   parser.add_argument(
     "--out",
     type=str,
     default="bot_battle.mp4",
-    help="Output video path (e.g. bot_battle.mp4 or bot_battle.gif).",
+    help="Output video path.",
   )
   parser.add_argument(
     "--num-bots",
     type=int,
     default=2,
-    help="Number of bots (2–5) that share the same policy.",
+    help="Number of bots (2–5).",
   )
   parser.add_argument(
     "--max-steps",
     type=int,
     default=600,
     help="Maximum number of simulation steps.",
-  )
-  parser.add_argument(
-    "--weapon",
-    type=str,
-    default=None,
-    choices=[None, "pistol", "autoRifle", "miniGun", "sniper"],
-    help="If set, force all bots to use this weapon. Default: random per bot.",
   )
   parser.add_argument(
     "--fps",
@@ -570,17 +578,11 @@ def _parse_args() -> argparse.Namespace:
 def main() -> None:
   args = _parse_args()
 
-  weapon = args.weapon
-  # argparse passes None as string if choices include None; handle that.
-  if isinstance(weapon, str) and weapon.lower() == "none":
-    weapon = None
-
   run_battle_video(
     model_path=args.model,
     output_path=args.out,
     num_bots=args.num_bots,
     max_steps=args.max_steps,
-    weapon=weapon,
     fps=args.fps,
     seed=random.randint(1,500),
   )
@@ -588,4 +590,3 @@ def main() -> None:
 
 if __name__ == "__main__":
   main()
-
