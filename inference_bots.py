@@ -8,7 +8,7 @@ import math
 import random
 import numpy as np
 import cv2
-from dataclasses import dataclass
+from msg_env import Bullet, PlayerState, Wall
 from typing import List, Tuple
 
 try:
@@ -43,35 +43,6 @@ def wrap_angle(angle: float) -> float:
 
 def smallest_angle_diff(target: float, source: float) -> float:
     return wrap_angle(target - source)
-
-@dataclass
-class Bullet:
-    x: float
-    y: float
-    vx: float
-    vy: float
-    owner_idx: int
-    steps_alive: int = 0
-    active: bool = True
-
-@dataclass
-class PlayerState:
-    x: float
-    y: float
-    angle: float
-    health: float
-    weapon_key: str
-    alive: bool = True
-    cooldown_steps: int = 0
-    vx: float = 0.0
-    vy: float = 0.0
-
-@dataclass
-class Wall:
-    x: float
-    y: float
-    width: float
-    height: float
 
 def is_point_inside_wall(px: float, py: float, wall: Wall) -> bool:
     return (wall.x <= px <= wall.x + wall.width and
