@@ -22,6 +22,38 @@ WEAPON_KEYS: List[str] = list(WEAPONS.keys())
 COOLDOWN_SCALE = 3.0
 ENV_STEP_MS = 50.0
 
+
+@dataclass
+class Bullet:
+    x: float
+    y: float
+    vx: float
+    vy: float
+    owner_idx: int
+    steps_alive: int = 0
+    active: bool = True
+
+@dataclass
+class PlayerState:
+    x: float
+    y: float
+    angle: float
+    health: float
+    weapon_key: str
+    alive: bool = True
+    cooldown_steps: int = 0
+    # We track velocity for observation purposes (optional but helpful for leading shots)
+    vx: float = 0.0
+    vy: float = 0.0
+
+@dataclass
+class Wall:
+    x: float
+    y: float
+    width: float
+    height: float
+
+
 def weapon_cooldown_steps(weapon_key: str) -> int:
     return max(1, int(round(90 / ENV_STEP_MS)))
 
@@ -80,36 +112,6 @@ def raycast_distance(x0, y0, angle, walls, max_dist):
              if is_point_inside_wall(px, py, w): return d
         d += step
     return max_dist
-
-@dataclass
-class Bullet:
-    x: float
-    y: float
-    vx: float
-    vy: float
-    owner_idx: int
-    steps_alive: int = 0
-    active: bool = True
-
-@dataclass
-class PlayerState:
-    x: float
-    y: float
-    angle: float
-    health: float
-    weapon_key: str
-    alive: bool = True
-    cooldown_steps: int = 0
-    # We track velocity for observation purposes (optional but helpful for leading shots)
-    vx: float = 0.0
-    vy: float = 0.0
-
-@dataclass
-class Wall:
-    x: float
-    y: float
-    width: float
-    height: float
 
 # --- Environment ---
 
