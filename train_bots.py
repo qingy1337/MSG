@@ -313,44 +313,41 @@ class ShootingBotEnv(gym.Env):
     def _step_opponent(self, idx):
         bot = self.players[idx]
         target = self.players[0]
-        bot.vx, bot.vy = 0, 0
-
         if not bot.alive or not target.alive: return
 
-        # Leading logic for hard bots (Basic)
-        if self.difficulty == "hard":
-            # Predict target pos based on distance
-            dist = math.hypot(target.x - bot.x, target.y - bot.y)
-            time_to_hit = dist / BULLET_SPEED
-            pred_x = target.x + target.vx * time_to_hit
-            pred_y = target.y + target.vy * time_to_hit
-            desired_angle = math.atan2(pred_y - bot.y, pred_x - bot.x)
-        else:
-            desired_angle = math.atan2(target.y - bot.y, target.x - bot.x)
+        dx = target.x - bot.x
+        dy = target.y - bot.y
+        dist = math.hypot(dx, dy)
+        desired_angle = math.atan2(dy, dx)
 
-        # Basic movement logic
-        angle_diff = smallest_angle_diff(desired_angle, bot.angle)
-        dist = math.hypot(target.x - bot.x, target.y - bot.y)
+        if self.difficulty == "static":
+            return
+        elif self.difficulty == "easy":
+            aim_error = random.uniform(-0.5, 0.5)
+            diff = smallest_angle_diff(desired_angle + aim_error, bot.angle)
+            if dist > 300: move = 1
+            elif dist < 100: move = 2
+            else: move = 0
+            strafe = 0
+            if random.random() < 0.1: strafe = random.choice([1,2])
+            should_shoot = (abs(diff) < 0.5 and dist < 500 and random.random() < 0.05)
+        else: # hard
+            aim_error = random.uniform(-0.1, 0.1)
+            diff = smallest_angle_diff(desired_angle + aim_error, bot.angle)
+            if dist > 250: move = 1
+            elif dist < 150: move = 2
+            else: move = 0
+            strafe = 0
+            if random.random() < 0.2: strafe = random.choice([1,2])
+            should_shoot = (abs(diff) < 0.3 and dist < 600)
 
-        move, strafe, turn = 0, 0, 0
-
-        if angle_diff > 0.1: turn = 1
-        elif angle_diff < -0.1: turn = 2
-
-        if dist > 400: move = 1
-        elif dist < 150: move = 2
-
-        # Strafe randomly to be harder to hit
-        if random.random() < 0.05:
-            strafe = random.choice([1, 2])
+        turn = 0
+        if diff > 0.1: turn = 1
+        elif diff < -0.1: turn = 2
 
         self._apply_movement(idx, move, strafe, turn)
-
-        # Shoot logic
-        if abs(angle_diff) < 0.4 and dist < 700:
-            # Randomly refrain from shooting sometimes
-            if random.random() < (0.2 if self.difficulty == "hard" else 0.05):
-                self._fire_weapon(idx)
+        if should_shoot:
+            self._fire_weapon(idx)
 
     def _apply_movement(self, idx, move, strafe, turn):
         p = self.players[idx]
