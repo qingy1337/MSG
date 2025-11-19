@@ -263,16 +263,25 @@ class ShootingBotEnv(gym.Env):
 
     def _fire_weapon(self, idx: int):
         p = self.players[idx]
-        if p.cooldown_steps > 0:
-            p.cooldown_steps -= 1
-            return
+        if p.cooldown_steps > 0: return
 
+        # Spawn Bullet
         vx = math.cos(p.angle) * BULLET_SPEED
         vy = math.sin(p.angle) * BULLET_SPEED
+
+        # Start bullet at edge of player radius so we don't hit ourselves immediately
         start_x = p.x + math.cos(p.angle) * (PLAYER_RADIUS + 2)
         start_y = p.y + math.sin(p.angle) * (PLAYER_RADIUS + 2)
-        self.bullets.append(Bullet(start_x, start_y, vx, vy, idx))
+
+        b = Bullet(start_x, start_y, vx, vy, idx)
+        self.bullets.append(b)
+
         p.cooldown_steps = weapon_cooldown_steps("pistol")
+
+        # Make enemies (non-agent players) shoot half as fast
+        # by giving them double the cooldown compared to the agent.
+        if idx != 0:
+            p.cooldown_steps *= 2
 
     def _step_opponent(self, idx):
         bot = self.players[idx]
