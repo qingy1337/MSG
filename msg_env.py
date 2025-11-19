@@ -1,4 +1,7 @@
 from dataclasses import dataclass
+import random
+import math
+from typing import List, Tuple
 
 # --- Constants ---
 
@@ -18,6 +21,65 @@ WEAPON_KEYS: List[str] = list(WEAPONS.keys())
 
 COOLDOWN_SCALE = 3.0
 ENV_STEP_MS = 50.0
+
+def weapon_cooldown_steps(weapon_key: str) -> int:
+    return max(1, int(round(90 / ENV_STEP_MS)))
+
+def wrap_angle(angle: float) -> float:
+    return (angle + math.pi) % (2 * math.pi) - math.pi
+
+def smallest_angle_diff(target: float, source: float) -> float:
+    return wrap_angle(target - source)
+
+def is_point_inside_wall(px: float, py: float, wall: Wall) -> bool:
+    return (wall.x <= px <= wall.x + wall.width and
+            wall.y <= py <= wall.y + wall.height)
+
+def circle_collides_walls(px: float, py: float, radius: float, walls: List[Wall]) -> bool:
+    for wall in walls:
+        closest_x = max(wall.x, min(px, wall.x + wall.width))
+        closest_y = max(wall.y, min(py, wall.y + wall.height))
+        dx = px - closest_x
+        dy = py - closest_y
+        if math.hypot(dx, dy) < radius:
+            return True
+    return False
+
+def generate_walls() -> List[Wall]:
+    walls: List[Wall] = []
+    for _ in range(random.randint(4, 6)):
+        w = random.randint(50, 250)
+        h = random.randint(20, 40)
+        if random.random() > 0.5: w, h = h, w
+        x = random.randint(50, CANVAS_WIDTH - 50 - int(w))
+        y = random.randint(50, CANVAS_HEIGHT - 50 - int(h))
+        walls.append(Wall(x, y, w, h))
+    return walls
+
+def sample_spawn_position(walls: List[Wall], existing: List[PlayerState]) -> Tuple[float, float]:
+    for _ in range(100):
+        x = random.uniform(40, CANVAS_WIDTH - 40)
+        y = random.uniform(40, CANVAS_HEIGHT - 40)
+        if circle_collides_walls(x, y, PLAYER_RADIUS + 10, walls): continue
+        valid = True
+        for p in existing:
+            if math.hypot(x - p.x, y - p.y) < 150: valid = False; break
+        if valid: return x, y
+    return 100.0, 100.0
+
+def raycast_distance(x0, y0, angle, walls, max_dist):
+    step = 25.0
+    d = 0.0
+    vx = math.cos(angle)
+    vy = math.sin(angle)
+    while d < max_dist:
+        px = x0 + vx * d
+        py = y0 + vy * d
+        if not (0 <= px <= CANVAS_WIDTH and 0 <= py <= CANVAS_HEIGHT): return d
+        for w in walls:
+             if is_point_inside_wall(px, py, w): return d
+        d += step
+    return max_dist
 
 @dataclass
 class Bullet:
