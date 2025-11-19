@@ -241,6 +241,9 @@ class ShootingBotEnv(gym.Env):
 
             reward += win_reward + time_bonus
             terminated = True
+        else:
+            reward_components["win"] = 0
+            reward_components["time_bonus"] = 0
 
         truncated = (self.step_count >= self.max_steps)
 
