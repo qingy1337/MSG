@@ -143,7 +143,7 @@ def raycast_distance(x0, y0, angle, walls, max_dist):
 # --- Environment ---
 
 class ShootingBotEnv(gym.Env):
-    def __init__(self, num_opponents: int = 1, max_steps: int = 800, difficulty: str = "easy"):
+    def __init__(self, num_opponents: int = 1, max_steps: int = 800, difficulty: str = "easy", bullet_radius: float = 5.0):
         super().__init__()
         self.num_opponents = num_opponents
         self.max_steps = max_steps
@@ -162,6 +162,8 @@ class ShootingBotEnv(gym.Env):
         self.bullets: List[Bullet] = []
         self.walls: List[Wall] = []
         self.step_count = 0
+
+        self.bullet_radius = bullet_radius
 
         self.move_speed = 5.0
         self.turn_speed = 0.15
@@ -275,7 +277,7 @@ class ShootingBotEnv(gym.Env):
 
                 # Circle-Circle collision (bullet radius + player radius)
                 dist = math.hypot(p.x - b.x, p.y - b.y)
-                if dist < (PLAYER_RADIUS + BULLET_RADIUS):
+                if dist < (PLAYER_RADIUS + self.bullet_radius):
                     p.health -= WEAPON_DAMAGE["pistol"]
                     b.active = False # Destroy bullet
 
@@ -478,12 +480,11 @@ class ShootingBotEnv(gym.Env):
         return np.concatenate([self_feats, ray_feats, enemy_feats, bullet_feats], dtype=np.float32)
 
 # --- Training ---
-
 def main():
     # STAGE 0
     print("--- STAGE 0: Training with RecurrentPPO & Projectiles ---")
 
-    env = ShootingBotEnv(num_opponents=1, difficulty="static")
+    env = ShootingBotEnv(num_opponents=1, difficulty="static", bullet_radius=30.0)
 
     # RecurrentPPO automatically handles the LSTM hidden states
     model = RecurrentPPO(
@@ -491,9 +492,9 @@ def main():
         env,
         verbose=1,
         learning_rate=3e-4,
-        n_steps=1024,         # Longer rollout for LSTM
-        batch_size=128,       # Larger batch for stability
-        ent_coef=0.02,        # Slightly higher entropy to encourage moving
+        n_steps=1024,
+        batch_size=128,
+        ent_coef=0.02,
         gamma=0.99,
         policy_kwargs={"lstm_hidden_size": 128, "n_lstm_layers": 1}
     )
@@ -516,7 +517,7 @@ def main():
 
     # STAGE 1: Train vs 1 Easy Bot
     print("--- STAGE 1: 1v1 vs Easy Bot ---")
-    env = ShootingBotEnv(num_opponents=1, difficulty="easy")
+    env = ShootingBotEnv(num_opponents=1, difficulty="easy", bullet_radius=20.0)
 
     model.set_env(env)
     model.learn(total_timesteps=1_000_000, callback=WandbCallback())
@@ -524,7 +525,7 @@ def main():
 
     # STAGE 2: Train vs 2 Easy Bot
     print("--- STAGE 2: 1v2 vs Easy Bot ---")
-    env = ShootingBotEnv(num_opponents=2, difficulty="easy")
+    env = ShootingBotEnv(num_opponents=2, difficulty="easy", bullet_radius=10.0)
 
     model.set_env(env)
     model.learn(total_timesteps=1_000_000, callback=WandbCallback())
