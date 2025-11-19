@@ -225,7 +225,7 @@ class ShootingBotEnv(gym.Env):
         reward_components["survival"] = -0.005 if agent.alive else 0.0
 
         # Damage Dealt Reward (Delayed!)
-        damage_reward = bullet_hits_damage * 0.5
+        damage_reward = bullet_hits_damage * 0.2
         reward += damage_reward
         reward_components["damage_dealt"] = damage_reward
 
@@ -244,8 +244,8 @@ class ShootingBotEnv(gym.Env):
         # Death Penalty
         terminated = False
         if not agent.alive:
-            reward -= 2.0
-            reward_components["death_penalty"] = -2.0
+            reward -= 10.0
+            reward_components["death_penalty"] = -10.0
             terminated = True
         else:
             reward_components["death_penalty"] = 0.0
@@ -534,7 +534,7 @@ def main():
     # STAGE 0
     print("--- STAGE 0: Training with RecurrentPPO & Projectiles ---")
 
-    env = ShootingBotEnv(num_opponents=1, difficulty="static", bullet_radius=10.0)
+    env = ShootingBotEnv(num_opponents=2, difficulty="easy", bullet_radius=10.0)
 
     # RecurrentPPO automatically handles the LSTM hidden states
     model = RecurrentPPO(
@@ -567,7 +567,7 @@ def main():
 
     # STAGE 1: Train vs 1 Easy Bot
     print("--- STAGE 1: 1v1 vs Easy Bot ---")
-    env = ShootingBotEnv(num_opponents=1, difficulty="easy", bullet_radius=10.0)
+    env = ShootingBotEnv(num_opponents=2, difficulty="easy", bullet_radius=10.0)
 
     model.set_env(env)
     model.learn(total_timesteps=1_000_000, callback=WandbCallback())
@@ -575,7 +575,7 @@ def main():
 
     # STAGE 2: Train vs 2 Easy Bot
     print("--- STAGE 2: 1v2 vs Easy Bot ---")
-    env = ShootingBotEnv(num_opponents=2, difficulty="easy", bullet_radius=10.0)
+    env = ShootingBotEnv(num_opponents=3, difficulty="easy", bullet_radius=10.0)
 
     model.set_env(env)
     model.learn(total_timesteps=1_000_000, callback=WandbCallback())
@@ -583,7 +583,7 @@ def main():
 
     # STAGE 3: Train vs 3 Easy Bot
     print("--- STAGE 3: 1v3 vs Easy Bot ---")
-    env = ShootingBotEnv(num_opponents=3, difficulty="easy")
+    env = ShootingBotEnv(num_opponents=2, difficulty="hard")
 
     model.set_env(env)
     model.learn(total_timesteps=1_000_000, callback=WandbCallback())
