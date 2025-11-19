@@ -5,6 +5,7 @@ const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
 const { WEAPON_SKINS } = require("./public/skins");
+const { WEAPONS } = require("./public/weapons");
 
 const app = express();
 const server = http.createServer(app);
@@ -495,13 +496,11 @@ const BOT_CONFIG = {
   targetTotalPlayers: 4,
   maxPerMatch: 4,
   // Tuned so bots feel closer to human speed (~300 units/sec at 20 ticks/sec).
-  moveSpeedPerTick: 10,
-  fireCooldownMs: 180,
-  weaponKey: "pistol",
+  moveSpeedPerTick: 11,
+  weaponKey: "sniper",
   playerRadius: 20,
   canvasWidth: 900,
   canvasHeight: 600,
-  weaponLength: 30,
 };
 let nextBotId = 1;
 const colors = [
@@ -1197,12 +1196,124 @@ function computeScriptedBotAction(bot, players, walls) {
   );
   const shouldShoot = hasLineOfSight && dist < 550;
 
-  // Occasionally pause movement so bots don't orbit forever in stalemates.
   const now = Date.now();
   const botState =
     bot.botState && typeof bot.botState === "object"
       ? bot.botState
       : (bot.botState = {});
+
+  // --- Simple "stuck near wall" detection + escape ---
+  // If the bot has been essentially in the same place for a short window
+  // *and* is right next to a wall, bias its movement to strafe around the wall
+  // instead of endlessly walking into it.
+  const STUCK_WINDOW_MS = 1200;
+  const STUCK_MIN_MOVEMENT = 15; // pixels over the window
+  const NEAR_WALL_MARGIN = 6;
+  const UNSTUCK_DURATION_MS = 900;
+
+  if (typeof botState.stuckSampleTime !== "number") {
+    botState.stuckSampleTime = now;
+    botState.stuckSampleX = bot.x;
+    botState.stuckSampleY = bot.y;
+  } else if (now - botState.stuckSampleTime >= STUCK_WINDOW_MS) {
+    const sx = typeof botState.stuckSampleX === "number" ? botState.stuckSampleX : bot.x;
+    const sy = typeof botState.stuckSampleY === "number" ? botState.stuckSampleY : bot.y;
+    const movedDx = bot.x - sx;
+    const movedDy = bot.y - sy;
+    const movedDistSq = movedDx * movedDx + movedDy * movedDy;
+    const movedLittle = movedDistSq < STUCK_MIN_MOVEMENT * STUCK_MIN_MOVEMENT;
+
+    const radius = BOT_CONFIG.playerRadius + NEAR_WALL_MARGIN;
+    const nearWall = circleCollidesAnyWall(bot.x, bot.y, radius, walls);
+
+    const alreadyUnstucking =
+      typeof botState.unstuckUntil === "number" && now < botState.unstuckUntil;
+
+    if (nearWall && movedLittle && !alreadyUnstucking) {
+      // Try strafing left/right around the target and pick the direction
+      // that is less likely to keep us jammed into the wall and, if possible,
+      // improves line of sight.
+      const lateral1 = { x: -dirY, y: dirX };
+      const lateral2 = { x: dirY, y: -dirX };
+
+      function scoreLateral(dir) {
+        const step = BOT_CONFIG.moveSpeedPerTick * 4;
+        const testRadius = BOT_CONFIG.playerRadius;
+        const width = BOT_CONFIG.canvasWidth;
+        const height = BOT_CONFIG.canvasHeight;
+
+        let tx = bot.x + dir.x * step;
+        let ty = bot.y + dir.y * step;
+        tx = Math.max(testRadius, Math.min(tx, width - testRadius));
+        ty = Math.max(testRadius, Math.min(ty, height - testRadius));
+
+        if (circleCollidesAnyWall(tx, ty, testRadius, walls)) {
+          return -Infinity; // walking straight into a wall
+        }
+
+        let score = 0;
+
+        const losFromCandidate = !lineIntersectsAnyWall(
+          tx,
+          ty,
+          target.x,
+          target.y,
+          walls,
+        );
+        if (losFromCandidate) score += 2;
+
+        const currDistSq = dx * dx + dy * dy;
+        const cdx = target.x - tx;
+        const cdy = target.y - ty;
+        const candDistSq = cdx * cdx + cdy * cdy;
+        if (candDistSq < currDistSq) score += 1;
+
+        return score;
+      }
+
+      const score1 = scoreLateral(lateral1);
+      const score2 = scoreLateral(lateral2);
+
+      let chosen = null;
+      if (score1 > -Infinity || score2 > -Infinity) {
+        if (score1 >= score2) {
+          chosen = lateral1;
+        } else {
+          chosen = lateral2;
+        }
+      }
+
+      if (chosen) {
+        botState.unstuckDirX = chosen.x;
+        botState.unstuckDirY = chosen.y;
+        botState.unstuckUntil = now + UNSTUCK_DURATION_MS;
+      }
+    }
+
+    // Start a new window from the current position either way.
+    botState.stuckSampleTime = now;
+    botState.stuckSampleX = bot.x;
+    botState.stuckSampleY = bot.y;
+  }
+
+  if (
+    typeof botState.unstuckUntil === "number" &&
+    now < botState.unstuckUntil &&
+    typeof botState.unstuckDirX === "number" &&
+    typeof botState.unstuckDirY === "number"
+  ) {
+    moveX = botState.unstuckDirX;
+    moveY = botState.unstuckDirY;
+  } else if (
+    typeof botState.unstuckUntil === "number" &&
+    now >= botState.unstuckUntil
+  ) {
+    botState.unstuckUntil = null;
+    botState.unstuckDirX = 0;
+    botState.unstuckDirY = 0;
+  }
+
+  // Occasionally pause movement so bots don't orbit forever in stalemates.
   const PAUSE_INTERVAL_MS = 20000; // roughly "once every 20 seconds"
   const MIN_PAUSE_MS = 800;
   const MAX_PAUSE_MS = 1600;
@@ -1252,7 +1363,7 @@ function circleCollidesAnyWall(cx, cy, radius, walls) {
 
 function fireBulletFromBot(bot) {
   if (!bot || !bot.alive) return false;
-  const weaponLength = BOT_CONFIG.weaponLength;
+  const weaponLength = WEAPONS[BOT_CONFIG.weaponKey].weaponLength;
   const tipX = bot.x + Math.cos(bot.angle) * weaponLength;
   const tipY = bot.y + Math.sin(bot.angle) * weaponLength;
 
@@ -1317,7 +1428,9 @@ function applyBotAction(bot, action, now) {
     const botState = bot.botState || (bot.botState = {});
     const lastShotAt =
       typeof botState.lastShotAt === "number" ? botState.lastShotAt : 0;
-    if (now - lastShotAt >= BOT_CONFIG.fireCooldownMs) {
+    // console.log(WEAPONS);
+    // console.log(BOT_CONFIG);
+    if (now - lastShotAt >= WEAPONS[BOT_CONFIG.weaponKey].cooldownMs) {
       if (fireBulletFromBot(bot)) {
         botState.lastShotAt = now;
       }

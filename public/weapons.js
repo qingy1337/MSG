@@ -46,3 +46,8 @@ const WEAPONS = {
 };
 
 const DEFAULT_WEAPON_KEY = 'pistol';
+
+// Node (server) export
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { WEAPONS, DEFAULT_WEAPON_KEY };
+}
