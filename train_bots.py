@@ -261,7 +261,7 @@ class ShootingBotEnv(gym.Env):
         truncated = (self.step_count >= self.max_steps)
 
         # Log reward components to wandb
-        wandb.log(reward_components, commit=False)
+        wandb.log(reward_components, commit=True)
 
         return self._get_obs(), reward, terminated, truncated, {}
 
