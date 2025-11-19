@@ -229,6 +229,13 @@ class ShootingBotEnv(gym.Env):
         reward += orientation_reward
         reward_components["orientation"] = orientation_reward
 
+        # Proximity Reward (encourage closing distance to enemies)
+        proximity_reward = 0.0
+        if agent.alive:
+            proximity_reward = self._proximity_reward() * 0.01
+            reward += proximity_reward
+        reward_components["proximity"] = proximity_reward
+
         # Death Penalty
         terminated = False
         if not agent.alive:
@@ -411,6 +418,28 @@ class ShootingBotEnv(gym.Env):
             if diff < 0.5:
                 best_align = max(best_align, (0.5 - diff) * 2.0)
         return best_align
+
+    def _proximity_reward(self) -> float:
+        """
+        Returns a value in [0, 1] that is larger
+        when the agent is closer to the nearest living enemy.
+        """
+        agent = self.players[0]
+        distances = [
+            math.hypot(p.x - agent.x, p.y - agent.y)
+            for p in self.players[1:]
+            if p.alive
+        ]
+        if not distances:
+            return 0.0
+
+        min_dist = min(distances)
+        max_reward_dist = 400.0  # within this distance we give shaped reward
+        if min_dist >= max_reward_dist:
+            return 0.0
+
+        # Closer enemies give higher reward, normalized to [0, 1]
+        return (max_reward_dist - min_dist) / max_reward_dist
 
     def _decode_action(self, action):
         a = int(action)
