@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import random
 import math
+import gym
 from typing import List, Tuple
 
 # --- Constants ---
