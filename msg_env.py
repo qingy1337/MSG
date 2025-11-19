@@ -24,7 +24,7 @@ WEAPON_DAMAGE = {"pistol": 20.0}
 WEAPONS = {"pistol": {"cooldown_ms": 90, "range": BULLET_LIFETIME * BULLET_SPEED}}
 WEAPON_KEYS: List[str] = list(WEAPONS.keys())
 
-COOLDOWN_SCALE = 1.0
+COOLDOWN_SCALE = 0.5
 ENV_STEP_MS = 50.0
 
 
