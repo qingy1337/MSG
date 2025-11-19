@@ -483,7 +483,7 @@ def main():
     stage = 0
     print("--- STAGE 0: Training with RecurrentPPO & Projectiles ---")
 
-    env = ShootingBotEnv(num_opponents=1, difficulty="static")
+    env = DummyVecEnv([ShootingBotEnv(num_opponents=1, difficulty="static")])
     env = VecVideoRecorder(
         env,
         f"videos/recurrent_rl_{stage}",
@@ -523,7 +523,7 @@ def main():
 
     # STAGE 1: Train vs 1 Easy Bot
     print("--- STAGE 1: 1v1 vs Easy Bot ---")
-    env = ShootingBotEnv(num_opponents=1, difficulty="easy")
+    env = DummyVecEnv([ShootingBotEnv(num_opponents=1, difficulty="easy")])
     env = VecVideoRecorder(
         env,
         f"videos/recurrent_rl_{stage}",
@@ -538,7 +538,7 @@ def main():
 
     # STAGE 2: Train vs 2 Easy Bot
     print("--- STAGE 2: 1v2 vs Easy Bot ---")
-    env = ShootingBotEnv(num_opponents=2, difficulty="easy")
+    env = DummyVecEnv([ShootingBotEnv(num_opponents=2, difficulty="easy")])
     env = VecVideoRecorder(
         env,
         f"videos/recurrent_rl_{stage}",
@@ -553,7 +553,7 @@ def main():
 
     # STAGE 3: Train vs 3 Easy Bot
     print("--- STAGE 3: 1v3 vs Easy Bot ---")
-    env = ShootingBotEnv(num_opponents=3, difficulty="easy")
+    env = DummyVecEnv([ShootingBotEnv(num_opponents=3, difficulty="easy")])
     env = VecVideoRecorder(
         env,
         f"videos/recurrent_rl_{stage}",
@@ -568,7 +568,7 @@ def main():
 
     # STAGE 4: Train vs 3 Hard Bots
     print("--- STAGE 4: 1v3 vs Hard Bots ---")
-    env = ShootingBotEnv(num_opponents=3, difficulty="hard")
+    env = DummyVecEnv([ShootingBotEnv(num_opponents=3, difficulty="hard")])
     env = VecVideoRecorder(
         env,
         f"videos/recurrent_rl_{stage}",
