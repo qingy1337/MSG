@@ -32,7 +32,7 @@ def main():
     # STAGE 0
     print("--- STAGE 0: Training with RecurrentPPO & Projectiles ---")
 
-    env = ShootingBotEnv(num_opponents=2, difficulty="easy", bullet_radius=10.0)
+    env = ShootingBotEnv(num_opponents=1, difficulty="easy", bullet_radius=10.0)
 
     # RecurrentPPO automatically handles the LSTM hidden states
     model = RecurrentPPO(
