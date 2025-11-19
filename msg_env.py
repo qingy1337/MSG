@@ -145,6 +145,7 @@ class ShootingBotEnv(gym.Env):
 
         self.move_speed = 5.0
         self.turn_speed = 0.15
+        self.mode = mode
 
     def reset(self, *, seed=None, options=None):
         if seed is not None:
