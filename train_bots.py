@@ -193,6 +193,11 @@ class ShootingBotEnv(gym.Env):
         self.step_count += 1
         agent = self.players[0]
 
+        # Update weapon cooldowns for all players
+        for p in self.players:
+            if p.cooldown_steps > 0:
+                p.cooldown_steps -= 1
+
         # 1. Decode and Apply Agent Action
         move, strafe, turn, shoot = self._decode_action(action)
 
@@ -335,6 +340,11 @@ class ShootingBotEnv(gym.Env):
         self.bullets.append(b)
 
         p.cooldown_steps = weapon_cooldown_steps("pistol")
+
+        # Make enemies (non-agent players) shoot half as fast
+        # by giving them double the cooldown compared to the agent.
+        if idx != 0:
+            p.cooldown_steps *= 2
 
     def _step_opponent(self, idx):
         bot = self.players[idx]
