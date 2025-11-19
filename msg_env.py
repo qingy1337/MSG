@@ -24,7 +24,7 @@ WEAPON_DAMAGE = {"pistol": 20.0}
 WEAPONS = {"pistol": {"cooldown_ms": 90, "range": BULLET_LIFETIME * BULLET_SPEED}}
 WEAPON_KEYS: List[str] = list(WEAPONS.keys())
 
-COOLDOWN_SCALE = 0.5
+COOLDOWN_SCALE = 3.0
 ENV_STEP_MS = 50.0
 
 
@@ -346,7 +346,7 @@ class ShootingBotEnv(gym.Env):
             else: move = 0
             strafe = 0
             if random.random() < 0.1: strafe = random.choice([1,2])
-            should_shoot = (abs(diff) < 0.5 and dist < 500 and random.random() < 0.05)
+            should_shoot = (abs(diff) < 0.5 and dist < 500 and random.random() < 0.2)
         else: # hard
             aim_error = random.uniform(-0.1, 0.1)
             diff = smallest_angle_diff(desired_angle + aim_error, bot.angle)
