@@ -42,7 +42,7 @@ def main():
         return
 
     print(f"Initializing Environment (Mode: {args.difficulty}, Opponents: {args.opponents})...")
-    env = ShootingBotEnv(num_opponents=args.opponents, difficulty=args.difficulty, bullet_radius=10.0)
+    env = ShootingBotEnv(num_opponents=args.opponents, difficulty=args.difficulty, bullet_radius=10.0, mode = "inference")
 
     # Video Writer Setup
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')

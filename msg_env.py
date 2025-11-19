@@ -3,6 +3,8 @@ import random
 import math
 import numpy as np
 import gym
+import wandb
+import cv2
 from gym import spaces
 from typing import List, Tuple
 
@@ -119,7 +121,7 @@ def raycast_distance(x0, y0, angle, walls, max_dist):
 # --- Environment ---
 
 class ShootingBotEnv(gym.Env):
-    def __init__(self, num_opponents: int = 1, max_steps: int = 800, difficulty: str = "easy", bullet_radius: float = 5.0):
+    def __init__(self, num_opponents: int = 1, max_steps: int = 800, difficulty: str = "easy", bullet_radius: float = 5.0, mode: str = "train"):
         super().__init__()
         self.num_opponents = num_opponents
         self.max_steps = max_steps
@@ -241,8 +243,9 @@ class ShootingBotEnv(gym.Env):
 
         truncated = (self.step_count >= self.max_steps)
 
-        # Log reward components to wandb
-        wandb.log(reward_components, commit=True)
+        if self.mode == "train":
+            # Log reward components to wandb
+            wandb.log(reward_components, commit=True)
 
         return self._get_obs(), reward, terminated, truncated, {}
 
