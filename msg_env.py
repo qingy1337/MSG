@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import random
 import math
+import numpy as np
 import gym
 from gym import spaces
 from typing import List, Tuple
