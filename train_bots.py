@@ -479,19 +479,19 @@ class ShootingBotEnv(gym.Env):
 # --- Training ---
 
 def stage_0():
-    return DummyVecEnv([ShootingBotEnv(num_opponents=1, difficulty="static")])
+    return ShootingBotEnv(num_opponents=1, difficulty="static")
 
 def stage_1():
-    return DummyVecEnv([ShootingBotEnv(num_opponents=1, difficulty="easy")])
+    return ShootingBotEnv(num_opponents=1, difficulty="easy")
 
 def stage_2():
-    return DummyVecEnv([ShootingBotEnv(num_opponents=2, difficulty="easy")])
+    return ShootingBotEnv(num_opponents=2, difficulty="easy")
 
 def stage_3():
-    return DummyVecEnv([ShootingBotEnv(num_opponents=3, difficulty="easy")])
+    return ShootingBotEnv(num_opponents=3, difficulty="easy")
 
 def stage_4():
-    return DummyVecEnv([ShootingBotEnv(num_opponents=3, difficulty="hard")])
+    return ShootingBotEnv(num_opponents=3, difficulty="hard")
 
 def main():
     # STAGE 0
