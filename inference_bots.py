@@ -33,6 +33,7 @@ BULLET_SPEED = 12.0
 BULLET_RADIUS = 10.0
 BULLET_LIFETIME = 50
 ENV_STEP_MS = 50.0
+COOLDOWN_SCALE = 3.0
 WEAPON_DAMAGE = {"pistol": 20.0}
 
 def weapon_cooldown_steps(weapon_key: str) -> int:
@@ -252,7 +253,7 @@ class ShootingBotEnv(gym.Env):
         # Make enemies (non-agent players) shoot half as fast
         # by giving them double the cooldown compared to the agent.
         if idx != 0:
-            p.cooldown_steps *= 2
+            p.cooldown_steps *= COOLDOWN_SCALE
 
     def _step_opponent(self, idx):
         bot = self.players[idx]

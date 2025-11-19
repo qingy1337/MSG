@@ -43,8 +43,7 @@ WEAPON_DAMAGE = {"pistol": 20.0}
 WEAPONS = {"pistol": {"cooldown_ms": 90, "range": BULLET_LIFETIME * BULLET_SPEED}}
 WEAPON_KEYS: List[str] = list(WEAPONS.keys())
 
-# To simulate NodeJS loop somewhat, we treat one Gym step as one game tick?
-# Or multiple? Let's assume 1 Gym step = 1 frame for smoother physics.
+COOLDOWN_SCALE = 3.0
 ENV_STEP_MS = 50.0
 
 def weapon_cooldown_steps(weapon_key: str) -> int:
@@ -314,7 +313,7 @@ class ShootingBotEnv(gym.Env):
         # Make enemies (non-agent players) shoot half as fast
         # by giving them double the cooldown compared to the agent.
         if idx != 0:
-            p.cooldown_steps *= 2
+            p.cooldown_steps *= COOLDOWN_SCALE
 
     def _step_opponent(self, idx):
         bot = self.players[idx]
