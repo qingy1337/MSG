@@ -493,11 +493,11 @@ const gameWalls = [];
 // Simple server-side bot config (step 0: scripted bots)
 const BOT_CONFIG = {
   // When bots are enabled, try to roughly fill up to this many total players.
-  targetTotalPlayers: 4,
-  maxPerMatch: 4,
+  targetTotalPlayers: 20,
+  maxPerMatch: 20,
   // Tuned so bots feel closer to human speed (~300 units/sec at 20 ticks/sec).
   moveSpeedPerTick: 11,
-  weaponKey: "sniper",
+  weaponKey: "miniGun",
   playerRadius: 20,
   canvasWidth: 900,
   canvasHeight: 600,
@@ -1101,11 +1101,24 @@ function createBotsForCurrentMatch(count) {
   );
   if (numBots === 0) return;
 
+  const radius = BOT_CONFIG.playerRadius;
+  const canvasWidth = BOT_CONFIG.canvasWidth;
+  const canvasHeight = BOT_CONFIG.canvasHeight;
+  let spawnX = radius + 20;
+  let spawnY = canvasHeight - radius - 20;
+  spawnX = Math.max(radius, Math.min(spawnX, canvasWidth - radius));
+  spawnY = Math.max(radius, Math.min(spawnY, canvasHeight - radius));
+  if (circleCollidesAnyWall(spawnX, spawnY, radius, gameWalls)) {
+    const fallback = getValidSpawnPosition(gameWalls, activePlayers);
+    spawnX = fallback.x;
+    spawnY = fallback.y;
+  }
+
   for (let i = 0; i < numBots; i++) {
     const botId = `bot-${nextBotId++}`;
     const color =
       colors[(activePlayers.length + i) % colors.length] || "#888888";
-    const spawn = getValidSpawnPosition(gameWalls, activePlayers);
+    const spawn = { x: spawnX, y: spawnY };
     const bot = {
       id: botId,
       name: `BOT ${i + 1}`,
@@ -1142,7 +1155,8 @@ function computeScriptedBotAction(bot, players, walls) {
   let target = null;
   let closestDistSq = Infinity;
   for (const p of players) {
-    if (!p || !p.alive || p.id === bot.id) continue;
+    // Bots should only target real players, never other bots (including themselves).
+    if (!p || !p.alive || p.id === bot.id || p.isBot) continue;
     const dx = p.x - bot.x;
     const dy = p.y - bot.y;
     const distSq = dx * dx + dy * dy;
@@ -1430,7 +1444,8 @@ function applyBotAction(bot, action, now) {
       typeof botState.lastShotAt === "number" ? botState.lastShotAt : 0;
     // console.log(WEAPONS);
     // console.log(BOT_CONFIG);
-    if (now - lastShotAt >= WEAPONS[BOT_CONFIG.weaponKey].cooldownMs) {
+    // console.log(WEAPONS[BOT_CONFIG.weaponKey].cooldownMs * 1/2);
+    if (now - lastShotAt >= WEAPONS[BOT_CONFIG.weaponKey].cooldownMs * (2 - 1)) {
       if (fireBulletFromBot(bot)) {
         botState.lastShotAt = now;
       }

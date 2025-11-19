@@ -4,7 +4,7 @@
     "username": "qing",
     "passwordHash": "120000:527376a4c7facb358546550205746662:8803cf5b1c16b4a2f9a8f8be0478fa4bec09c8104df42842cc397818c661e2ff",
     "currencies": {
-      "Coins": 725
+      "Coins": 2035
     },
     "skins": {
       "owned": [
@@ -23,7 +23,7 @@
       "equippedByWeapon": {
         "pistol": "pistol_cybernetic",
         "autoRifle": "autoRifle_christmas",
-        "miniGun": "miniGun_default",
+        "miniGun": "miniGun_infiniti",
         "sniper": "sniper_calibrated"
       }
     }
@@ -33,7 +33,7 @@
     "username": "ggg",
     "passwordHash": "120000:a49be03d05b22fc1548a7f81c13c9932:055e6938a50d6f05905763f50149b26e797ba7ea1bae352c4a8481f5699fd325",
     "currencies": {
-      "Coins": 640
+      "Coins": 2130
     },
     "skins": {
       "owned": [
@@ -52,7 +52,7 @@
       "equippedByWeapon": {
         "pistol": "pistol_cybernetic",
         "autoRifle": "autoRifle_christmas",
-        "miniGun": "miniGun_default",
+        "miniGun": "miniGun_infiniti",
         "sniper": "sniper_calibrated"
       }
     }
@@ -62,7 +62,7 @@
     "username": "yxli",
     "passwordHash": "120000:ae5baf6ccdc8ffeb57e9bd18294b2f85:64c2709e73d2e5c7c59c01bf905c65b8e777790c68e8597d6948377f9e2fd2f5",
     "currencies": {
-      "Coins": 95
+      "Coins": 870
     },
     "skins": {
       "owned": [
@@ -78,6 +78,28 @@
         "pistol": "pistol_basicBlue",
         "autoRifle": "autoRifle_cybernetic",
         "miniGun": "miniGun_infiniti",
+        "sniper": "sniper_default"
+      }
+    }
+  },
+  {
+    "id": 4,
+    "username": "ruo",
+    "passwordHash": "120000:9de7999fc787ef76db2c60df93c88dab:c054a9e1c534b36bf85cf050a4892d55008d415533ffef40d3a89c35efd74572",
+    "currencies": {
+      "Coins": 25
+    },
+    "skins": {
+      "owned": [
+        "pistol_default",
+        "autoRifle_default",
+        "miniGun_default",
+        "sniper_default"
+      ],
+      "equippedByWeapon": {
+        "pistol": "pistol_default",
+        "autoRifle": "autoRifle_default",
+        "miniGun": "miniGun_default",
         "sniper": "sniper_default"
       }
     }
