@@ -212,31 +212,50 @@ class ShootingBotEnv(gym.Env):
 
         # 4. Rewards
         reward = 0.0
+        reward_components = {}
 
         # Survival Reward
         if agent.alive:
             reward -= 0.005
+        reward_components["survival"] = -0.005 if agent.alive else 0.0
 
         # Damage Dealt Reward (Delayed!)
-        reward += bullet_hits_damage * 0.5
+        damage_reward = bullet_hits_damage * 0.5
+        reward += damage_reward
+        reward_components["damage_dealt"] = damage_reward
 
         # Orientation Reward (Aim at enemy)
-        reward += self._orientation_reward() * 0.01
+        orientation_reward = self._orientation_reward() * 0.01
+        reward += orientation_reward
+        reward_components["orientation"] = orientation_reward
 
         # Death Penalty
         terminated = False
         if not agent.alive:
             reward -= 2.0
+            reward_components["death_penalty"] = -2.0
             terminated = True
+        else:
+            reward_components["death_penalty"] = 0.0
 
         # Win Reward
         opponents_alive = sum(1 for p in self.players[1:] if p.alive)
+        win_reward = 0.0
+        time_bonus = 0.0
         if opponents_alive == 0:
-            reward += 20.0 # Big bonus for winning
-            reward += (self.max_steps - self.step_count) * 0.01
+            win_reward = 20.0 # Big bonus for winning
+            time_bonus = (self.max_steps - self.step_count) * 0.01
+            reward_components["win"] = win_reward
+            reward_components["time_bonus"] = time_bonus
+
+            reward += win_reward + time_bonus
             terminated = True
 
         truncated = (self.step_count >= self.max_steps)
+
+        # Log reward components to wandb
+        wandb.log(reward_components, commit=False)
+
         return self._get_obs(), reward, terminated, truncated, {}
 
     def _update_bullets(self) -> float:
@@ -481,7 +500,7 @@ def main():
     # STAGE 0
     print("--- STAGE 0: Training with RecurrentPPO & Projectiles ---")
 
-    env = ShootingBotEnv(num_opponents=1, difficulty="static", bullet_radius=30.0)
+    env = ShootingBotEnv(num_opponents=1, difficulty="static", bullet_radius=10.0)
 
     # RecurrentPPO automatically handles the LSTM hidden states
     model = RecurrentPPO(
@@ -514,7 +533,7 @@ def main():
 
     # STAGE 1: Train vs 1 Easy Bot
     print("--- STAGE 1: 1v1 vs Easy Bot ---")
-    env = ShootingBotEnv(num_opponents=1, difficulty="easy", bullet_radius=20.0)
+    env = ShootingBotEnv(num_opponents=1, difficulty="easy", bullet_radius=10.0)
 
     model.set_env(env)
     model.learn(total_timesteps=1_000_000, callback=WandbCallback())
