@@ -493,8 +493,8 @@ const gameWalls = [];
 // Simple server-side bot config (step 0: scripted bots)
 const BOT_CONFIG = {
   // When bots are enabled, try to roughly fill up to this many total players.
-  targetTotalPlayers: 20,
-  maxPerMatch: 20,
+  targetTotalPlayers: 9,
+  maxPerMatch: 9,
   // Tuned so bots feel closer to human speed (~300 units/sec at 20 ticks/sec).
   moveSpeedPerTick: 11,
   weaponKey: "miniGun",
@@ -1163,6 +1163,66 @@ function createBotsForCurrentMatch(count) {
   }
 }
 
+function computeLeadAim(
+  shooterX,
+  shooterY,
+  targetX,
+  targetY,
+  targetVelX,
+  targetVelY,
+  bulletSpeedPerSec,
+  maxLeadSeconds = 1.2,
+) {
+  if (!isFinite(bulletSpeedPerSec) || bulletSpeedPerSec <= 0) {
+    return null;
+  }
+
+  const rx = targetX - shooterX;
+  const ry = targetY - shooterY;
+  const a =
+    targetVelX * targetVelX +
+    targetVelY * targetVelY -
+    bulletSpeedPerSec * bulletSpeedPerSec;
+  const b = 2 * (rx * targetVelX + ry * targetVelY);
+  const c = rx * rx + ry * ry;
+
+  let t = null;
+
+  if (Math.abs(a) < 1e-6) {
+    if (Math.abs(b) > 1e-6) {
+      t = -c / b;
+    }
+  } else {
+    const disc = b * b - 4 * a * c;
+    if (disc >= 0) {
+      const sqrtDisc = Math.sqrt(disc);
+      const t1 = (-b - sqrtDisc) / (2 * a);
+      const t2 = (-b + sqrtDisc) / (2 * a);
+      const candidates = [t1, t2].filter(
+        (val) => val > 0 && Number.isFinite(val),
+      );
+      if (candidates.length > 0) {
+        t = Math.min(...candidates);
+      }
+    }
+  }
+
+  if (typeof t !== "number" || t <= 0 || !isFinite(t)) {
+    return null;
+  }
+
+  const leadTime = Math.min(t, maxLeadSeconds);
+  const aimX = targetX + targetVelX * leadTime;
+  const aimY = targetY + targetVelY * leadTime;
+
+  return {
+    aimX,
+    aimY,
+    angle: Math.atan2(aimY - shooterY, aimX - shooterX),
+    leadTime,
+  };
+}
+
 function computeScriptedBotAction(bot, players, walls) {
   if (!bot || !bot.alive) {
     return {
@@ -1172,6 +1232,12 @@ function computeScriptedBotAction(bot, players, walls) {
       shoot: false,
     };
   }
+
+  const now = Date.now();
+  const botState =
+    bot.botState && typeof bot.botState === "object"
+      ? bot.botState
+      : (bot.botState = {});
 
   let target = null;
   let closestDistSq = Infinity;
@@ -1202,6 +1268,50 @@ function computeScriptedBotAction(bot, players, walls) {
   const dirX = dx / dist;
   const dirY = dy / dist;
 
+  const weaponCfg = WEAPONS[BOT_CONFIG.weaponKey] || {};
+  const bulletSpeed =
+    typeof weaponCfg.bulletSpeed === "number" ? weaponCfg.bulletSpeed : 10;
+  const bulletSpeedPerSec = bulletSpeed * 60; // approximate client frame rate
+
+  const targetMemory =
+    botState.targetMemory && typeof botState.targetMemory === "object"
+      ? botState.targetMemory
+      : (botState.targetMemory = {});
+  const lastSeen = targetMemory[target.id];
+  let targetVelX = 0;
+  let targetVelY = 0;
+  if (lastSeen && typeof lastSeen.time === "number") {
+    const dt = (now - lastSeen.time) / 1000;
+    if (dt > 0.0001) {
+      targetVelX = (target.x - lastSeen.x) / dt;
+      targetVelY = (target.y - lastSeen.y) / dt;
+    }
+  }
+  targetMemory[target.id] = { x: target.x, y: target.y, time: now };
+  for (const key of Object.keys(targetMemory)) {
+    if (key !== target.id) {
+      delete targetMemory[key];
+    }
+  }
+
+  const lead = computeLeadAim(
+    bot.x,
+    bot.y,
+    target.x,
+    target.y,
+    targetVelX,
+    targetVelY,
+    bulletSpeedPerSec,
+  );
+  let aimTargetX = target.x;
+  let aimTargetY = target.y;
+  let aimAngle = Math.atan2(dy, dx);
+  if (lead && typeof lead.angle === "number") {
+    aimTargetX = lead.aimX;
+    aimTargetY = lead.aimY;
+    aimAngle = lead.angle;
+  }
+
   const desiredDistance = 220;
   const distanceBand = 40;
   let moveX = 0;
@@ -1221,21 +1331,14 @@ function computeScriptedBotAction(bot, players, walls) {
     moveY = dirX;
   }
 
-  const aimAngle = Math.atan2(dy, dx);
   const hasLineOfSight = !lineIntersectsAnyWall(
     bot.x,
     bot.y,
-    target.x,
-    target.y,
+    aimTargetX,
+    aimTargetY,
     walls,
   );
   const shouldShoot = hasLineOfSight && dist < 550;
-
-  const now = Date.now();
-  const botState =
-    bot.botState && typeof bot.botState === "object"
-      ? bot.botState
-      : (bot.botState = {});
 
   // --- Simple "stuck near wall" detection + escape ---
   // If the bot has been essentially in the same place for a short window
@@ -1398,7 +1501,15 @@ function circleCollidesAnyWall(cx, cy, radius, walls) {
 
 function fireBulletFromBot(bot) {
   if (!bot || !bot.alive) return false;
-  const weaponLength = WEAPONS[BOT_CONFIG.weaponKey].weaponLength;
+  const weaponCfg = WEAPONS[BOT_CONFIG.weaponKey] || {};
+  const weaponLength =
+    typeof weaponCfg.weaponLength === "number"
+      ? weaponCfg.weaponLength
+      : 30;
+  const bulletSpeed =
+    typeof weaponCfg.bulletSpeed === "number" ? weaponCfg.bulletSpeed : null;
+  const bulletRadius =
+    typeof weaponCfg.bulletRadius === "number" ? weaponCfg.bulletRadius : null;
   const tipX = bot.x + Math.cos(bot.angle) * weaponLength;
   const tipY = bot.y + Math.sin(bot.angle) * weaponLength;
 
@@ -1416,6 +1527,8 @@ function fireBulletFromBot(bot) {
     y: tipY,
     angle: bot.angle,
     playerId: bot.id,
+    speed: bulletSpeed ?? undefined,
+    radius: bulletRadius ?? undefined,
   });
   return true;
 }

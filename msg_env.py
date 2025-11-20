@@ -118,6 +118,25 @@ def raycast_distance(x0, y0, angle, walls, max_dist):
         d += step
     return max_dist
 
+def has_line_of_sight(x1, y1, x2, y2, walls: List[Wall]) -> bool:
+    """Checks if a line segment between two points intersects any wall."""
+
+    dist = math.hypot(x2 - x1, y2 - y1)
+    if dist < 1.0: return True
+
+    ux = (x2 - x1) / dist
+    uy = (y2 - y1) / dist
+
+    step_size = 10.0
+    steps = int(dist / step_size)
+    for i in range(1, steps):
+        px = x1 + ux * (i * step_size)
+        py = y1 + uy * (i * step_size)
+        for w in walls:
+            if w.x <= px <= w.x + w.width and w.y <= py <= w.y + w.height:
+                return False
+    return True
+
 # --- Environment ---
 
 class ShootingBotEnv(gym.Env):
@@ -127,13 +146,15 @@ class ShootingBotEnv(gym.Env):
         self.max_steps = max_steps
         self.difficulty = difficulty
 
+        self.num_rays = 32
+
         # Obs Space:
         # Self (8): x, y, cos, sin, hp, vx, vy, cooldown
-        # Raycasts (8): distances
+        # Raycasts (32): distances
         # Enemies (4 * 7): alive, rel_x, rel_y, dist, cos_rel, sin_rel, hp
         # Bullets (5 * 4): rel_x, rel_y, vx, vy (Nearest 5 bullets)
-        # Total: 8 + 8 + 28 + 20 = 64
-        self.observation_space = spaces.Box(low=-1.0, high=1.0, shape=(64,), dtype=np.float32)
+        # Total: 8 + 32 + 32 + 20 = 92
+        self.observation_space = spaces.Box(low=-1.0, high=1.0, shape=(92,), dtype=np.float32)
         self.action_space = spaces.Discrete(54)
 
         self.players: List[PlayerState] = []
@@ -201,24 +222,33 @@ class ShootingBotEnv(gym.Env):
         # Survival Reward
         if agent.alive:
             reward -= 0.005
-        reward_components["survival"] = -0.005 if agent.alive else 0.0
 
-        # Damage Dealt Reward (Delayed!)
-        damage_reward = bullet_hits_damage * 0.2
+        # Damage Dealt Reward
+        damage_reward = bullet_hits_damage * 0.5
         reward += damage_reward
         reward_components["damage_dealt"] = damage_reward
 
-        # Orientation Reward (Aim at enemy)
-        orientation_reward = self._orientation_reward() * 0.01
-        reward += orientation_reward
-        reward_components["orientation"] = orientation_reward
-
-        # Proximity Reward (encourage closing distance to enemies)
+        # Proximity Reward
         proximity_reward = 0.0
         if agent.alive:
-            proximity_reward = self._proximity_reward() * 0.01
+            proximity_reward = self._proximity_reward() * 0.002
             reward += proximity_reward
         reward_components["proximity"] = proximity_reward
+
+        # --- Line of Sight Reward ---
+        los_reward = 0.0
+        if agent.alive:
+            # Check if we have LoS to nearest living enemy
+            for p in self.players[1:]:
+                if p.alive and has_line_of_sight(agent.x, agent.y, p.x, p.y, self.walls):
+                    los_reward = 0.01 # Small constant bonus for maintaining visual
+                    break
+        reward += los_reward
+        reward_components["los_bonus"] = los_reward
+
+        # Orientation Reward
+        orientation_reward = self._orientation_reward() * 0.01
+        reward += orientation_reward
 
         # Death Penalty
         terminated = False
@@ -445,7 +475,7 @@ class ShootingBotEnv(gym.Env):
     def _get_obs(self):
         agent = self.players[0]
 
-        # 1. Self Stats (8)
+        # 1. Self Stats (8) - Unchanged
         self_feats = [
             (agent.x / CANVAS_WIDTH) * 2 - 1,
             (agent.y / CANVAS_HEIGHT) * 2 - 1,
@@ -456,18 +486,17 @@ class ShootingBotEnv(gym.Env):
             agent.cooldown_steps / 20.0
         ]
 
-        # 2. Wall Rays (8)
+        # 2. Wall Rays (32) - INCREASED RESOLUTION
         max_dist = math.hypot(CANVAS_WIDTH, CANVAS_HEIGHT)
         ray_feats = []
-        for i in range(8):
-            theta = agent.angle + (2*math.pi*i)/8
+        for i in range(self.num_rays):
+            theta = agent.angle + (2*math.pi*i) / self.num_rays
             d = raycast_distance(agent.x, agent.y, theta, self.walls, max_dist)
             ray_feats.append((d/max_dist)*2 - 1)
 
-        # 3. Enemies (4 * 7)
-        # Sort by ALIVE then DISTANCE
+        # 3. Enemies (4 * 8) - ADDED LoS
         enemies = [(not p.alive, math.hypot(p.x-agent.x, p.y-agent.y), p)
-                   for i, p in enumerate(self.players) if i != 0]
+                    for i, p in enumerate(self.players) if i != 0]
         enemies.sort(key=lambda x: (x[0], x[1]))
 
         enemy_feats = []
@@ -475,6 +504,10 @@ class ShootingBotEnv(gym.Env):
             dx = p.x - agent.x
             dy = p.y - agent.y
             rel_ang = smallest_angle_diff(math.atan2(dy, dx), agent.angle)
+
+            # Check LoS
+            can_see = 1.0 if (p.alive and has_line_of_sight(agent.x, agent.y, p.x, p.y, self.walls)) else 0.0
+
             enemy_feats.extend([
                 1.0 if p.alive else 0.0,
                 (dx / CANVAS_WIDTH) * 2,
@@ -482,20 +515,20 @@ class ShootingBotEnv(gym.Env):
                 (dist / max_dist) * 2 - 1,
                 math.cos(rel_ang),
                 math.sin(rel_ang),
-                (p.health / MAX_HEALTH) * 2 - 1
+                (p.health / MAX_HEALTH) * 2 - 1,
+                can_see # <--- NEW FEATURE
             ])
         # Pad
-        while len(enemy_feats) < 28: enemy_feats.extend([0.0]*7)
+        while len(enemy_feats) < 32: enemy_feats.extend([0.0]*8)
 
-        # 4. Bullets (5 * 4) - NEW!
-        # Find dangerous bullets (those belonging to enemies)
+        # 4. Bullets (5 * 4) - Unchanged
         dangerous_bullets = []
         for b in self.bullets:
-            if b.owner_idx == 0: continue # Ignore own bullets
+            if b.owner_idx == 0: continue
             dx = b.x - agent.x
             dy = b.y - agent.y
             dist = math.hypot(dx, dy)
-            if dist < 400: # Only care about nearby bullets
+            if dist < 400:
                 dangerous_bullets.append((dist, b))
 
         dangerous_bullets.sort(key=lambda x: x[0])
@@ -504,11 +537,9 @@ class ShootingBotEnv(gym.Env):
         for dist, b in dangerous_bullets[:5]:
             dx = b.x - agent.x
             dy = b.y - agent.y
-            # Relative Position
             bullet_feats.extend([
                 (dx / CANVAS_WIDTH) * 2,
                 (dy / CANVAS_HEIGHT) * 2,
-                # Relative Velocity (so agent can tell if bullet is coming AT them)
                 b.vx / BULLET_SPEED,
                 b.vy / BULLET_SPEED
             ])
