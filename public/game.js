@@ -113,6 +113,11 @@ function updateBullets() {
     const bullet = bullets[i];
     const speed = typeof bullet.speed === 'number' ? bullet.speed : BULLET_SPEED;
     const bRadius = typeof bullet.radius === 'number' ? bullet.radius : BULLET_RADIUS;
+    const shooter =
+      bullet && bullet.playerId
+        ? players.find((p) => p.id === bullet.playerId)
+        : null;
+    const shooterIsBot = !!(shooter && shooter.isBot);
 
     // Move bullet
     bullet.x += Math.cos(bullet.angle) * speed;
@@ -138,6 +143,11 @@ function updateBullets() {
     // Check player collisions
     for (const player of players) {
       if (player.alive && player.id !== bullet.playerId) {
+        if (shooterIsBot && player.isBot) {
+          // Bot bullets pass through other bots without dealing damage.
+          continue;
+        }
+
         const dx = player.x - bullet.x;
         const dy = player.y - bullet.y;
         const distance = Math.sqrt(dx * dx + dy * dy);

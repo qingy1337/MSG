@@ -530,6 +530,7 @@ const WEAPON_DAMAGE = {
 // Bullet bookkeeping so each bullet only ever applies damage once.
 let nextBulletId = 1;
 const processedBulletHits = new Set();
+let gameOverTimeout = null;
 
 io.on("connection", (socket) => {
   const cookieHeader =
@@ -722,6 +723,18 @@ io.on("connection", (socket) => {
         ? payload.bulletId
         : null;
 
+    const target = activePlayers.find((p) => p.id === targetId);
+    if (!target || !target.alive) return;
+
+    const shooter = shooterId
+      ? activePlayers.find((p) => p.id === shooterId)
+      : null;
+
+    if (shooter && shooter.isBot && target.isBot) {
+      // Bot bullets should not damage other bots.
+      return;
+    }
+
     // If we've already processed a hit for this bullet, ignore duplicates
     if (bulletId != null) {
       if (processedBulletHits.has(bulletId)) {
@@ -730,16 +743,10 @@ io.on("connection", (socket) => {
       processedBulletHits.add(bulletId);
     }
 
-    const target = activePlayers.find((p) => p.id === targetId);
-    if (!target || !target.alive) return;
-
     // Determine damage from shooter's weapon; default to pistol damage
     let damage = WEAPON_DAMAGE.pistol;
-    if (shooterId) {
-      const shooter = activePlayers.find((p) => p.id === shooterId);
-      if (shooter && typeof WEAPON_DAMAGE[shooter.weapon] === 'number') {
-        damage = WEAPON_DAMAGE[shooter.weapon];
-      }
+    if (shooter && typeof WEAPON_DAMAGE[shooter.weapon] === 'number') {
+      damage = WEAPON_DAMAGE[shooter.weapon];
     }
 
     // let damage = 1;
@@ -750,37 +757,34 @@ io.on("connection", (socket) => {
       io.emit("playerKilled", target.id);
 
       // Award coins to the shooter for a kill
-      if (shooterId) {
-        const shooter = activePlayers.find((p) => p.id === shooterId);
-        if (shooter && shooter.accountUsername) {
-          const shooterUsername = shooter.accountUsername;
-          const targetUsername = target && target.accountUsername;
-          // Prevent farming coins by eliminating a player tied to the same account
-          const sameAccountKill =
-            typeof targetUsername === "string" && shooterUsername === targetUsername;
+      if (shooter && shooter.accountUsername) {
+        const shooterUsername = shooter.accountUsername;
+        const targetUsername = target && target.accountUsername;
+        // Prevent farming coins by eliminating a player tied to the same account
+        const sameAccountKill =
+          typeof targetUsername === "string" && shooterUsername === targetUsername;
 
-          if (!sameAccountKill) {
-            const accountUser = usersByUsername.get(shooterUsername);
-            if (accountUser) {
-              if (!accountUser.currencies || typeof accountUser.currencies !== "object") {
-                accountUser.currencies = {};
-              }
-              const currentCoins =
-                typeof accountUser.currencies.Coins === "number"
-                  ? accountUser.currencies.Coins
-                  : 0;
-              const newCoins = currentCoins + 5;
-              accountUser.currencies.Coins = newCoins;
-              saveUsers();
-
-              // Notify the shooter so their UI can update immediately
-              io.to(shooterId).emit("coinsUpdated", { coins: newCoins });
+        if (!sameAccountKill) {
+          const accountUser = usersByUsername.get(shooterUsername);
+          if (accountUser) {
+            if (!accountUser.currencies || typeof accountUser.currencies !== "object") {
+              accountUser.currencies = {};
             }
-          } else {
-            console.log(
-              `Skipping coin reward: ${shooterUsername} eliminated same-account player.`,
-            );
+            const currentCoins =
+              typeof accountUser.currencies.Coins === "number"
+                ? accountUser.currencies.Coins
+                : 0;
+            const newCoins = currentCoins + 5;
+            accountUser.currencies.Coins = newCoins;
+            saveUsers();
+
+            // Notify the shooter so their UI can update immediately
+            io.to(shooter.id).emit("coinsUpdated", { coins: newCoins });
           }
+        } else {
+          console.log(
+            `Skipping coin reward: ${shooterUsername} eliminated same-account player.`,
+          );
         }
       }
     }
@@ -788,14 +792,8 @@ io.on("connection", (socket) => {
     // Broadcast updated state so clients can render health bars
     io.emit("gameState", activePlayers);
 
-    // If only one alive remains, end game
-    const alivePlayers = activePlayers.filter((p) => p.alive);
-    if (alivePlayers.length === 1) {
-      io.emit("gameOver", alivePlayers[0]);
-      setTimeout(() => {
-        resetGame();
-      }, 5000);
-    }
+    // End the game if a winner is decided or only bots remain
+    maybeTriggerGameOver();
   });
 
   // Disconnect
@@ -814,25 +812,48 @@ io.on("connection", (socket) => {
       io.emit("playerLeft", socket.id);
 
       // Check if game is over
-      const alivePlayers = activePlayers.filter((p) => p.alive);
-      if (alivePlayers.length === 1 && gameInProgress.status) {
-        io.emit("gameOver", alivePlayers[0]);
-        setTimeout(() => {
-          resetGame();
-        }, 5000);
-      }
+      maybeTriggerGameOver();
     }
 
     console.log("Disconnected:", socket.id);
   });
 });
 
+function scheduleGameOver(winner) {
+  if (gameOverTimeout) return;
+  io.emit("gameOver", winner);
+  gameOverTimeout = setTimeout(() => {
+    resetGame();
+  }, 5000);
+}
+
+function maybeTriggerGameOver() {
+  if (!gameInProgress.status || gameOverTimeout) return;
+
+  const alivePlayers = activePlayers.filter((p) => p.alive);
+  if (alivePlayers.length === 0) return;
+
+  const aliveHumans = alivePlayers.filter((p) => !p.isBot);
+  if (aliveHumans.length === 0) {
+    scheduleGameOver({ name: "Bots" });
+    return;
+  }
+
+  if (alivePlayers.length === 1) {
+    scheduleGameOver(alivePlayers[0]);
+  }
+}
+
 function resetGame() {
+  if (gameOverTimeout) {
+    clearTimeout(gameOverTimeout);
+    gameOverTimeout = null;
+  }
   activePlayers.length = 0;
   gameWalls.length = 0;
   gameInProgress.status = false;
   nextBotId = 1;
-   // Reset bullet bookkeeping between matches
+  // Reset bullet bookkeeping between matches
   nextBulletId = 1;
   processedBulletHits.clear();
   io.emit("resetGame");

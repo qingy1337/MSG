@@ -63,31 +63,27 @@ def main():
     model.learn(total_timesteps=500_000, callback=WandbCallback())
     model.save("bot_projectile_stage0")
 
-    # STAGE 1: Train vs 1 Easy Bot
-    print("--- STAGE 1: 1v1 vs Easy Bot ---")
+    print("--- STAGE 1: 1v2 vs Easy Bot ---")
     env = ShootingBotEnv(num_opponents=2, difficulty="easy", bullet_radius=10.0)
 
     model.set_env(env)
     model.learn(total_timesteps=1_000_000, callback=WandbCallback())
     model.save("bot_projectile_stage1")
 
-    # STAGE 2: Train vs 2 Easy Bot
-    print("--- STAGE 2: 1v2 vs Easy Bot ---")
+    print("--- STAGE 2: 1v3 vs Easy Bot ---")
     env = ShootingBotEnv(num_opponents=3, difficulty="easy", bullet_radius=10.0)
 
     model.set_env(env)
     model.learn(total_timesteps=1_000_000, callback=WandbCallback())
     model.save("bot_projectile_stage2")
 
-    # STAGE 3: Train vs 3 Easy Bot
-    print("--- STAGE 3: 1v3 vs Easy Bot ---")
+    print("--- STAGE 3: 1v2 vs Hard Bot ---")
     env = ShootingBotEnv(num_opponents=2, difficulty="hard")
 
     model.set_env(env)
     model.learn(total_timesteps=1_000_000, callback=WandbCallback())
     model.save("bot_projectile_stage3")
 
-    # STAGE 4: Train vs 3 Hard Bots
     print("--- STAGE 4: 1v3 vs Hard Bots ---")
     env = ShootingBotEnv(num_opponents=3, difficulty="hard")
 
