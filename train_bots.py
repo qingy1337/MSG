@@ -27,6 +27,19 @@ try:
 except ImportError as exc:
     raise ImportError("sb3-contrib is required. pip install sb3-contrib") from exc
 
+def evaluate_agent(model, env, n_episodes: int = 50) -> float:
+    wins = 0
+    for _ in range(n_episodes):
+        obs, _ = env.reset()
+        done = False
+        truncated = False
+        while not (done or truncated):
+            action, _ = model.predict(obs, deterministic=True)
+            obs, _, done, truncated, _ = env.step(action)
+        if env.players[0].alive:
+            wins += 1
+    return wins / n_episodes
+
 # --- Training ---
 def main():
     # STAGE 0
@@ -40,11 +53,16 @@ def main():
         env,
         verbose=1,
         learning_rate=3e-4,
-        n_steps=1024,
-        batch_size=128,
-        ent_coef=0.02,
+        n_steps=2048,
+        batch_size=256,
+        ent_coef=0.05,
         gamma=0.99,
-        policy_kwargs={"lstm_hidden_size": 128, "n_lstm_layers": 1}
+        n_epochs=10,
+        policy_kwargs={
+            "lstm_hidden_size": 256,
+            "n_lstm_layers": 2,
+            "net_arch": [256, 256],
+        }
     )
 
     config = {
@@ -60,28 +78,39 @@ def main():
         save_code=True,
     )
 
-    model.learn(total_timesteps=500_000, callback=WandbCallback())
+    model.learn(total_timesteps=10_000_000, callback=WandbCallback())
+
+    # Quick eval gate to avoid advancing with a weak policy
+    eval_env = ShootingBotEnv(num_opponents=1, difficulty="easy", bullet_radius=10.0, mode="eval")
+    win_rate = evaluate_agent(model, eval_env, n_episodes=50)
+    extra_rounds = 0
+    while win_rate < 0.70 and extra_rounds < 3:
+        print(f"Win rate too low ({win_rate:.1%}), training 1M more steps...")
+        model.learn(total_timesteps=1_000_000, callback=WandbCallback())
+        win_rate = evaluate_agent(model, eval_env, n_episodes=50)
+        extra_rounds += 1
+
     model.save("bot_projectile_stage0")
 
     print("--- STAGE 1: 1v2 vs Easy Bot ---")
     env = ShootingBotEnv(num_opponents=2, difficulty="easy", bullet_radius=10.0)
 
     model.set_env(env)
-    model.learn(total_timesteps=1_000_000, callback=WandbCallback())
+    model.learn(total_timesteps=3_000_000, callback=WandbCallback())
     model.save("bot_projectile_stage1")
 
     print("--- STAGE 2: 1v3 vs Easy Bot ---")
     env = ShootingBotEnv(num_opponents=3, difficulty="easy", bullet_radius=10.0)
 
     model.set_env(env)
-    model.learn(total_timesteps=1_000_000, callback=WandbCallback())
+    model.learn(total_timesteps=5_000_000, callback=WandbCallback())
     model.save("bot_projectile_stage2")
 
     print("--- STAGE 3: 1v2 vs Hard Bot ---")
     env = ShootingBotEnv(num_opponents=2, difficulty="hard")
 
     model.set_env(env)
-    model.learn(total_timesteps=1_000_000, callback=WandbCallback())
+    model.learn(total_timesteps=5_000_000, callback=WandbCallback())
     model.save("bot_projectile_stage3")
 
     print("--- STAGE 4: 1v3 vs Hard Bots ---")
@@ -89,7 +118,7 @@ def main():
 
     # Load previous weights
     model.set_env(env)
-    model.learn(total_timesteps=2_000_000, callback=WandbCallback())
+    model.learn(total_timesteps=5_000_000, callback=WandbCallback())
     model.save("bot_projectile_final")
     print("Training Complete.")
 

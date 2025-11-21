@@ -1,0 +1,234 @@
+# Analysis: Why Your RL Agent Isn't Learning Advanced Tactics
+
+Great question! This is a common frustration in RL. Let me break down the likely issues and solutions:
+
+## Main Problems I See
+
+### 1. **Conflicting & Noisy Reward Shaping** ⚠️ (BIGGEST ISSUE)
+
+Your rewards are fighting each other:
+- **Proximity reward** (+0.002/step for being close) → Encourages rushing into danger
+- **Survival penalty** (-0.005/step) → Discourages existing
+- **Orientation reward** (0.01 scale) → Too small to matter
+- **No penalty for taking damage** → Agent doesn't learn to dodge
+
+The agent is getting confused signals. You're rewarding it for being close to enemies, but then it gets shot and dies.
+
+### 2. **Weak Enemy AI = Bad Curriculum**
+
+```python
+# Enemies shoot 3x slower than agent!
+if idx != 0:
+    p.cooldown_steps *= COOLDOWN_SCALE
+```
+
+Your agent can easily win by just face-tanking and out-DPSing enemies. It never **needs** to learn dodging, cover usage, or tactics.
+
+### 3. **Model Capacity Might Be Insufficient**
+
+```python
+policy_kwargs={"lstm_hidden_size": 128, "n_lstm_layers": 1}
+```
+
+128-dim LSTM with 1 layer is pretty small for learning complex multi-agent tactics.
+
+### 4. **Observation Gaps**
+
+Missing critical information:
+- ✗ No "I just got hit" signal
+- ✗ Bullets only tracked within 400 units (too late to dodge)
+- ✗ No damage direction indicator
+- ✗ Only 5 bullets tracked (inadequate for 1v3)
+
+### 5. **Training Duration**
+
+500k-2M steps is actually quite short for learning emergent tactics. For comparison:
+- DeepMind's hide-and-seek: **500M+ steps**
+- OpenAI Five (Dota): **billions of frames**
+
+---
+
+## Recommended Fixes (In Priority Order)
+
+### 🔴 **CRITICAL FIX #1: Simplify Rewards (Sparse is Better)**
+
+Replace your complex reward shaping with:
+
+```python
+def step(self, action):
+    # ... existing code ...
+
+    reward = 0.0
+
+    # Track damage taken this step
+    prev_health = getattr(agent, 'prev_health', agent.health)
+    damage_taken = max(0, prev_health - agent.health)
+    agent.prev_health = agent.health
+
+    # SPARSE REWARDS ONLY
+    if not agent.alive:
+        reward = -10.0  # Death
+        terminated = True
+    elif opponents_alive == 0:
+        reward = 20.0 + (self.max_steps - self.step_count) * 0.01  # Win + time bonus
+        terminated = True
+    else:
+        # ONLY reward damage dealt and penalize damage taken
+        reward = bullet_hits_damage * 0.5 - damage_taken * 0.3
+
+    # Remove: proximity, orientation, survival penalty, LoS bonus
+```
+
+**Why this works:** Removes conflicting signals. Agent learns "shoot enemies, don't get shot" which is the actual game.
+
+### 🟡 **FIX #2: Better Curriculum with Self-Play**
+
+```python
+# Stage 0: Train against itself (cloned opponent)
+class SelfPlayEnv(ShootingBotEnv):
+    def __init__(self, opponent_model_path=None, **kwargs):
+        super().__init__(**kwargs)
+        self.opponent_model = None
+        if opponent_model_path:
+            self.opponent_model = RecurrentPPO.load(opponent_model_path)
+
+    def _step_opponent(self, idx):
+        if self.opponent_model and idx == 1:
+            # Opponent uses older version of agent's policy
+            obs = self._get_obs_for_player(idx)
+            action, _ = self.opponent_model.predict(obs, deterministic=False)
+            # ... apply action ...
+        else:
+            super()._step_opponent(idx)
+```
+
+**Curriculum:**
+1. 1v1 self-play (2M steps) ← Master basics
+2. 1v1 self-play + rule-based bot (2M steps)
+3. 1v2 mixed (3M steps)
+4. 1v3 self-play (5M steps)
+
+### 🟡 **FIX #3: Better Observations**
+
+```python
+def _get_obs(self):
+    # ... existing code ...
+
+    # ADD: Damage indicators
+    damage_feats = [
+        damage_taken / MAX_HEALTH,  # How much damage this step
+        1.0 if agent.cooldown_steps > 0 else 0.0,  # Can I shoot?
+    ]
+
+    # ADD: Track MORE bullets (10 instead of 5)
+    # ADD: Track bullets farther away (600 instead of 400)
+    for dist, b in dangerous_bullets[:10]:
+        # ... existing bullet features ...
+    while len(bullet_feats) < 40: bullet_feats.extend([0.0]*4)
+
+    return np.concatenate([
+        self_feats,
+        damage_feats,  # NEW
+        ray_feats,
+        enemy_feats,
+        bullet_feats
+    ], dtype=np.float32)
+```
+
+### 🟡 **FIX #4: Increase Model Capacity**
+
+```python
+model = RecurrentPPO(
+    "MlpLstmPolicy",
+    env,
+    verbose=1,
+    learning_rate=3e-4,
+    n_steps=2048,  # Increased from 1024
+    batch_size=256,  # Increased from 128
+    ent_coef=0.05,  # Increased from 0.02 (more exploration)
+    gamma=0.99,
+    n_epochs=10,  # Added: more gradient steps per batch
+    policy_kwargs={
+        "lstm_hidden_size": 256,  # Doubled
+        "n_lstm_layers": 2,  # Doubled
+        "net_arch": [256, 256]  # Bigger MLP before LSTM
+    }
+)
+```
+
+### 🟡 **FIX #5: Make Enemies Shoot at Same Speed**
+
+```python
+def _fire_weapon(self, idx: int):
+    # ... existing code ...
+    p.cooldown_steps = weapon_cooldown_steps("pistol")
+
+    # REMOVE THIS:
+    # if idx != 0:
+    #     p.cooldown_steps *= COOLDOWN_SCALE
+```
+
+Now the agent **must** learn dodging to survive.
+
+### 🟢 **FIX #6: Train Much Longer**
+
+For Stage 0 (1v1): Train for **at least 5-10M timesteps** before moving on.
+
+Add evaluation between stages:
+
+```python
+def evaluate_agent(model, env, n_episodes=100):
+    wins = 0
+    for _ in range(n_episodes):
+        obs = env.reset()
+        done = False
+        while not done:
+            action, _ = model.predict(obs, deterministic=True)
+            obs, reward, done, truncated, _ = env.step(action)
+            done = done or truncated
+        if env.players[0].alive:
+            wins += 1
+    return wins / n_episodes
+
+# Only advance if win rate > 70%
+win_rate = evaluate_agent(model, env)
+if win_rate < 0.7:
+    print(f"Win rate too low ({win_rate:.1%}), training more...")
+    model.learn(total_timesteps=1_000_000)
+```
+
+---
+
+## Do You Need Transformers?
+
+**Short answer: No.**
+
+- **LSTM is fine** for this task. The issue is reward design and training time, not architecture.
+- Transformers can help with longer-term dependencies, but you need to fix rewards first.
+- If you do want to try: check out `sb3-contrib`'s attention-based policies or use `sample-factory` which has transformer support.
+
+---
+
+## How Do People Get Superhuman RL?
+
+1. **Self-play** (AlphaGo, OpenAI Five, AlphaStar)
+2. **Massive compute** (billions of frames)
+3. **Sparse rewards** (avoid reward hacking)
+4. **Population-based training** (multiple agents with different hyperparams)
+5. **Domain randomization** (vary map layouts, enemy speeds, etc.)
+
+---
+
+## Quick Win Strategy
+
+Try this minimal fix **first**:
+
+1. ✅ Remove proximity/orientation/survival rewards (use sparse only)
+2. ✅ Make enemies shoot at same speed as agent
+3. ✅ Train 1v1 for 10M steps (not 500k)
+4. ✅ Increase `ent_coef` to 0.05-0.1 for more exploration
+5. ✅ Add damage-taken penalty to reward
+
+This alone should get you an agent that at least tries to dodge and use cover.
+
+Let me know if you want code for self-play or population-based training!

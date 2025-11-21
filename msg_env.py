@@ -24,7 +24,6 @@ WEAPON_DAMAGE = {"pistol": 20.0}
 WEAPONS = {"pistol": {"cooldown_ms": 90, "range": BULLET_LIFETIME * BULLET_SPEED}}
 WEAPON_KEYS: List[str] = list(WEAPONS.keys())
 
-COOLDOWN_SCALE = 3.0
 ENV_STEP_MS = 50.0
 
 
@@ -50,6 +49,7 @@ class PlayerState:
     # We track velocity for observation purposes (optional but helpful for leading shots)
     vx: float = 0.0
     vy: float = 0.0
+    prev_health: float = MAX_HEALTH
 
 @dataclass
 class Wall:
@@ -150,11 +150,12 @@ class ShootingBotEnv(gym.Env):
 
         # Obs Space:
         # Self (8): x, y, cos, sin, hp, vx, vy, cooldown
+        # Damage (2): damage_taken_norm, on_cooldown_flag
         # Raycasts (32): distances
-        # Enemies (4 * 7): alive, rel_x, rel_y, dist, cos_rel, sin_rel, hp
-        # Bullets (5 * 4): rel_x, rel_y, vx, vy (Nearest 5 bullets)
-        # Total: 8 + 32 + 32 + 20 = 92
-        self.observation_space = spaces.Box(low=-1.0, high=1.0, shape=(92,), dtype=np.float32)
+        # Enemies (4 * 8): alive, rel_x, rel_y, dist, cos_rel, sin_rel, hp, los
+        # Bullets (10 * 4): rel_x, rel_y, vx, vy (Nearest 10 bullets)
+        # Total: 8 + 2 + 32 + 32 + 40 = 114
+        self.observation_space = spaces.Box(low=-1.0, high=1.0, shape=(114,), dtype=np.float32)
         self.action_space = spaces.Discrete(54)
 
         self.players: List[PlayerState] = []
@@ -163,6 +164,7 @@ class ShootingBotEnv(gym.Env):
         self.step_count = 0
 
         self.bullet_radius = bullet_radius
+        self.last_damage_taken = 0.0
 
         self.move_speed = 5.0
         self.turn_speed = 0.15
@@ -177,6 +179,7 @@ class ShootingBotEnv(gym.Env):
         self.walls = generate_walls()
         self.players = []
         self.bullets = []
+        self.last_damage_taken = 0.0
 
         # Spawn Agent
         ax, ay = sample_spawn_position(self.walls, [])
@@ -192,6 +195,7 @@ class ShootingBotEnv(gym.Env):
     def step(self, action):
         self.step_count += 1
         agent = self.players[0]
+        prev_health = getattr(agent, "prev_health", agent.health)
 
         # Update weapon cooldowns for all players
         for p in self.players:
@@ -215,65 +219,34 @@ class ShootingBotEnv(gym.Env):
         # 3. Update Physics (Bullets)
         bullet_hits_damage = self._update_bullets()
 
-        # 4. Rewards
+        opponents_alive = sum(1 for p in self.players[1:] if p.alive)
+        damage_taken = max(0.0, prev_health - agent.health)
+        self.last_damage_taken = damage_taken
+        agent.prev_health = agent.health
+
+        # 4. Sparse Rewards
         reward = 0.0
-        reward_components = {}
+        reward_components = {
+            "damage_dealt": bullet_hits_damage * 0.5,
+            "damage_taken": -damage_taken * 0.3,
+            "win": 0.0,
+            "time_bonus": 0.0,
+            "death": 0.0
+        }
 
-        # Survival Reward
-        if agent.alive:
-            reward -= 0.005
-
-        # Damage Dealt Reward
-        damage_reward = bullet_hits_damage * 0.5
-        reward += damage_reward
-        reward_components["damage_dealt"] = damage_reward
-
-        # Proximity Reward
-        proximity_reward = 0.0
-        if agent.alive:
-            proximity_reward = self._proximity_reward() * 0.002
-            reward += proximity_reward
-        reward_components["proximity"] = proximity_reward
-
-        # --- Line of Sight Reward ---
-        los_reward = 0.0
-        if agent.alive:
-            # Check if we have LoS to nearest living enemy
-            for p in self.players[1:]:
-                if p.alive and has_line_of_sight(agent.x, agent.y, p.x, p.y, self.walls):
-                    los_reward = 0.01 # Small constant bonus for maintaining visual
-                    break
-        reward += los_reward
-        reward_components["los_bonus"] = los_reward
-
-        # Orientation Reward
-        orientation_reward = self._orientation_reward() * 0.01
-        reward += orientation_reward
-
-        # Death Penalty
         terminated = False
         if not agent.alive:
-            reward -= 10.0
-            reward_components["death_penalty"] = -10.0
+            reward = -10.0
+            reward_components["death"] = reward
             terminated = True
-        else:
-            reward_components["death_penalty"] = 0.0
-
-        # Win Reward
-        opponents_alive = sum(1 for p in self.players[1:] if p.alive)
-        win_reward = 0.0
-        time_bonus = 0.0
-        if opponents_alive == 0:
-            win_reward = 20.0 # Big bonus for winning
+        elif opponents_alive == 0:
             time_bonus = (self.max_steps - self.step_count) * 0.01
-            reward_components["win"] = win_reward
+            reward = 20.0 + time_bonus
+            reward_components["win"] = 20.0
             reward_components["time_bonus"] = time_bonus
-
-            reward += win_reward + time_bonus
             terminated = True
         else:
-            reward_components["win"] = 0
-            reward_components["time_bonus"] = 0
+            reward = reward_components["damage_dealt"] + reward_components["damage_taken"]
 
         truncated = (self.step_count >= self.max_steps)
 
@@ -353,11 +326,6 @@ class ShootingBotEnv(gym.Env):
         self.bullets.append(b)
 
         p.cooldown_steps = weapon_cooldown_steps("pistol")
-
-        # Make enemies (non-agent players) shoot half as fast
-        # by giving them double the cooldown compared to the agent.
-        if idx != 0:
-            p.cooldown_steps *= COOLDOWN_SCALE
 
     def _step_opponent(self, idx):
         bot = self.players[idx]
@@ -486,6 +454,12 @@ class ShootingBotEnv(gym.Env):
             agent.cooldown_steps / 20.0
         ]
 
+        # Recent damage + cooldown flag
+        damage_feats = [
+            min(1.0, self.last_damage_taken / MAX_HEALTH),
+            1.0 if agent.cooldown_steps > 0 else 0.0,
+        ]
+
         # 2. Wall Rays (32) - INCREASED RESOLUTION
         max_dist = math.hypot(CANVAS_WIDTH, CANVAS_HEIGHT)
         ray_feats = []
@@ -521,20 +495,20 @@ class ShootingBotEnv(gym.Env):
         # Pad
         while len(enemy_feats) < 32: enemy_feats.extend([0.0]*8)
 
-        # 4. Bullets (5 * 4) - Unchanged
+        # 4. Bullets (10 * 4) - further range + capacity
         dangerous_bullets = []
         for b in self.bullets:
             if b.owner_idx == 0: continue
             dx = b.x - agent.x
             dy = b.y - agent.y
             dist = math.hypot(dx, dy)
-            if dist < 400:
+            if dist < 600:
                 dangerous_bullets.append((dist, b))
 
         dangerous_bullets.sort(key=lambda x: x[0])
 
         bullet_feats = []
-        for dist, b in dangerous_bullets[:5]:
+        for dist, b in dangerous_bullets[:10]:
             dx = b.x - agent.x
             dy = b.y - agent.y
             bullet_feats.extend([
@@ -544,9 +518,9 @@ class ShootingBotEnv(gym.Env):
                 b.vy / BULLET_SPEED
             ])
 
-        while len(bullet_feats) < 20: bullet_feats.extend([0.0]*4)
+        while len(bullet_feats) < 40: bullet_feats.extend([0.0]*4)
 
-        return np.concatenate([self_feats, ray_feats, enemy_feats, bullet_feats], dtype=np.float32)
+        return np.concatenate([self_feats, damage_feats, ray_feats, enemy_feats, bullet_feats], dtype=np.float32)
 
     def render(self):
         """
