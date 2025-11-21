@@ -73,26 +73,54 @@ function update() {
     if (keys["d"] || keys["ArrowRight"]) dx += PLAYER_SPEED;
 
     if (dx !== 0 || dy !== 0) {
-      // Try to move in both directions separately to implement sliding along walls
-      let newX = localPlayer.x + dx;
-      let newY = localPlayer.y + dy;
+      // Normalize diagonal movement to prevent faster speed
+      const magnitude = Math.sqrt(dx * dx + dy * dy);
+      dx = (dx / magnitude) * PLAYER_SPEED;
+      dy = (dy / magnitude) * PLAYER_SPEED;
 
-      // Check boundary constraints
-      newX = Math.max(
+      // Move player
+      localPlayer.x += dx;
+      localPlayer.y += dy;
+
+      // Check for wall collisions and resolve them by pushing the player out
+      for (const wall of walls) {
+        // Find the closest point on the wall to the player's center
+        const closestX = Math.max(
+          wall.x,
+          Math.min(localPlayer.x, wall.x + wall.width),
+        );
+        const closestY = Math.max(
+          wall.y,
+          Math.min(localPlayer.y, wall.y + wall.height),
+        );
+
+        // Calculate the distance between the player's center and the closest point
+        const distX = localPlayer.x - closestX;
+        const distY = localPlayer.y - closestY;
+        const distance = Math.sqrt(distX * distX + distY * distY);
+
+        // If the distance is less than the player's radius, there's a collision
+        if (distance < PLAYER_RADIUS) {
+          // Calculate the overlap between the player and the wall
+          const overlap = PLAYER_RADIUS - distance;
+          // Calculate the angle to push the player out of the wall
+          const pushAngle = Math.atan2(distY, distX);
+
+          // Move the player out of the wall
+          localPlayer.x += Math.cos(pushAngle) * overlap;
+          localPlayer.y += Math.sin(pushAngle) * overlap;
+        }
+      }
+
+      // Enforce boundary constraints after collision resolution
+      localPlayer.x = Math.max(
         PLAYER_RADIUS,
-        Math.min(newX, canvas.width - PLAYER_RADIUS),
+        Math.min(localPlayer.x, canvas.width - PLAYER_RADIUS),
       );
-      newY = Math.max(
+      localPlayer.y = Math.max(
         PLAYER_RADIUS,
-        Math.min(newY, canvas.height - PLAYER_RADIUS),
+        Math.min(localPlayer.y, canvas.height - PLAYER_RADIUS),
       );
-
-      // Try to move in both directions separately
-      let canMoveX = !checkWallCollision(newX, localPlayer.y, PLAYER_RADIUS);
-      let canMoveY = !checkWallCollision(localPlayer.x, newY, PLAYER_RADIUS);
-
-      if (canMoveX) localPlayer.x = newX;
-      if (canMoveY) localPlayer.y = newY;
 
       // Emit player position update
       socket.emit("playerUpdate", {
