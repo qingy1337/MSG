@@ -493,8 +493,8 @@ const gameWalls = [];
 // Simple server-side bot config (step 0: scripted bots)
 const BOT_CONFIG = {
   // When bots are enabled, try to roughly fill up to this many total players.
-  targetTotalPlayers: 9,
-  maxPerMatch: 9,
+  targetTotalPlayers: 8,
+  maxPerMatch: 8,
   // Tuned so bots feel closer to human speed (~300 units/sec at 20 ticks/sec).
   moveSpeedPerTick: 11,
   weaponKey: "miniGun",
@@ -530,6 +530,10 @@ const WEAPON_DAMAGE = {
 // Bullet bookkeeping so each bullet only ever applies damage once.
 let nextBulletId = 1;
 const processedBulletHits = new Set();
+const activeBullets = [];
+const DEFAULT_BULLET_RADIUS = 5;
+const DEFAULT_BULLET_SPEED = 10;
+const BULLET_MAX_LIFETIME_MS = 4000;
 let gameOverTimeout = null;
 
 io.on("connection", (socket) => {
@@ -637,6 +641,7 @@ io.on("connection", (socket) => {
     }
 
     gameInProgress.status = true;
+    clearActiveBullets();
 
     // Generate walls
     const walls = generateWalls();
@@ -705,11 +710,13 @@ io.on("connection", (socket) => {
       ) {
         return; // do not emit invalid bullet
       }
-      io.emit("newBullet", {
+      const bullet = {
         ...bulletData,
         bulletId: nextBulletId++,
         playerId: socket.id,
-      });
+      };
+      io.emit("newBullet", bullet);
+      trackActiveBullet(bullet, player);
     }
   });
 
@@ -738,9 +745,11 @@ io.on("connection", (socket) => {
     // If we've already processed a hit for this bullet, ignore duplicates
     if (bulletId != null) {
       if (processedBulletHits.has(bulletId)) {
+        removeActiveBullet(bulletId);
         return;
       }
       processedBulletHits.add(bulletId);
+      removeActiveBullet(bulletId);
     }
 
     // Determine damage from shooter's weapon; default to pistol damage
@@ -854,6 +863,7 @@ function resetGame() {
   gameInProgress.status = false;
   nextBotId = 1;
   // Reset bullet bookkeeping between matches
+  clearActiveBullets();
   nextBulletId = 1;
   processedBulletHits.clear();
   io.emit("resetGame");
@@ -1113,6 +1123,175 @@ function segmentCrossesWallDiscrete(x0, y0, x1, y1, walls, step = 2) {
   return false;
 }
 
+function distanceToLineSq(px, py, x0, y0, vx, vy) {
+  const denom = vx * vx + vy * vy;
+  if (denom < 1e-9) return Infinity;
+  const t = ((px - x0) * vx + (py - y0) * vy) / denom;
+  const closestX = x0 + vx * t;
+  const closestY = y0 + vy * t;
+  const dx = px - closestX;
+  const dy = py - closestY;
+  return dx * dx + dy * dy;
+}
+
+function trackActiveBullet(bulletData, shooter) {
+  if (
+    !bulletData ||
+    typeof bulletData.x !== "number" ||
+    typeof bulletData.y !== "number" ||
+    typeof bulletData.angle !== "number" ||
+    typeof bulletData.bulletId !== "number"
+  ) {
+    return;
+  }
+
+  const shooterWeapon =
+    shooter && shooter.weapon && WEAPONS[shooter.weapon]
+      ? WEAPONS[shooter.weapon]
+      : null;
+  const speed =
+    typeof bulletData.speed === "number"
+      ? bulletData.speed
+      : shooterWeapon && typeof shooterWeapon.bulletSpeed === "number"
+        ? shooterWeapon.bulletSpeed
+        : DEFAULT_BULLET_SPEED;
+  const radius =
+    typeof bulletData.radius === "number"
+      ? bulletData.radius
+      : shooterWeapon && typeof shooterWeapon.bulletRadius === "number"
+        ? shooterWeapon.bulletRadius
+        : DEFAULT_BULLET_RADIUS;
+
+  const createdAt = Date.now();
+  const speedPerSec = speed * 60; // client bullets move per frame (~60 fps)
+  const vx = Math.cos(bulletData.angle) * speedPerSec;
+  const vy = Math.sin(bulletData.angle) * speedPerSec;
+
+  activeBullets.push({
+    id: bulletData.bulletId,
+    playerId: bulletData.playerId || (shooter && shooter.id) || null,
+    shooterIsBot: !!(shooter && shooter.isBot),
+    x: bulletData.x,
+    y: bulletData.y,
+    angle: bulletData.angle,
+    radius,
+    speedPerSec,
+    vx,
+    vy,
+    createdAt,
+    lastUpdatedAt: createdAt,
+  });
+}
+
+function removeActiveBullet(bulletId) {
+  if (bulletId == null) return;
+  const idx = activeBullets.findIndex((b) => b && b.id === bulletId);
+  if (idx !== -1) {
+    activeBullets.splice(idx, 1);
+  }
+}
+
+function clearActiveBullets() {
+  activeBullets.length = 0;
+}
+
+function advanceActiveBullets(now, walls) {
+  for (let i = activeBullets.length - 1; i >= 0; i--) {
+    const b = activeBullets[i];
+    if (!b) {
+      activeBullets.splice(i, 1);
+      continue;
+    }
+
+    const dtMs =
+      typeof b.lastUpdatedAt === "number"
+        ? Math.max(0, Math.min(200, now - b.lastUpdatedAt))
+        : 0;
+    const dtSec = dtMs / 1000;
+    const prevX = b.x;
+    const prevY = b.y;
+    b.x += b.vx * dtSec;
+    b.y += b.vy * dtSec;
+    b.lastUpdatedAt = now;
+
+    const agedOut =
+      typeof b.createdAt === "number" && now - b.createdAt > BULLET_MAX_LIFETIME_MS;
+    const outOfBounds =
+      b.x < -b.radius ||
+      b.x > BOT_CONFIG.canvasWidth + b.radius ||
+      b.y < -b.radius ||
+      b.y > BOT_CONFIG.canvasHeight + b.radius;
+    const hitWall =
+      circleCollidesAnyWall(b.x, b.y, b.radius, walls) ||
+      segmentCrossesWallDiscrete(prevX, prevY, b.x, b.y, walls, 2);
+
+    if (agedOut || outOfBounds || hitWall) {
+      activeBullets.splice(i, 1);
+    }
+  }
+}
+
+function findIncomingBulletThreat(bot, bullets, walls) {
+  if (!bot || !bullets || bullets.length === 0) return null;
+  const botRadius = BOT_CONFIG.playerRadius;
+  const maxLookaheadSec = 1.5;
+  let best = null;
+
+  for (const b of bullets) {
+    if (!b || b.shooterIsBot) continue;
+    if (
+      typeof b.x !== "number" ||
+      typeof b.y !== "number" ||
+      typeof b.vx !== "number" ||
+      typeof b.vy !== "number"
+    ) {
+      continue;
+    }
+
+    const relX = b.x - bot.x;
+    const relY = b.y - bot.y;
+    const vDotV = b.vx * b.vx + b.vy * b.vy;
+    if (vDotV < 1e-9) continue;
+
+    const radiusSum = (typeof b.radius === "number" ? b.radius : DEFAULT_BULLET_RADIUS) + botRadius;
+    const bCoef = 2 * (relX * b.vx + relY * b.vy);
+    const c = relX * relX + relY * relY - radiusSum * radiusSum;
+    const disc = bCoef * bCoef - 4 * vDotV * c;
+    if (disc < 0) continue;
+    const sqrtDisc = Math.sqrt(disc);
+    const t1 = (-bCoef - sqrtDisc) / (2 * vDotV);
+    const t2 = (-bCoef + sqrtDisc) / (2 * vDotV);
+    const times = [t1, t2].filter((t) => t >= 0 && Number.isFinite(t));
+    if (times.length === 0) continue;
+    const tHit = Math.min(...times);
+    if (tHit > maxLookaheadSec) continue;
+    // rel dot v < 0 means bullet is moving toward the bot
+    if (bCoef >= 0) continue;
+
+    const hitX = b.x + b.vx * tHit;
+    const hitY = b.y + b.vy * tHit;
+    if (
+      segmentCrossesWallDiscrete(b.x, b.y, hitX, hitY, walls, 2) ||
+      lineIntersectsAnyWall(b.x, b.y, hitX, hitY, walls)
+    ) {
+      continue;
+    }
+
+    const incomingAngle = Math.atan2(b.vy, b.vx);
+    if (!best || tHit < best.timeToImpact) {
+      best = {
+        bullet: b,
+        timeToImpact: tHit,
+        hitX,
+        hitY,
+        incomingAngle,
+      };
+    }
+  }
+
+  return best;
+}
+
 // --- Simple server-side bots (step 0) ---
 
 function createBotsForCurrentMatch(count) {
@@ -1262,6 +1441,21 @@ function computeScriptedBotAction(bot, players, walls) {
     };
   }
 
+  const isDodgingActive =
+    typeof botState.dodgeUntil === "number" &&
+    now < botState.dodgeUntil &&
+    typeof botState.dodgeDirX === "number" &&
+    typeof botState.dodgeDirY === "number";
+  if (
+    !isDodgingActive &&
+    typeof botState.dodgeUntil === "number" &&
+    now >= botState.dodgeUntil
+  ) {
+    botState.dodgeUntil = null;
+    botState.dodgeDirX = 0;
+    botState.dodgeDirY = 0;
+  }
+
   const dx = target.x - bot.x;
   const dy = target.y - bot.y;
   const dist = Math.sqrt(dx * dx + dy * dy) || 1e-6;
@@ -1340,145 +1534,212 @@ function computeScriptedBotAction(bot, players, walls) {
   );
   const shouldShoot = hasLineOfSight && dist < 550;
 
+  // Dodge incoming bullets from human players by strafing perpendicular to the shot.
+  const threat = findIncomingBulletThreat(bot, activeBullets, walls);
+  const DODGE_DURATION_MS = 650;
+  let dodging = isDodgingActive;
+  if (
+    !dodging &&
+    threat &&
+    threat.bullet &&
+    threat.bullet.id !== botState.lastDodgedBulletId
+  ) {
+    const incoming = threat.incomingAngle;
+    const left = { x: -Math.sin(incoming), y: Math.cos(incoming) };
+    const right = { x: Math.sin(incoming), y: -Math.cos(incoming) };
+
+    function scoreDodge(dir) {
+      const step = BOT_CONFIG.moveSpeedPerTick * 3;
+      const radius = BOT_CONFIG.playerRadius;
+      const width = BOT_CONFIG.canvasWidth;
+      const height = BOT_CONFIG.canvasHeight;
+      let tx = bot.x + dir.x * step;
+      let ty = bot.y + dir.y * step;
+      tx = Math.max(radius, Math.min(tx, width - radius));
+      ty = Math.max(radius, Math.min(ty, height - radius));
+      if (circleCollidesAnyWall(tx, ty, radius, walls)) {
+        return -Infinity;
+      }
+      const distToPathSq = distanceToLineSq(
+        tx,
+        ty,
+        threat.bullet.x,
+        threat.bullet.y,
+        threat.bullet.vx,
+        threat.bullet.vy,
+      );
+      const dxHit = tx - threat.hitX;
+      const dyHit = ty - threat.hitY;
+      const distFromHitSq = dxHit * dxHit + dyHit * dyHit;
+      return distToPathSq * 0.7 + distFromHitSq * 0.3;
+    }
+
+    const scoreLeft = scoreDodge(left);
+    const scoreRight = scoreDodge(right);
+
+    if (scoreLeft > -Infinity || scoreRight > -Infinity) {
+      let chosen = null;
+      if (scoreLeft >= scoreRight) {
+        chosen = left;
+      } else {
+        chosen = right;
+      }
+      if (chosen) {
+        moveX = chosen.x;
+        moveY = chosen.y;
+        botState.dodgeDirX = chosen.x;
+        botState.dodgeDirY = chosen.y;
+        botState.dodgeUntil = now + DODGE_DURATION_MS;
+        botState.lastDodgedBulletId = threat.bullet.id;
+        dodging = true;
+      }
+    }
+  } else if (dodging) {
+    moveX = botState.dodgeDirX;
+    moveY = botState.dodgeDirY;
+  }
+
   // --- Simple "stuck near wall" detection + escape ---
   // If the bot has been essentially in the same place for a short window
   // *and* is right next to a wall, bias its movement to strafe around the wall
   // instead of endlessly walking into it.
-  const STUCK_WINDOW_MS = 1200;
-  const STUCK_MIN_MOVEMENT = 15; // pixels over the window
-  const NEAR_WALL_MARGIN = 6;
-  const UNSTUCK_DURATION_MS = 900;
+  if (!dodging) {
+    const STUCK_WINDOW_MS = 1200;
+    const STUCK_MIN_MOVEMENT = 15; // pixels over the window
+    const NEAR_WALL_MARGIN = 6;
+    const UNSTUCK_DURATION_MS = 900;
 
-  if (typeof botState.stuckSampleTime !== "number") {
-    botState.stuckSampleTime = now;
-    botState.stuckSampleX = bot.x;
-    botState.stuckSampleY = bot.y;
-  } else if (now - botState.stuckSampleTime >= STUCK_WINDOW_MS) {
-    const sx = typeof botState.stuckSampleX === "number" ? botState.stuckSampleX : bot.x;
-    const sy = typeof botState.stuckSampleY === "number" ? botState.stuckSampleY : bot.y;
-    const movedDx = bot.x - sx;
-    const movedDy = bot.y - sy;
-    const movedDistSq = movedDx * movedDx + movedDy * movedDy;
-    const movedLittle = movedDistSq < STUCK_MIN_MOVEMENT * STUCK_MIN_MOVEMENT;
+    if (typeof botState.stuckSampleTime !== "number") {
+      botState.stuckSampleTime = now;
+      botState.stuckSampleX = bot.x;
+      botState.stuckSampleY = bot.y;
+    } else if (now - botState.stuckSampleTime >= STUCK_WINDOW_MS) {
+      const sx = typeof botState.stuckSampleX === "number" ? botState.stuckSampleX : bot.x;
+      const sy = typeof botState.stuckSampleY === "number" ? botState.stuckSampleY : bot.y;
+      const movedDx = bot.x - sx;
+      const movedDy = bot.y - sy;
+      const movedDistSq = movedDx * movedDx + movedDy * movedDy;
+      const movedLittle = movedDistSq < STUCK_MIN_MOVEMENT * STUCK_MIN_MOVEMENT;
 
-    const radius = BOT_CONFIG.playerRadius + NEAR_WALL_MARGIN;
-    const nearWall = circleCollidesAnyWall(bot.x, bot.y, radius, walls);
+      const radius = BOT_CONFIG.playerRadius + NEAR_WALL_MARGIN;
+      const nearWall = circleCollidesAnyWall(bot.x, bot.y, radius, walls);
 
-    const alreadyUnstucking =
-      typeof botState.unstuckUntil === "number" && now < botState.unstuckUntil;
+      const alreadyUnstucking =
+        typeof botState.unstuckUntil === "number" && now < botState.unstuckUntil;
 
-    if (nearWall && movedLittle && !alreadyUnstucking) {
-      // Try strafing left/right around the target and pick the direction
-      // that is less likely to keep us jammed into the wall and, if possible,
-      // improves line of sight.
-      const lateral1 = { x: -dirY, y: dirX };
-      const lateral2 = { x: dirY, y: -dirX };
+      if (nearWall && movedLittle && !alreadyUnstucking) {
+        // Try strafing left/right around the target and pick the direction
+        // that is less likely to keep us jammed into the wall and, if possible,
+        // improves line of sight.
+        const lateral1 = { x: -dirY, y: dirX };
+        const lateral2 = { x: dirY, y: -dirX };
 
-      function scoreLateral(dir) {
-        const step = BOT_CONFIG.moveSpeedPerTick * 4;
-        const testRadius = BOT_CONFIG.playerRadius;
-        const width = BOT_CONFIG.canvasWidth;
-        const height = BOT_CONFIG.canvasHeight;
+        function scoreLateral(dir) {
+          const step = BOT_CONFIG.moveSpeedPerTick * 4;
+          const testRadius = BOT_CONFIG.playerRadius;
+          const width = BOT_CONFIG.canvasWidth;
+          const height = BOT_CONFIG.canvasHeight;
 
-        let tx = bot.x + dir.x * step;
-        let ty = bot.y + dir.y * step;
-        tx = Math.max(testRadius, Math.min(tx, width - testRadius));
-        ty = Math.max(testRadius, Math.min(ty, height - testRadius));
+          let tx = bot.x + dir.x * step;
+          let ty = bot.y + dir.y * step;
+          tx = Math.max(testRadius, Math.min(tx, width - testRadius));
+          ty = Math.max(testRadius, Math.min(ty, height - testRadius));
 
-        if (circleCollidesAnyWall(tx, ty, testRadius, walls)) {
-          return -Infinity; // walking straight into a wall
+          if (circleCollidesAnyWall(tx, ty, testRadius, walls)) {
+            return -Infinity; // walking straight into a wall
+          }
+
+          let score = 0;
+
+          const losFromCandidate = !lineIntersectsAnyWall(
+            tx,
+            ty,
+            target.x,
+            target.y,
+            walls,
+          );
+          if (losFromCandidate) score += 2;
+
+          const currDistSq = dx * dx + dy * dy;
+          const cdx = target.x - tx;
+          const cdy = target.y - ty;
+          const candDistSq = cdx * cdx + cdy * cdy;
+          if (candDistSq < currDistSq) score += 1;
+
+          return score;
         }
 
-        let score = 0;
+        const score1 = scoreLateral(lateral1);
+        const score2 = scoreLateral(lateral2);
 
-        const losFromCandidate = !lineIntersectsAnyWall(
-          tx,
-          ty,
-          target.x,
-          target.y,
-          walls,
-        );
-        if (losFromCandidate) score += 2;
+        let chosen = null;
+        if (score1 > -Infinity || score2 > -Infinity) {
+          if (score1 >= score2) {
+            chosen = lateral1;
+          } else {
+            chosen = lateral2;
+          }
+        }
 
-        const currDistSq = dx * dx + dy * dy;
-        const cdx = target.x - tx;
-        const cdy = target.y - ty;
-        const candDistSq = cdx * cdx + cdy * cdy;
-        if (candDistSq < currDistSq) score += 1;
-
-        return score;
-      }
-
-      const score1 = scoreLateral(lateral1);
-      const score2 = scoreLateral(lateral2);
-
-      let chosen = null;
-      if (score1 > -Infinity || score2 > -Infinity) {
-        if (score1 >= score2) {
-          chosen = lateral1;
-        } else {
-          chosen = lateral2;
+        if (chosen) {
+          botState.unstuckDirX = chosen.x;
+          botState.unstuckDirY = chosen.y;
+          botState.unstuckUntil = now + UNSTUCK_DURATION_MS;
         }
       }
 
-      if (chosen) {
-        botState.unstuckDirX = chosen.x;
-        botState.unstuckDirY = chosen.y;
-        botState.unstuckUntil = now + UNSTUCK_DURATION_MS;
-      }
+      // Start a new window from the current position either way.
+      botState.stuckSampleTime = now;
+      botState.stuckSampleX = bot.x;
+      botState.stuckSampleY = bot.y;
     }
 
-    // Start a new window from the current position either way.
-    botState.stuckSampleTime = now;
-    botState.stuckSampleX = bot.x;
-    botState.stuckSampleY = bot.y;
-  }
-
-  if (
-    typeof botState.unstuckUntil === "number" &&
-    now < botState.unstuckUntil &&
-    typeof botState.unstuckDirX === "number" &&
-    typeof botState.unstuckDirY === "number"
-  ) {
-    moveX = botState.unstuckDirX;
-    moveY = botState.unstuckDirY;
-  } else if (
-    typeof botState.unstuckUntil === "number" &&
-    now >= botState.unstuckUntil
-  ) {
-    botState.unstuckUntil = null;
-    botState.unstuckDirX = 0;
-    botState.unstuckDirY = 0;
-  }
-
-  // Occasionally pause movement so bots don't orbit forever in stalemates.
-  const PAUSE_INTERVAL_MS = 20000; // roughly "once every 20 seconds"
-  const MIN_PAUSE_MS = 800;
-  const MAX_PAUSE_MS = 1600;
-
-  if (typeof botState.pauseUntil === "number") {
-    if (now < botState.pauseUntil) {
-      // Currently paused: stop movement but still allow aiming/shooting.
-      moveX = 0;
-      moveY = 0;
-    } else {
-      // Pause expired.
-      botState.pauseUntil = null;
+    if (
+      typeof botState.unstuckUntil === "number" &&
+      now < botState.unstuckUntil &&
+      typeof botState.unstuckDirX === "number" &&
+      typeof botState.unstuckDirY === "number"
+    ) {
+      moveX = botState.unstuckDirX;
+      moveY = botState.unstuckDirY;
+    } else if (
+      typeof botState.unstuckUntil === "number" &&
+      now >= botState.unstuckUntil
+    ) {
+      botState.unstuckUntil = null;
+      botState.unstuckDirX = 0;
+      botState.unstuckDirY = 0;
     }
-  } else {
-    const lastDecision =
-      typeof botState.lastPauseDecisionAt === "number"
-        ? botState.lastPauseDecisionAt
-        : 0;
-    if (now - lastDecision >= PAUSE_INTERVAL_MS) {
-      botState.lastPauseDecisionAt = now;
-      // Randomize whether we actually pause at this interval boundary.
-      if (Math.random() < 0.6) {
-        const duration =
-          MIN_PAUSE_MS + Math.random() * (MAX_PAUSE_MS - MIN_PAUSE_MS);
-        botState.pauseUntil = now + duration;
+
+    // Occasionally pause movement so bots don't orbit forever in stalemates.
+    const PAUSE_INTERVAL_MS = 20000; // roughly "once every 20 seconds"
+    const MIN_PAUSE_MS = 800;
+    const MAX_PAUSE_MS = 1600;
+
+    if (typeof botState.pauseUntil === "number") {
+      if (now < botState.pauseUntil) {
+        // Currently paused: stop movement but still allow aiming/shooting.
         moveX = 0;
         moveY = 0;
+      } else {
+        // Pause expired.
+        botState.pauseUntil = null;
+      }
+    } else {
+      const lastDecision =
+        typeof botState.lastPauseDecisionAt === "number"
+          ? botState.lastPauseDecisionAt
+          : 0;
+      if (now - lastDecision >= PAUSE_INTERVAL_MS) {
+        botState.lastPauseDecisionAt = now;
+        // Randomize whether we actually pause at this interval boundary.
+        if (Math.random() < 0.6) {
+          const duration =
+            MIN_PAUSE_MS + Math.random() * (MAX_PAUSE_MS - MIN_PAUSE_MS);
+          botState.pauseUntil = now + duration;
+          moveX = 0;
+          moveY = 0;
+        }
       }
     }
   }
@@ -1521,7 +1782,7 @@ function fireBulletFromBot(bot) {
     return false;
   }
 
-  io.emit("newBullet", {
+  const bullet = {
     bulletId: nextBulletId++,
     x: tipX,
     y: tipY,
@@ -1529,7 +1790,10 @@ function fireBulletFromBot(bot) {
     playerId: bot.id,
     speed: bulletSpeed ?? undefined,
     radius: bulletRadius ?? undefined,
-  });
+  };
+
+  io.emit("newBullet", bullet);
+  trackActiveBullet(bullet, bot);
   return true;
 }
 
@@ -1598,6 +1862,7 @@ function runBotsTick() {
 
   const snapshotPlayers = activePlayers.slice();
   const now = Date.now();
+  advanceActiveBullets(now, gameWalls);
   let anyBotMoved = false;
 
   for (const bot of bots) {
