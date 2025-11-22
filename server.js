@@ -493,8 +493,8 @@ const gameWalls = [];
 // Simple server-side bot config (step 0: scripted bots)
 const BOT_CONFIG = {
   // When bots are enabled, try to roughly fill up to this many total players.
-  targetTotalPlayers: 8,
-  maxPerMatch: 8,
+  targetTotalPlayers: 3,
+  maxPerMatch: 3,
   // Tuned so bots feel closer to human speed (~300 units/sec at 20 ticks/sec).
   moveSpeedPerTick: 11,
   weaponKey: "miniGun",
@@ -1534,12 +1534,91 @@ function computeScriptedBotAction(bot, players, walls) {
   );
   const shouldShoot = hasLineOfSight && dist < 550;
 
+  // Detect when we're trying to peek past a wall (line of sight blocked) and
+  // repeatedly bouncing off bullet dodges. In that case, temporarily ignore
+  // bullet-dodge logic so the bot can push through the bullet stream.
+  const lineBlockedToTarget = lineIntersectsAnyWall(
+    bot.x,
+    bot.y,
+    target.x,
+    target.y,
+    walls,
+  );
+  const pushActive =
+    typeof botState.pushThroughUntil === "number" &&
+    now < botState.pushThroughUntil &&
+    botState.pushThroughForTargetId === target.id;
+  let pushingThrough = !!pushActive;
+  if (pushingThrough && !lineBlockedToTarget) {
+    botState.pushThroughUntil = null;
+    botState.pushThroughForTargetId = null;
+    botState.peekThreatCount = 0;
+    pushingThrough = false;
+  }
+
   // Dodge incoming bullets from human players by strafing perpendicular to the shot.
   const threat = findIncomingBulletThreat(bot, activeBullets, walls);
   const DODGE_DURATION_MS = 650;
   let dodging = isDodgingActive;
+
+  const peekThreatEligible = threat && lineBlockedToTarget;
+  if (peekThreatEligible) {
+    const lastThreatAt =
+      typeof botState.lastPeekThreatAt === "number"
+        ? botState.lastPeekThreatAt
+        : 0;
+    if (now - lastThreatAt <= 1400) {
+      botState.peekThreatCount =
+        typeof botState.peekThreatCount === "number"
+          ? botState.peekThreatCount + 1
+          : 1;
+    } else {
+      botState.peekThreatCount = 1;
+    }
+    botState.lastPeekThreatAt = now;
+    if (
+      botState.peekThreatCount >= 2 &&
+      (!pushingThrough ||
+        !botState.peekMode ||
+        typeof botState.peekModeUntil !== "number" ||
+        now >= botState.peekModeUntil)
+    ) {
+      const decidePush = Math.random() < 0.5 ? "push" : "fallback";
+      botState.peekMode = decidePush;
+      botState.peekModeTargetId = target.id;
+      botState.peekModeUntil = now + 1200;
+
+      if (decidePush === "push") {
+        botState.pushThroughUntil = now + 900;
+        botState.pushThroughForTargetId = target.id;
+        pushingThrough = true;
+        botState.peekFallbackX = 0;
+        botState.peekFallbackY = 0;
+      } else {
+        const options = [
+          { x: -dirX, y: -dirY }, // back off
+          { x: -dirY, y: dirX },  // strafe left
+          { x: dirY, y: -dirX },  // strafe right
+        ];
+        const chosen =
+          options[Math.floor(Math.random() * options.length)] || options[0];
+        botState.peekFallbackX = chosen.x;
+        botState.peekFallbackY = chosen.y;
+        botState.pushThroughUntil = null;
+        botState.pushThroughForTargetId = null;
+        pushingThrough = false;
+      }
+    }
+  } else if (!threat) {
+    botState.peekThreatCount = 0;
+    botState.peekMode = null;
+    botState.peekModeUntil = null;
+    botState.peekModeTargetId = null;
+  }
+
   if (
     !dodging &&
+    !pushingThrough &&
     threat &&
     threat.bullet &&
     threat.bullet.id !== botState.lastDodgedBulletId
@@ -1599,11 +1678,38 @@ function computeScriptedBotAction(bot, players, walls) {
     moveY = botState.dodgeDirY;
   }
 
+  if (
+    botState.peekMode === "push" &&
+    typeof botState.peekModeUntil === "number" &&
+    now < botState.peekModeUntil &&
+    botState.peekModeTargetId === target.id
+  ) {
+    pushingThrough = true;
+  }
+
+  const fallbackPeekActive =
+    botState.peekMode === "fallback" &&
+    typeof botState.peekModeUntil === "number" &&
+    now < botState.peekModeUntil &&
+    botState.peekModeTargetId === target.id;
+
+  if (fallbackPeekActive) {
+    moveX =
+      typeof botState.peekFallbackX === "number"
+        ? botState.peekFallbackX
+        : -dirX;
+    moveY =
+      typeof botState.peekFallbackY === "number"
+        ? botState.peekFallbackY
+        : -dirY;
+    dodging = false; // commit to the fallback choice
+  }
+
   // --- Simple "stuck near wall" detection + escape ---
   // If the bot has been essentially in the same place for a short window
   // *and* is right next to a wall, bias its movement to strafe around the wall
   // instead of endlessly walking into it.
-  if (!dodging) {
+  if (!dodging && !fallbackPeekActive) {
     const STUCK_WINDOW_MS = 1200;
     const STUCK_MIN_MOVEMENT = 15; // pixels over the window
     const NEAR_WALL_MARGIN = 6;
@@ -1814,22 +1920,35 @@ function applyBotAction(bot, action, now) {
   if (length > 0.001) {
     const dirX = mx / length;
     const dirY = my / length;
-    let proposedX = bot.x + dirX * moveSpeed;
-    let proposedY = bot.y + dirY * moveSpeed;
+    bot.x += dirX * moveSpeed;
+    bot.y += dirY * moveSpeed;
+    moved = true;
 
-    // Clamp to arena bounds
-    proposedX = Math.max(radius, Math.min(proposedX, width - radius));
-    proposedY = Math.max(radius, Math.min(proposedY, height - radius));
+    // Resolve wall collisions by pushing the bot out
+    for (const wall of gameWalls) {
+      const closestX = Math.max(
+        wall.x,
+        Math.min(bot.x, wall.x + wall.width)
+      );
+      const closestY = Math.max(
+        wall.y,
+        Math.min(bot.y, wall.y + wall.height)
+      );
+      const distX = bot.x - closestX;
+      const distY = bot.y - closestY;
+      const distance = Math.sqrt(distX * distX + distY * distY);
 
-    // Try sliding along walls, similar to client
-    if (!circleCollidesAnyWall(proposedX, bot.y, radius, gameWalls)) {
-      bot.x = proposedX;
-      moved = true;
+      if (distance < radius) {
+        const overlap = radius - distance;
+        const pushAngle = Math.atan2(distY, distX);
+        bot.x += Math.cos(pushAngle) * overlap;
+        bot.y += Math.sin(pushAngle) * overlap;
+      }
     }
-    if (!circleCollidesAnyWall(bot.x, proposedY, radius, gameWalls)) {
-      bot.y = proposedY;
-      moved = true;
-    }
+
+    // Clamp to arena bounds after collision resolution
+    bot.x = Math.max(radius, Math.min(bot.x, width - radius));
+    bot.y = Math.max(radius, Math.min(bot.y, height - radius));
   }
 
   if (typeof action.aimAngle === "number") {
