@@ -39,6 +39,18 @@
 //   color: "#111827"
 // }
 //
+// Arbitrary polygon with a list of points:
+// {
+//   type: "polygon",
+//   points: [
+//     { x: 0, y: -0.1 },
+//     { x: 0.5, y: 0 },
+//     { x: 0, y: 0.1 }
+//   ],
+//   fill: "#111827",     // or fill: null for no fill
+//   color: "#111827"     // outline color
+// }
+//
 // All coordinates are relative to the weapon length and rotated by the weapon angle.
 // Colors can be any valid CSS color string.
 // --------------------------------------------------------------------
@@ -240,6 +252,39 @@ function drawWeaponShapes(
       });
       ctx.closePath();
       ctx.fill();
+      ctx.restore();
+    } else if (shape.type === "polygon") {
+      if (!Array.isArray(shape.points) || shape.points.length < 3) return;
+
+      const pointsLocal = shape.points.map(point => [
+        (point.x || 0) * length,
+        (point.y || 0) * length
+      ]);
+
+      ctx.save();
+      ctx.beginPath();
+
+      pointsLocal.forEach(([lx, ly], idx) => {
+        const [wx, wy] = localToWorld(lx, ly);
+        if (idx === 0) ctx.moveTo(wx, wy);
+        else ctx.lineTo(wx, wy);
+      });
+
+      ctx.closePath();
+
+      // Fill if specified
+      if (shape.fill !== null && shape.fill !== undefined) {
+        ctx.fillStyle = shape.fill;
+        ctx.fill();
+      }
+
+      // Stroke if color specified
+      if (shape.color) {
+        ctx.strokeStyle = shape.color;
+        ctx.lineWidth = typeof shape.lineWidth === "number" ? shape.lineWidth : 1;
+        ctx.stroke();
+      }
+
       ctx.restore();
     }
   });

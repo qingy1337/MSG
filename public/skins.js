@@ -226,6 +226,28 @@ const WEAPON_SKINS = {
         },
       ],
     },
+    {
+      key: "miniGun_poison",
+      weaponKey: "miniGun",
+      name: "Poison",
+      description: "HIT BY LEAF. Was it poisonous? No just regular one",
+      price: 500,
+      isDefault: false,
+      bulletColor: "#64c949",
+      shapes: [
+        {
+          type: "polygon",
+          points: [
+            { x: 0, y: 0 },
+            { x: 0.5, y: 0.25 },
+            { x: 1, y: 0 },
+            { x: 0.5, y: -0.25 },
+          ],
+          fill: "#64c949",
+          color: "#64c949",
+        },
+      ],
+    },
   ],
   sniper: [
     {

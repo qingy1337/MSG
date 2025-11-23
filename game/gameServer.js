@@ -44,15 +44,15 @@ function createGameServer(io) {
   // Simple server-side bot config (step 0: scripted bots)
   const BOT_CONFIG = {
     // When bots are enabled, try to roughly fill up to this many total players.
-    targetTotalPlayers: 3,
-    maxPerMatch: 3,
+    targetTotalPlayers: 5,
+    maxPerMatch: 2,
     // Tuned so bots feel closer to human speed (~300 units/sec at 20 ticks/sec).
     moveSpeedPerTick: 11,
     weaponKey: "miniGun",
     playerRadius: 20,
     canvasWidth: 900,
     canvasHeight: 600,
-    aimInaccuracy: 0.15,
+    aimInaccuracy: 0.0,
   };
   let nextBotId = 1;
 
@@ -941,6 +941,36 @@ function createGameServer(io) {
       bot.botState && typeof bot.botState === "object"
         ? bot.botState
         : (bot.botState = {});
+    const prevHealth =
+      typeof botState.lastHealth === "number" ? botState.lastHealth : bot.health;
+    const tookDamage = bot.health < prevHealth;
+    botState.lastHealth = bot.health;
+
+    // Persistent strafe direction (flips when strafing is getting punished)
+    if (typeof botState.strafeDir !== "number" || botState.strafeDir === 0) {
+      botState.strafeDir = Math.random() < 0.5 ? -1 : 1;
+    }
+
+    // Occasionally flip strafe direction just to stay unpredictable.
+    const STRAFE_DRIFT_INTERVAL_MS = 20000;
+    const lastStrafeDriftCheck =
+      typeof botState.lastStrafeDriftCheck === "number"
+        ? botState.lastStrafeDriftCheck
+        : 0;
+    if (now - lastStrafeDriftCheck >= STRAFE_DRIFT_INTERVAL_MS) {
+      botState.lastStrafeDriftCheck = now;
+      if (Math.random() < 0.5) {
+        botState.strafeDir = -botState.strafeDir;
+      }
+    }
+
+    const STRAFE_DAMAGE_CHAIN_MS = 10000;
+    if (
+      typeof botState.lastDamageStrafeTime === "number" &&
+      now - botState.lastDamageStrafeTime > STRAFE_DAMAGE_CHAIN_MS
+    ) {
+      botState.damageStrafeChain = 0;
+    }
 
     let target = null;
     let closestDistSq = Infinity;
@@ -957,6 +987,8 @@ function createGameServer(io) {
     }
 
     if (!target) {
+      botState.lastMoveMode = "idle";
+      botState.lastStrafeDirUsed = null;
       return {
         moveX: 0,
         moveY: 0,
@@ -985,6 +1017,85 @@ function createGameServer(io) {
     const dist = Math.sqrt(dx * dx + dy * dy) || 1e-6;
     const dirX = dx / dist;
     const dirY = dy / dist;
+
+    // If we're taking repeated damage while strafing in the same direction,
+    // either flip our strafe direction *or* commit to a short forward charge
+    // through the bullet stream.
+    if (
+      tookDamage &&
+      botState.lastMoveMode === "strafe" &&
+      typeof botState.lastStrafeDirUsed === "number"
+    ) {
+      const lastDamageDir =
+        typeof botState.lastDamageStrafeDir === "number"
+          ? botState.lastDamageStrafeDir
+          : null;
+      const lastDamageTime =
+        typeof botState.lastDamageStrafeTime === "number"
+          ? botState.lastDamageStrafeTime
+          : 0;
+
+      if (
+        lastDamageDir === botState.lastStrafeDirUsed &&
+        now - lastDamageTime <= STRAFE_DAMAGE_CHAIN_MS
+      ) {
+        botState.damageStrafeChain =
+          typeof botState.damageStrafeChain === "number"
+            ? botState.damageStrafeChain + 1
+            : 1;
+      } else {
+        botState.damageStrafeChain = 1;
+      }
+
+      botState.lastDamageStrafeDir = botState.lastStrafeDirUsed;
+      botState.lastDamageStrafeTime = now;
+
+      const STRAFE_FLIP_COOLDOWN_MS = 500;
+      const lastFlipAt =
+        typeof botState.lastStrafeFlipAt === "number"
+          ? botState.lastStrafeFlipAt
+          : 0;
+      if (
+        botState.damageStrafeChain >= 1 &&
+        now - lastFlipAt >= STRAFE_FLIP_COOLDOWN_MS
+      ) {
+        const commitCharge = Math.random() < 0.5;
+        const currentDir =
+          typeof botState.strafeDir === "number" && botState.strafeDir !== 0
+            ? botState.strafeDir
+            : 1;
+
+        if (commitCharge) {
+          const CHARGE_DURATION_MS = 900;
+          botState.strafeChargeUntil = now + CHARGE_DURATION_MS;
+          botState.strafeChargeDirX = dirX;
+          botState.strafeChargeDirY = dirY;
+        } else {
+          botState.strafeDir = -currentDir;
+        }
+
+        botState.lastStrafeFlipAt = now;
+        botState.damageStrafeChain = 0;
+      }
+    } else if (tookDamage) {
+      botState.damageStrafeChain = 0;
+      botState.lastDamageStrafeDir = null;
+    }
+
+    const chargeActive =
+      typeof botState.strafeChargeUntil === "number" &&
+      now < botState.strafeChargeUntil &&
+      typeof botState.strafeChargeDirX === "number" &&
+      typeof botState.strafeChargeDirY === "number";
+    if (
+      !chargeActive &&
+      typeof botState.strafeChargeUntil === "number" &&
+      now >= botState.strafeChargeUntil
+    ) {
+      botState.strafeChargeUntil = null;
+      botState.strafeChargeDirX = 0;
+      botState.strafeChargeDirY = 0;
+    }
 
     const weaponCfg = WEAPONS[BOT_CONFIG.weaponKey] || {};
     const bulletSpeed =
@@ -1039,19 +1150,29 @@ function createGameServer(io) {
     const distanceBand = 40;
     let moveX = 0;
     let moveY = 0;
+    let moveMode = "idle";
+    let strafeDirUsed = null;
 
-    if (dist > desiredDistance + distanceBand) {
+    if (chargeActive) {
+      moveX = botState.strafeChargeDirX || dirX;
+      moveY = botState.strafeChargeDirY || dirY;
+      moveMode = "charge";
+    } else if (dist > desiredDistance + distanceBand) {
       // Close in
       moveX = dirX;
       moveY = dirY;
+      moveMode = "chase";
     } else if (dist < desiredDistance - distanceBand) {
       // Back up
       moveX = -dirX;
       moveY = -dirY;
+      moveMode = "retreat";
     } else {
       // Strafe sideways around the target
-      moveX = -dirY;
-      moveY = dirX;
+      moveX = -dirY * botState.strafeDir;
+      moveY = dirX * botState.strafeDir;
+      moveMode = "strafe";
+      strafeDirUsed = botState.strafeDir;
     }
 
     const hasLineOfSight = !lineIntersectsAnyWall(
@@ -1195,6 +1316,7 @@ function createGameServer(io) {
         if (chosen) {
           moveX = chosen.x;
           moveY = chosen.y;
+          moveMode = "dodge";
           botState.dodgeDirX = chosen.x;
           botState.dodgeDirY = chosen.y;
           botState.dodgeUntil = now + DODGE_DURATION_MS;
@@ -1205,6 +1327,7 @@ function createGameServer(io) {
     } else if (dodging) {
       moveX = botState.dodgeDirX;
       moveY = botState.dodgeDirY;
+      moveMode = "dodge";
     }
 
     if (
@@ -1232,6 +1355,8 @@ function createGameServer(io) {
           ? botState.peekFallbackY
           : -dirY;
       dodging = false; // commit to the fallback choice
+      moveMode = "peekFallback";
+      strafeDirUsed = null;
     }
 
     // --- Simple "stuck near wall" detection + escape ---
@@ -1268,8 +1393,9 @@ function createGameServer(io) {
           // improves line of sight.
           const lateral1 = { x: -dirY, y: dirX };
           const lateral2 = { x: dirY, y: -dirX };
+          const backOff = { x: -dirX, y: -dirY };
 
-          function scoreLateral(dir) {
+          function scoreCandidate(dir) {
             const step = BOT_CONFIG.moveSpeedPerTick * 4;
             const testRadius = BOT_CONFIG.playerRadius;
             const width = BOT_CONFIG.canvasWidth;
@@ -1301,24 +1427,27 @@ function createGameServer(io) {
             const candDistSq = cdx * cdx + cdy * cdy;
             if (candDistSq < currDistSq) score += 1;
 
+            // Add a small random jitter so we don't pick the same option forever.
+            score += Math.random() * 0.5;
             return score;
           }
 
-          const score1 = scoreLateral(lateral1);
-          const score2 = scoreLateral(lateral2);
-
-          let chosen = null;
-          if (score1 > -Infinity || score2 > -Infinity) {
-            if (score1 >= score2) {
-              chosen = lateral1;
-            } else {
-              chosen = lateral2;
+          const candidates = [lateral1, lateral2, backOff].sort(
+            () => Math.random() - 0.5,
+          );
+          let best = null;
+          let bestScore = -Infinity;
+          for (const c of candidates) {
+            const s = scoreCandidate(c);
+            if (s > bestScore) {
+              bestScore = s;
+              best = c;
             }
           }
 
-          if (chosen) {
-            botState.unstuckDirX = chosen.x;
-            botState.unstuckDirY = chosen.y;
+          if (best && bestScore > -Infinity) {
+            botState.unstuckDirX = best.x;
+            botState.unstuckDirY = best.y;
             botState.unstuckUntil = now + UNSTUCK_DURATION_MS;
           }
         }
@@ -1337,6 +1466,8 @@ function createGameServer(io) {
       ) {
         moveX = botState.unstuckDirX;
         moveY = botState.unstuckDirY;
+        moveMode = "unstuck";
+        strafeDirUsed = null;
       } else if (
         typeof botState.unstuckUntil === "number" &&
         now >= botState.unstuckUntil
@@ -1356,6 +1487,8 @@ function createGameServer(io) {
           // Currently paused: stop movement but still allow aiming/shooting.
           moveX = 0;
           moveY = 0;
+          moveMode = "pause";
+          strafeDirUsed = null;
         } else {
           // Pause expired.
           botState.pauseUntil = null;
@@ -1374,10 +1507,21 @@ function createGameServer(io) {
             botState.pauseUntil = now + duration;
             moveX = 0;
             moveY = 0;
+            moveMode = "pause";
+            strafeDirUsed = null;
           }
         }
       }
     }
+
+    const moveLengthSq = moveX * moveX + moveY * moveY;
+    if (moveLengthSq < 1e-5 && moveMode !== "pause") {
+      moveMode = "idle";
+      strafeDirUsed = null;
+    }
+
+    botState.lastMoveMode = moveMode;
+    botState.lastStrafeDirUsed = moveMode === "strafe" ? strafeDirUsed : null;
 
     return { moveX, moveY, aimAngle, shoot: shouldShoot };
   }
