@@ -51,7 +51,7 @@ const WEAPON_SKINS = {
       description: "P/STOL",
       price: 100,
       isDefault: false,
-      bulletColor: "#3c91c2", // blue
+      bulletColor: "#38bdf8", // blue
       shapes: [
         {
           type: "line",
@@ -60,7 +60,7 @@ const WEAPON_SKINS = {
           toX: 1,
           toY: 0,
           lineWidth: 4,
-          color: "#3c91c2", // blue barrel
+          color: "#38bdf8", // blue barrel
         },
         {
           type: "line",
@@ -69,14 +69,14 @@ const WEAPON_SKINS = {
           toX: 1,
           toY: 0,
           lineWidth: 4,
-          color: "#3c91c2", // blue barrel
+          color: "#38bdf8", // blue barrel
         },
         {
           type: "circle",
           cx: 0.05,
           cy: 0,
           radius: 0.15,
-          color: "#3c91c2", // blue barrel
+          color: "#38bdf8", // blue barrel
         }
       ],
     },

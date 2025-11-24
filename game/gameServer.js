@@ -44,8 +44,8 @@ function createGameServer(io) {
   // Simple server-side bot config (step 0: scripted bots)
   const BOT_CONFIG = {
     // When bots are enabled, try to roughly fill up to this many total players.
-    targetTotalPlayers: 5,
-    maxPerMatch: 2,
+    targetTotalPlayers: 10,
+    maxPerMatch: 10,
     // Tuned so bots feel closer to human speed (~300 units/sec at 20 ticks/sec).
     moveSpeedPerTick: 11,
     weaponKey: "miniGun",
@@ -479,104 +479,31 @@ function createGameServer(io) {
   function generateWalls() {
     const CANVAS_WIDTH = 900;
     const CANVAS_HEIGHT = 600;
-    const MIN_WALL_LENGTH = 50;
-    const MAX_WALL_LENGTH = 250;
-    const MIN_WALL_THICKNESS = 15;
-    const MAX_WALL_THICKNESS = 30;
-    const NUM_WALLS = Math.floor(Math.random() * 3) + 4; // 4-6 walls
+    const MIN_WALL_LENGTH = 80;
+    const MAX_WALL_LENGTH = 260;
+    const MIN_WALL_THICKNESS = 18;
+    const MAX_WALL_THICKNESS = 36;
+    const NUM_WALLS = Math.floor(Math.random() * 5) + 8; // 8-12 walls
 
     const walls = [];
-    const occupiedSpace = new Set(); // Track grid cells that are occupied
-
-    // Divide the canvas into a grid for checking overlap
-    const GRID_SIZE = 30;
-    const GRID_COLS = Math.ceil(CANVAS_WIDTH / GRID_SIZE);
-    const GRID_ROWS = Math.ceil(CANVAS_HEIGHT / GRID_SIZE);
-
-    // Function to mark grid cells as occupied
-    function markOccupied(x, y, width, height) {
-      const startCol = Math.floor(x / GRID_SIZE);
-      const startRow = Math.floor(y / GRID_SIZE);
-      const endCol = Math.ceil((x + width) / GRID_SIZE);
-      const endRow = Math.ceil((y + height) / GRID_SIZE);
-
-      for (let row = startRow; row < endRow; row++) {
-        for (let col = startCol; col < endCol; col++) {
-          if (row >= 0 && row < GRID_ROWS && col >= 0 && col < GRID_COLS) {
-            occupiedSpace.add(`${row},${col}`);
-          }
-        }
-      }
-    }
-
-    // Function to check if a wall overlaps with existing walls
-    function checkOverlap(x, y, width, height) {
-      const startCol = Math.floor(x / GRID_SIZE);
-      const startRow = Math.floor(y / GRID_SIZE);
-      const endCol = Math.ceil((x + width) / GRID_SIZE);
-      const endRow = Math.ceil((y + height) / GRID_SIZE);
-
-      // Add padding to avoid walls being too close
-      const paddedStartCol = Math.max(0, startCol - 1);
-      const paddedStartRow = Math.max(0, startRow - 1);
-      const paddedEndCol = Math.min(GRID_COLS, endCol + 1);
-      const paddedEndRow = Math.min(GRID_ROWS, endRow + 1);
-
-      for (let row = paddedStartRow; row < paddedEndRow; row++) {
-        for (let col = paddedStartCol; col < paddedEndCol; col++) {
-          if (occupiedSpace.has(`${row},${col}`)) {
-            return true; // Overlap detected
-          }
-        }
-      }
-      return false;
-    }
 
     // Generate walls
     for (let i = 0; i < NUM_WALLS; i++) {
-      let attempts = 0;
-      let validWall = false;
-      let wall;
+      const isHorizontal = Math.random() > 0.5;
+      const length =
+        Math.floor(Math.random() * (MAX_WALL_LENGTH - MIN_WALL_LENGTH)) +
+        MIN_WALL_LENGTH;
+      const thickness =
+        Math.floor(Math.random() * (MAX_WALL_THICKNESS - MIN_WALL_THICKNESS)) +
+        MIN_WALL_THICKNESS;
+      const width = isHorizontal ? length : thickness;
+      const height = isHorizontal ? thickness : length;
 
-      while (!validWall && attempts < 50) {
-        attempts++;
+      // No overlap checks: intersections are allowed to make layouts feel denser.
+      const x = Math.floor(Math.random() * (CANVAS_WIDTH - width));
+      const y = Math.floor(Math.random() * (CANVAS_HEIGHT - height));
 
-        // Decide if this is a horizontal or vertical wall
-        const isHorizontal = Math.random() > 0.5;
-
-        if (isHorizontal) {
-          const width =
-            Math.floor(Math.random() * (MAX_WALL_LENGTH - MIN_WALL_LENGTH)) +
-            MIN_WALL_LENGTH;
-          const height =
-            Math.floor(
-              Math.random() * (MAX_WALL_THICKNESS - MIN_WALL_THICKNESS),
-            ) + MIN_WALL_THICKNESS;
-          const x = Math.floor(Math.random() * (CANVAS_WIDTH - width));
-          const y = Math.floor(Math.random() * (CANVAS_HEIGHT - height));
-
-          wall = { x, y, width, height };
-        } else {
-          const width =
-            Math.floor(
-              Math.random() * (MAX_WALL_THICKNESS - MIN_WALL_THICKNESS),
-            ) + MIN_WALL_THICKNESS;
-          const height =
-            Math.floor(Math.random() * (MAX_WALL_LENGTH - MIN_WALL_LENGTH)) +
-            MIN_WALL_LENGTH;
-          const x = Math.floor(Math.random() * (CANVAS_WIDTH - width));
-          const y = Math.floor(Math.random() * (CANVAS_HEIGHT - height));
-
-          wall = { x, y, width, height };
-        }
-
-        // Check if the wall is valid (not overlapping)
-        if (!checkOverlap(wall.x, wall.y, wall.width, wall.height)) {
-          validWall = true;
-          markOccupied(wall.x, wall.y, wall.width, wall.height);
-          walls.push(wall);
-        }
-      }
+      walls.push({ x, y, width, height });
     }
 
     return walls;
