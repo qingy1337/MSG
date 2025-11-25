@@ -36,6 +36,36 @@ const DEFAULT_BULLET_SPEED = 10;
 const BULLET_MAX_LIFETIME_MS = 4000;
 
 function createGameServer(io) {
+  function isBotAlliedName(name) {
+    if (typeof name !== "string") return false;
+    const trimmed = name.trim();
+    // Matches "BOT 1" through "BOT 100" with no leading zeroes.
+    return /^BOT ([1-9][0-9]?|100)$/.test(trimmed);
+  }
+
+  function isBotAllyPlayer(player) {
+    if (!player) return false;
+    if (player.isBot) return true;
+    if (!hasDefaultSkin(player)) return false;
+    const displayName =
+      typeof player.displayName === "string"
+        ? player.displayName
+        : typeof player.name === "string"
+          ? player.name
+          : "";
+    return isBotAlliedName(displayName);
+  }
+
+  function hasDefaultSkin(player) {
+    if (!player || typeof player.weapon !== "string") return false;
+    const defaultSkin = DEFAULT_SKIN_BY_WEAPON[player.weapon];
+    const equipped = player.weaponSkinKey;
+    if (defaultSkin == null) {
+      return equipped == null;
+    }
+    return equipped === defaultSkin;
+  }
+
   // Game state
   const waitingPlayers = [];
   const activePlayers = [];
@@ -248,6 +278,7 @@ function createGameServer(io) {
 
     // Player hit
     socket.on("playerHit", (payload) => {
+      const now = Date.now();
       // Backward compatibility: if payload is a string, treat as target only
       let targetId = typeof payload === 'string' ? payload : payload && payload.targetId;
       const shooterId = payload && payload.shooterId ? payload.shooterId : null;
@@ -263,8 +294,8 @@ function createGameServer(io) {
         ? activePlayers.find((p) => p.id === shooterId)
         : null;
 
-      if (shooter && shooter.isBot && target.isBot) {
-        // Bot bullets should not damage other bots.
+      if (shooter && shooter.isBot && isBotAllyPlayer(target)) {
+        // Bot bullets should not damage other bots or bot-allied names.
         return;
       }
 
@@ -276,6 +307,22 @@ function createGameServer(io) {
         }
         processedBulletHits.add(bulletId);
         removeActiveBullet(bulletId, activeBullets);
+      }
+
+      if (shooter && shooter.isBot) {
+        const shooterState =
+          shooter.botState && typeof shooter.botState === "object"
+            ? shooter.botState
+            : (shooter.botState = {});
+        shooterState.lastDamageDealtAt = now;
+      }
+
+      if (target && target.isBot) {
+        const targetState =
+          target.botState && typeof target.botState === "object"
+            ? target.botState
+            : (target.botState = {});
+        targetState.lastDamageTakenAt = now;
       }
 
       // Determine damage from shooter's weapon; default to pistol damage
@@ -296,8 +343,10 @@ function createGameServer(io) {
           // Prevent farming coins by eliminating a player tied to the same account
           const sameAccountKill =
             typeof targetUsername === "string" && shooterUsername === targetUsername;
+          const shooterNamedAsBot = isBotAlliedName(shooter.displayName || shooter.name);
+          const killedBot = !!(target && target.isBot);
 
-          if (!sameAccountKill) {
+          if (!sameAccountKill && !(shooterNamedAsBot && killedBot)) {
             const accountUser = usersByUsername.get(shooterUsername);
             if (accountUser) {
               if (!accountUser.currencies || typeof accountUser.currencies !== "object") {
@@ -872,6 +921,15 @@ function createGameServer(io) {
       typeof botState.lastHealth === "number" ? botState.lastHealth : bot.health;
     const tookDamage = bot.health < prevHealth;
     botState.lastHealth = bot.health;
+    if (tookDamage) {
+      botState.lastDamageTakenAt = now;
+    }
+    const lastDamageDealtAt =
+      typeof botState.lastDamageDealtAt === "number"
+        ? botState.lastDamageDealtAt
+        : 0;
+    const lastDamageTakenAt =
+      typeof botState.lastDamageTakenAt === "number" ? botState.lastDamageTakenAt : 0;
 
     // Persistent strafe direction (flips when strafing is getting punished)
     if (typeof botState.strafeDir !== "number" || botState.strafeDir === 0) {
@@ -1073,33 +1131,149 @@ function createGameServer(io) {
       (Math.random() - 0.5) * 2 * BOT_CONFIG.aimInaccuracy;
     aimAngle += inaccuracy;
 
+    // Opportunistic reposition if the bot is taking hits without landing any.
+    const WANDER_DECISION_INTERVAL_MS = 100;
+    const WANDER_DAMAGE_WINDOW_MS = 5000;
+    const WANDER_REST_MS = 1000;
+    const WANDER_REACH_DISTANCE = 18;
+    const wanderPauseUntil =
+      typeof botState.wanderPauseUntil === "number"
+        ? botState.wanderPauseUntil
+        : null;
+    if (wanderPauseUntil && now >= wanderPauseUntil) {
+      botState.wanderPauseUntil = null;
+    }
+
+    function pickRandomWanderSpot() {
+      const radius = BOT_CONFIG.playerRadius;
+      const width = BOT_CONFIG.canvasWidth;
+      const height = BOT_CONFIG.canvasHeight;
+      const attempts = 8;
+      for (let i = 0; i < attempts; i++) {
+        const wx = radius + Math.random() * (width - 2 * radius);
+        const wy = radius + Math.random() * (height - 2 * radius);
+        if (!circleCollidesAnyWall(wx, wy, radius, walls)) {
+          return { x: wx, y: wy };
+        }
+      }
+      return {
+        x: radius + Math.random() * (width - 2 * radius),
+        y: radius + Math.random() * (height - 2 * radius),
+      };
+    }
+
+    const storedWanderTargetX =
+      typeof botState.wanderTargetX === "number" ? botState.wanderTargetX : null;
+    const storedWanderTargetY =
+      typeof botState.wanderTargetY === "number" ? botState.wanderTargetY : null;
+
+    let wanderActive =
+      !!botState.wanderActive &&
+      storedWanderTargetX != null &&
+      storedWanderTargetY != null;
+    const lastWanderDecisionAt =
+      typeof botState.lastWanderDecisionAt === "number"
+        ? botState.lastWanderDecisionAt
+        : 0;
+    if (!wanderActive && (!botState.wanderPauseUntil || now >= botState.wanderPauseUntil)) {
+      if (now - lastWanderDecisionAt >= WANDER_DECISION_INTERVAL_MS) {
+        botState.lastWanderDecisionAt = now;
+        const dealtRecently = now - lastDamageDealtAt < WANDER_DAMAGE_WINDOW_MS;
+        const tookDamageRecently = now - lastDamageTakenAt <= WANDER_DAMAGE_WINDOW_MS;
+        if (!dealtRecently && tookDamageRecently && Math.random() < 0.6) {
+          const spot = pickRandomWanderSpot();
+          botState.wanderTargetX = spot.x;
+          botState.wanderTargetY = spot.y;
+          botState.wanderActive = true;
+          wanderActive = true;
+        }
+      }
+    }
+
+    const wanderTargetX =
+      typeof botState.wanderTargetX === "number" ? botState.wanderTargetX : null;
+    const wanderTargetY =
+      typeof botState.wanderTargetY === "number" ? botState.wanderTargetY : null;
+    const moveTargetX =
+      wanderActive && wanderTargetX != null ? wanderTargetX : target.x;
+    const moveTargetY =
+      wanderActive && wanderTargetY != null ? wanderTargetY : target.y;
+    const moveDx = moveTargetX - bot.x;
+    const moveDy = moveTargetY - bot.y;
+    const moveDist = Math.sqrt(moveDx * moveDx + moveDy * moveDy) || 1e-6;
+    const moveDirX = moveDx / moveDist;
+    const moveDirY = moveDy / moveDist;
+
     const desiredDistance = 220;
     const distanceBand = 40;
     let moveX = 0;
     let moveY = 0;
     let moveMode = "idle";
     let strafeDirUsed = null;
+    let wanderResting = false;
 
-    if (chargeActive) {
+    const wanderPauseActive =
+      typeof botState.wanderPauseUntil === "number" &&
+      now < botState.wanderPauseUntil;
+    if (wanderPauseActive) {
+      wanderResting = true;
+    }
+
+    if (chargeActive && !wanderActive && !wanderPauseActive) {
       moveX = botState.strafeChargeDirX || dirX;
       moveY = botState.strafeChargeDirY || dirY;
       moveMode = "charge";
-    } else if (dist > desiredDistance + distanceBand) {
+    } else if (wanderPauseActive) {
+      moveX = 0;
+      moveY = 0;
+      moveMode = "wanderPause";
+    } else if (wanderActive) {
+      const wDist = moveDist;
+      if (!isFinite(wDist) || wDist < WANDER_REACH_DISTANCE) {
+        botState.wanderActive = false;
+        wanderActive = false;
+        botState.wanderTargetX = null;
+        botState.wanderTargetY = null;
+        botState.wanderPauseUntil = now + WANDER_REST_MS;
+        wanderResting = true;
+        moveX = 0;
+        moveY = 0;
+        moveMode = "wanderPause";
+      } else {
+        moveX = moveDirX;
+        moveY = moveDirY;
+        moveMode = "wander";
+        strafeDirUsed = null;
+      }
+    } else if (moveDist > desiredDistance + distanceBand) {
       // Close in
-      moveX = dirX;
-      moveY = dirY;
+      moveX = moveDirX;
+      moveY = moveDirY;
       moveMode = "chase";
-    } else if (dist < desiredDistance - distanceBand) {
+    } else if (moveDist < desiredDistance - distanceBand) {
       // Back up
-      moveX = -dirX;
-      moveY = -dirY;
+      moveX = -moveDirX;
+      moveY = -moveDirY;
       moveMode = "retreat";
     } else {
       // Strafe sideways around the target
-      moveX = -dirY * botState.strafeDir;
-      moveY = dirX * botState.strafeDir;
+      moveX = -moveDirY * botState.strafeDir;
+      moveY = moveDirX * botState.strafeDir;
       moveMode = "strafe";
       strafeDirUsed = botState.strafeDir;
+    }
+
+    const wanderFocused = wanderActive || wanderResting;
+    if (wanderFocused) {
+      botState.peekMode = null;
+      botState.peekModeUntil = null;
+      botState.peekModeTargetId = null;
+      botState.peekThreatCount = 0;
+      botState.pushThroughUntil = null;
+      botState.pushThroughForTargetId = null;
+      if (typeof botState.pauseUntil === "number") {
+        botState.pauseUntil = null;
+      }
     }
 
     const hasLineOfSight = !lineIntersectsAnyWall(
@@ -1109,7 +1283,8 @@ function createGameServer(io) {
       aimTargetY,
       walls,
     );
-    const shouldShoot = hasLineOfSight && dist < 550;
+    const targetIsBotAlly = isBotAllyPlayer(target);
+    const shouldShoot = !targetIsBotAlly && hasLineOfSight && dist < 550;
 
     // Detect when we're trying to peek past a wall (line of sight blocked) and
     // repeatedly bouncing off bullet dodges. In that case, temporarily ignore
@@ -1122,10 +1297,11 @@ function createGameServer(io) {
       walls,
     );
     const pushActive =
+      !wanderFocused &&
       typeof botState.pushThroughUntil === "number" &&
       now < botState.pushThroughUntil &&
       botState.pushThroughForTargetId === target.id;
-    let pushingThrough = !!pushActive;
+    let pushingThrough = !wanderFocused && !!pushActive;
     if (pushingThrough && !lineBlockedToTarget) {
       botState.pushThroughUntil = null;
       botState.pushThroughForTargetId = null;
@@ -1138,7 +1314,7 @@ function createGameServer(io) {
     const DODGE_DURATION_MS = 650;
     let dodging = isDodgingActive;
 
-    const peekThreatEligible = threat && lineBlockedToTarget;
+    const peekThreatEligible = !wanderFocused && threat && lineBlockedToTarget;
     if (peekThreatEligible) {
       const lastThreatAt =
         typeof botState.lastPeekThreatAt === "number"
@@ -1258,6 +1434,7 @@ function createGameServer(io) {
     }
 
     if (
+      !wanderFocused &&
       botState.peekMode === "push" &&
       typeof botState.peekModeUntil === "number" &&
       now < botState.peekModeUntil &&
@@ -1267,6 +1444,7 @@ function createGameServer(io) {
     }
 
     const fallbackPeekActive =
+      !wanderFocused &&
       botState.peekMode === "fallback" &&
       typeof botState.peekModeUntil === "number" &&
       now < botState.peekModeUntil &&
@@ -1318,9 +1496,9 @@ function createGameServer(io) {
           // Try strafing left/right around the target and pick the direction
           // that is less likely to keep us jammed into the wall and, if possible,
           // improves line of sight.
-          const lateral1 = { x: -dirY, y: dirX };
-          const lateral2 = { x: dirY, y: -dirX };
-          const backOff = { x: -dirX, y: -dirY };
+          const lateral1 = { x: -moveDirY, y: moveDirX };
+          const lateral2 = { x: moveDirY, y: -moveDirX };
+          const backOff = { x: -moveDirX, y: -moveDirY };
 
           function scoreCandidate(dir) {
             const step = BOT_CONFIG.moveSpeedPerTick * 4;
@@ -1342,15 +1520,15 @@ function createGameServer(io) {
             const losFromCandidate = !lineIntersectsAnyWall(
               tx,
               ty,
-              target.x,
-              target.y,
+              moveTargetX,
+              moveTargetY,
               walls,
             );
             if (losFromCandidate) score += 2;
 
-            const currDistSq = dx * dx + dy * dy;
-            const cdx = target.x - tx;
-            const cdy = target.y - ty;
+            const currDistSq = moveDx * moveDx + moveDy * moveDy;
+            const cdx = moveTargetX - tx;
+            const cdy = moveTargetY - ty;
             const candDistSq = cdx * cdx + cdy * cdy;
             if (candDistSq < currDistSq) score += 1;
 
@@ -1408,9 +1586,12 @@ function createGameServer(io) {
       const PAUSE_INTERVAL_MS = 20000; // roughly "once every 20 seconds"
       const MIN_PAUSE_MS = 800;
       const MAX_PAUSE_MS = 1600;
+      const allowRandomPause = !wanderFocused && !wanderPauseActive && !wanderResting;
 
       if (typeof botState.pauseUntil === "number") {
-        if (now < botState.pauseUntil) {
+        if (!allowRandomPause) {
+          botState.pauseUntil = null;
+        } else if (now < botState.pauseUntil) {
           // Currently paused: stop movement but still allow aiming/shooting.
           moveX = 0;
           moveY = 0;
@@ -1420,7 +1601,7 @@ function createGameServer(io) {
           // Pause expired.
           botState.pauseUntil = null;
         }
-      } else {
+      } else if (allowRandomPause) {
         const lastDecision =
           typeof botState.lastPauseDecisionAt === "number"
             ? botState.lastPauseDecisionAt
@@ -1441,8 +1622,15 @@ function createGameServer(io) {
       }
     }
 
+    if (wanderResting) {
+      moveX = 0;
+      moveY = 0;
+      moveMode = "wanderPause";
+      strafeDirUsed = null;
+    }
+
     const moveLengthSq = moveX * moveX + moveY * moveY;
-    if (moveLengthSq < 1e-5 && moveMode !== "pause") {
+    if (moveLengthSq < 1e-5 && moveMode !== "pause" && moveMode !== "wanderPause") {
       moveMode = "idle";
       strafeDirUsed = null;
     }
