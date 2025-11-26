@@ -89,6 +89,8 @@ function createGameServer(io) {
   const processedBulletHits = new Set();
   const activeBullets = [];
   let gameOverTimeout = null;
+  let cachedNavGrid = null;
+  let wallLayoutVersion = 0;
 
   io.on("connection", (socket) => {
     const cookieHeader =
@@ -199,6 +201,8 @@ function createGameServer(io) {
 
       // Generate walls
       const walls = generateWalls();
+      wallLayoutVersion += 1;
+      invalidateCachedNavGrid();
       gameWalls.length = 0;
       gameWalls.push(...walls);
 
@@ -632,6 +636,438 @@ function createGameServer(io) {
     return dx * dx + dy * dy;
   }
 
+  function invalidateCachedNavGrid() {
+    cachedNavGrid = null;
+  }
+
+  function getNavGrid(walls) {
+    if (
+      cachedNavGrid &&
+      cachedNavGrid.version === wallLayoutVersion &&
+      cachedNavGrid.walkable &&
+      cachedNavGrid.walkable.length > 0
+    ) {
+      return cachedNavGrid;
+    }
+    cachedNavGrid = buildNavGrid(walls);
+    cachedNavGrid.version = wallLayoutVersion;
+    return cachedNavGrid;
+  }
+
+  function buildNavGrid(walls) {
+    const radius = BOT_CONFIG.playerRadius;
+    const cellSize = Math.max(4, Math.floor(radius / 2));
+    const width = BOT_CONFIG.canvasWidth;
+    const height = BOT_CONFIG.canvasHeight;
+    const cols = Math.ceil(width / cellSize);
+    const rows = Math.ceil(height / cellSize);
+    const walkable = new Array(rows);
+
+    for (let r = 0; r < rows; r++) {
+      walkable[r] = new Array(cols);
+      for (let c = 0; c < cols; c++) {
+        const wx = c * cellSize + cellSize / 2;
+        const wy = r * cellSize + cellSize / 2;
+        const insideBounds =
+          wx >= radius &&
+          wx <= width - radius &&
+          wy >= radius &&
+          wy <= height - radius;
+        const blocked =
+          !insideBounds ||
+          circleCollidesAnyWall(wx, wy, radius, walls);
+        walkable[r][c] = !blocked;
+      }
+    }
+
+    return {
+      cellSize,
+      cols,
+      rows,
+      walkable,
+      radius,
+      width,
+      height,
+      walls,
+      version: wallLayoutVersion,
+    };
+  }
+
+  function worldToGrid(x, y, nav) {
+    const col = Math.floor(x / nav.cellSize);
+    const row = Math.floor(y / nav.cellSize);
+    return {
+      col: Math.max(0, Math.min(nav.cols - 1, col)),
+      row: Math.max(0, Math.min(nav.rows - 1, row)),
+    };
+  }
+
+  function gridToWorld(col, row, nav) {
+    const x = col * nav.cellSize + nav.cellSize / 2;
+    const y = row * nav.cellSize + nav.cellSize / 2;
+    return { x, y };
+  }
+
+  function cellKey(col, row) {
+    return `${col},${row}`;
+  }
+
+  function isCellWithinBounds(nav, col, row) {
+    return col >= 0 && row >= 0 && col < nav.cols && row < nav.rows;
+  }
+
+  function collidesWithBulletsForPath(x, y, radius, bullets) {
+    if (!bullets || bullets.length === 0) return false;
+    for (const b of bullets) {
+      if (!b || typeof b.x !== "number" || typeof b.y !== "number") continue;
+      const avoidRadius = BOT_CONFIG.playerRadius;
+      const dx = x - b.x;
+      const dy = y - b.y;
+      if (dx * dx + dy * dy < (avoidRadius + radius) * (avoidRadius + radius)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function isCellClear(nav, col, row, bullets) {
+    if (!isCellWithinBounds(nav, col, row)) return false;
+    if (!nav.walkable[row] || !nav.walkable[row][col]) return false;
+    const pos = gridToWorld(col, row, nav);
+    return !collidesWithBulletsForPath(pos.x, pos.y, nav.radius, bullets);
+  }
+
+  function findNearestClearCell(nav, startCol, startRow, bullets, maxRing = 3) {
+    if (isCellClear(nav, startCol, startRow, bullets)) {
+      return { col: startCol, row: startRow };
+    }
+    for (let ring = 1; ring <= maxRing; ring++) {
+      for (let dr = -ring; dr <= ring; dr++) {
+        for (let dc = -ring; dc <= ring; dc++) {
+          if (Math.abs(dc) !== ring && Math.abs(dr) !== ring) continue;
+          const col = startCol + dc;
+          const row = startRow + dr;
+          if (isCellClear(nav, col, row, bullets)) {
+            return { col, row };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  function directPathClear(ax, ay, bx, by, nav, bullets) {
+    const dx = bx - ax;
+    const dy = by - ay;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 1e-3) return true;
+    const step = Math.max(4, nav.radius * 0.5);
+    const steps = Math.max(1, Math.ceil(dist / step));
+
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const px = ax + dx * t;
+      const py = ay + dy * t;
+      if (isPositionBlockedForPath(px, py, nav, bullets)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  function isPositionBlockedForPath(x, y, nav, bullets) {
+    const radius = nav.radius;
+    if (
+      x < radius ||
+      x > nav.width - radius ||
+      y < radius ||
+      y > nav.height - radius
+    ) {
+      return true;
+    }
+    if (circleCollidesAnyWall(x, y, radius, nav.walls)) return true;
+    if (collidesWithBulletsForPath(x, y, radius, bullets)) return true;
+    return false;
+  }
+
+  function isTouchingBoundary(x, y, radius, width, height, margin = 1) {
+    return (
+      x <= radius + margin ||
+      x >= width - radius - margin ||
+      y <= radius + margin ||
+      y >= height - radius - margin
+    );
+  }
+
+  function smoothPath(points, nav, bullets) {
+    if (!points || points.length <= 2) return points || [];
+    const smoothed = [points[0]];
+    let anchor = 0;
+    while (anchor < points.length - 1) {
+      let next = anchor + 1;
+      for (let i = points.length - 1; i > anchor; i--) {
+        if (
+          directPathClear(
+            points[anchor].x,
+            points[anchor].y,
+            points[i].x,
+            points[i].y,
+            nav,
+            bullets,
+          )
+        ) {
+          next = i;
+          break;
+        }
+      }
+      smoothed.push(points[next]);
+      anchor = next;
+    }
+    return smoothed;
+  }
+
+  function findPath(nav, startPos, goalPos, bullets) {
+    if (!nav || !startPos || !goalPos) return null;
+    const startCell = worldToGrid(startPos.x, startPos.y, nav);
+    const goalCell = worldToGrid(goalPos.x, goalPos.y, nav);
+    const validStart = isCellClear(nav, startCell.col, startCell.row, bullets)
+      ? startCell
+      : findNearestClearCell(nav, startCell.col, startCell.row, bullets);
+    const validGoal = isCellClear(nav, goalCell.col, goalCell.row, bullets)
+      ? goalCell
+      : findNearestClearCell(nav, goalCell.col, goalCell.row, bullets);
+    if (!validStart || !validGoal) return null;
+
+    const startKey = cellKey(validStart.col, validStart.row);
+    const goalKey = cellKey(validGoal.col, validGoal.row);
+    const cameFrom = {};
+    const gScore = { [startKey]: 0 };
+    const fScore = {
+      [startKey]: Math.hypot(
+        validGoal.col - validStart.col,
+        validGoal.row - validStart.row,
+      ),
+    };
+
+    const open = [
+      {
+        key: startKey,
+        f: fScore[startKey],
+        col: validStart.col,
+        row: validStart.row,
+      },
+    ];
+    const openSet = new Set([startKey]);
+
+    const directions = [
+      { dc: 1, dr: 0, cost: 1 },
+      { dc: -1, dr: 0, cost: 1 },
+      { dc: 0, dr: 1, cost: 1 },
+      { dc: 0, dr: -1, cost: 1 },
+      { dc: 1, dr: 1, cost: Math.SQRT2 },
+      { dc: -1, dr: 1, cost: Math.SQRT2 },
+      { dc: 1, dr: -1, cost: Math.SQRT2 },
+      { dc: -1, dr: -1, cost: Math.SQRT2 },
+    ];
+
+    while (open.length > 0) {
+      let bestIdx = 0;
+      for (let i = 1; i < open.length; i++) {
+        if (open[i].f < open[bestIdx].f) {
+          bestIdx = i;
+        }
+      }
+      const current = open.splice(bestIdx, 1)[0];
+      openSet.delete(current.key);
+
+      if (current.key === goalKey) {
+        const rawPath = reconstructPath(cameFrom, current.key, nav);
+        return smoothPath(rawPath, nav, bullets);
+      }
+
+      for (const dir of directions) {
+        const nCol = current.col + dir.dc;
+        const nRow = current.row + dir.dr;
+        if (!isCellWithinBounds(nav, nCol, nRow)) continue;
+        if (!isCellClear(nav, nCol, nRow, bullets)) continue;
+        if (dir.dc !== 0 && dir.dr !== 0) {
+          if (
+            !isCellClear(nav, current.col + dir.dc, current.row, bullets) ||
+            !isCellClear(nav, current.col, current.row + dir.dr, bullets)
+          ) {
+            continue;
+          }
+        }
+
+        const neighborKey = cellKey(nCol, nRow);
+        const tentativeG = (gScore[current.key] ?? Infinity) + dir.cost;
+        if (tentativeG >= (gScore[neighborKey] ?? Infinity)) continue;
+
+        cameFrom[neighborKey] = current.key;
+        gScore[neighborKey] = tentativeG;
+        fScore[neighborKey] =
+          tentativeG +
+          Math.hypot(validGoal.col - nCol, validGoal.row - nRow);
+
+        if (!openSet.has(neighborKey)) {
+          open.push({ key: neighborKey, f: fScore[neighborKey], col: nCol, row: nRow });
+          openSet.add(neighborKey);
+        } else {
+          const existing = open.find((n) => n.key === neighborKey);
+          if (existing) {
+            existing.f = fScore[neighborKey];
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
+  function reconstructPath(cameFrom, currentKey, nav) {
+    const path = [];
+    let key = currentKey;
+    while (key) {
+      const [c, r] = key.split(",").map((v) => parseInt(v, 10));
+      path.push(gridToWorld(c, r, nav));
+      key = cameFrom[key];
+    }
+    return path.reverse();
+  }
+
+  function computePathMovement(bot, botState, target, hasLineOfSight, now, walls, bullets) {
+    if (!bot || !target) return null;
+    const radius = BOT_CONFIG.playerRadius;
+    const PATH_RECALC_TRAVEL = radius * 2.5;
+    const PATH_RETRY_MS = 350;
+    const STUCK_WINDOW_MS = 900;
+    const STUCK_MIN_MOVEMENT = 12;
+    const TOUCH_MARGIN = 1.5;
+
+    if (hasLineOfSight) {
+      botState.navPath = null;
+      botState.navPathIndex = 0;
+      botState.navPathNeedsRecalc = false;
+      botState.navForcePath = false;
+      return null;
+    }
+
+    const nav = getNavGrid(walls);
+
+    if (typeof botState.navStuckSampleTime !== "number") {
+      botState.navStuckSampleTime = now;
+      botState.navStuckSampleX = bot.x;
+      botState.navStuckSampleY = bot.y;
+    } else if (now - botState.navStuckSampleTime >= STUCK_WINDOW_MS) {
+      const dxSample = bot.x - botState.navStuckSampleX;
+      const dySample = bot.y - botState.navStuckSampleY;
+      const movedLittle =
+        dxSample * dxSample + dySample * dySample <
+        STUCK_MIN_MOVEMENT * STUCK_MIN_MOVEMENT;
+      const touchingWall = circleCollidesAnyWall(
+        bot.x,
+        bot.y,
+        radius + TOUCH_MARGIN,
+        walls,
+      );
+      const touchingBounds = isTouchingBoundary(
+        bot.x,
+        bot.y,
+        radius,
+        BOT_CONFIG.canvasWidth,
+        BOT_CONFIG.canvasHeight,
+        TOUCH_MARGIN,
+      );
+      if (movedLittle && (touchingWall || touchingBounds)) {
+        botState.navForcePath = true;
+      }
+      botState.navStuckSampleTime = now;
+      botState.navStuckSampleX = bot.x;
+      botState.navStuckSampleY = bot.y;
+    }
+
+    const pathActive =
+      Array.isArray(botState.navPath) &&
+      botState.navPath.length > 0 &&
+      typeof botState.navPathIndex === "number" &&
+      botState.navPathIndex < botState.navPath.length;
+    const traveledSinceCalc =
+      typeof botState.navLastCalcX === "number" && typeof botState.navLastCalcY === "number"
+        ? Math.hypot(bot.x - botState.navLastCalcX, bot.y - botState.navLastCalcY)
+        : 0;
+
+    if (pathActive && traveledSinceCalc >= PATH_RECALC_TRAVEL) {
+      botState.navPathNeedsRecalc = true;
+    }
+
+    let shouldComputePath = false;
+    if (pathActive) {
+      shouldComputePath = !!botState.navPathNeedsRecalc;
+    } else {
+      shouldComputePath = !!botState.navForcePath || !!botState.navPathNeedsRecalc;
+    }
+
+    if (shouldComputePath && now - (botState.navLastFailAt || 0) >= PATH_RETRY_MS) {
+      const path = findPath(nav, { x: bot.x, y: bot.y }, { x: target.x, y: target.y }, bullets);
+      if (path && path.length > 0) {
+        botState.navPath = path;
+        botState.navPathIndex = path.length > 1 ? 1 : 0;
+        botState.navPathNeedsRecalc = false;
+        botState.navForcePath = false;
+        botState.navLastCalcAt = now;
+        botState.navLastCalcX = bot.x;
+        botState.navLastCalcY = bot.y;
+        botState.navLastFailAt = null;
+      } else {
+        botState.navPath = null;
+        botState.navPathIndex = 0;
+        botState.navLastFailAt = now;
+      }
+    }
+
+    const stillActive =
+      Array.isArray(botState.navPath) &&
+      botState.navPath.length > 0 &&
+      !hasLineOfSight;
+
+    if (!stillActive) {
+      return null;
+    }
+
+    let idx = Math.max(
+      0,
+      Math.min(
+        typeof botState.navPathIndex === "number" ? botState.navPathIndex : 0,
+        botState.navPath.length - 1,
+      ),
+    );
+    const reachDist = radius * 0.6;
+    while (idx < botState.navPath.length) {
+      const wp = botState.navPath[idx];
+      const dx = wp.x - bot.x;
+      const dy = wp.y - bot.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < reachDist) {
+        idx += 1;
+        continue;
+      }
+      if (!directPathClear(bot.x, bot.y, wp.x, wp.y, nav, bullets)) {
+        botState.navPathNeedsRecalc = true;
+        break;
+      }
+      botState.navPathIndex = idx;
+      return {
+        moveX: dx / (dist || 1e-6),
+        moveY: dy / (dist || 1e-6),
+        active: true,
+      };
+    }
+    botState.navPath = null;
+    botState.navPathIndex = 0;
+    return null;
+  }
+
   function trackActiveBullet(bulletData, shooter, bullets) {
     if (
       !bulletData ||
@@ -922,12 +1358,6 @@ function createGameServer(io) {
     if (tookDamage) {
       botState.lastDamageTakenAt = now;
     }
-    const lastDamageDealtAt =
-      typeof botState.lastDamageDealtAt === "number"
-        ? botState.lastDamageDealtAt
-        : 0;
-    const lastDamageTakenAt =
-      typeof botState.lastDamageTakenAt === "number" ? botState.lastDamageTakenAt : 0;
 
     // Persistent strafe direction (flips when strafing is getting punished)
     if (typeof botState.strafeDir !== "number" || botState.strafeDir === 0) {
@@ -1129,73 +1559,8 @@ function createGameServer(io) {
       (Math.random() - 0.5) * 2 * BOT_CONFIG.aimInaccuracy;
     aimAngle += inaccuracy;
 
-    // Opportunistic reposition if the bot is taking hits without landing any.
-    const WANDER_DECISION_INTERVAL_MS = 100;
-    const WANDER_DAMAGE_WINDOW_MS = 5000;
-    const WANDER_REST_MS = 1000;
-    const WANDER_REACH_DISTANCE = 18;
-    const wanderPauseUntil =
-      typeof botState.wanderPauseUntil === "number"
-        ? botState.wanderPauseUntil
-        : null;
-    if (wanderPauseUntil && now >= wanderPauseUntil) {
-      botState.wanderPauseUntil = null;
-    }
-
-    function pickRandomWanderSpot() {
-      const radius = BOT_CONFIG.playerRadius;
-      const width = BOT_CONFIG.canvasWidth;
-      const height = BOT_CONFIG.canvasHeight;
-      const attempts = 8;
-      for (let i = 0; i < attempts; i++) {
-        const wx = radius + Math.random() * (width - 2 * radius);
-        const wy = radius + Math.random() * (height - 2 * radius);
-        if (!circleCollidesAnyWall(wx, wy, radius, walls)) {
-          return { x: wx, y: wy };
-        }
-      }
-      return {
-        x: radius + Math.random() * (width - 2 * radius),
-        y: radius + Math.random() * (height - 2 * radius),
-      };
-    }
-
-    const storedWanderTargetX =
-      typeof botState.wanderTargetX === "number" ? botState.wanderTargetX : null;
-    const storedWanderTargetY =
-      typeof botState.wanderTargetY === "number" ? botState.wanderTargetY : null;
-
-    let wanderActive =
-      !!botState.wanderActive &&
-      storedWanderTargetX != null &&
-      storedWanderTargetY != null;
-    const lastWanderDecisionAt =
-      typeof botState.lastWanderDecisionAt === "number"
-        ? botState.lastWanderDecisionAt
-        : 0;
-    if (!wanderActive && (!botState.wanderPauseUntil || now >= botState.wanderPauseUntil)) {
-      if (now - lastWanderDecisionAt >= WANDER_DECISION_INTERVAL_MS) {
-        botState.lastWanderDecisionAt = now;
-        const dealtRecently = now - lastDamageDealtAt < WANDER_DAMAGE_WINDOW_MS;
-        const tookDamageRecently = now - lastDamageTakenAt <= WANDER_DAMAGE_WINDOW_MS;
-        if (!dealtRecently && tookDamageRecently && Math.random() < 0.6) {
-          const spot = pickRandomWanderSpot();
-          botState.wanderTargetX = spot.x;
-          botState.wanderTargetY = spot.y;
-          botState.wanderActive = true;
-          wanderActive = true;
-        }
-      }
-    }
-
-    const wanderTargetX =
-      typeof botState.wanderTargetX === "number" ? botState.wanderTargetX : null;
-    const wanderTargetY =
-      typeof botState.wanderTargetY === "number" ? botState.wanderTargetY : null;
-    const moveTargetX =
-      wanderActive && wanderTargetX != null ? wanderTargetX : target.x;
-    const moveTargetY =
-      wanderActive && wanderTargetY != null ? wanderTargetY : target.y;
+    const moveTargetX = target.x;
+    const moveTargetY = target.y;
     const moveDx = moveTargetX - bot.x;
     const moveDy = moveTargetY - bot.y;
     const moveDist = Math.sqrt(moveDx * moveDx + moveDy * moveDy) || 1e-6;
@@ -1208,41 +1573,11 @@ function createGameServer(io) {
     let moveY = 0;
     let moveMode = "idle";
     let strafeDirUsed = null;
-    let wanderResting = false;
 
-    const wanderPauseActive =
-      typeof botState.wanderPauseUntil === "number" &&
-      now < botState.wanderPauseUntil;
-    if (wanderPauseActive) {
-      wanderResting = true;
-    }
-
-    if (chargeActive && !wanderActive && !wanderPauseActive) {
+    if (chargeActive) {
       moveX = botState.strafeChargeDirX || dirX;
       moveY = botState.strafeChargeDirY || dirY;
       moveMode = "charge";
-    } else if (wanderPauseActive) {
-      moveX = 0;
-      moveY = 0;
-      moveMode = "wanderPause";
-    } else if (wanderActive) {
-      const wDist = moveDist;
-      if (!isFinite(wDist) || wDist < WANDER_REACH_DISTANCE) {
-        botState.wanderActive = false;
-        wanderActive = false;
-        botState.wanderTargetX = null;
-        botState.wanderTargetY = null;
-        botState.wanderPauseUntil = now + WANDER_REST_MS;
-        wanderResting = true;
-        moveX = 0;
-        moveY = 0;
-        moveMode = "wanderPause";
-      } else {
-        moveX = moveDirX;
-        moveY = moveDirY;
-        moveMode = "wander";
-        strafeDirUsed = null;
-      }
     } else if (moveDist > desiredDistance + distanceBand) {
       // Close in
       moveX = moveDirX;
@@ -1261,19 +1596,6 @@ function createGameServer(io) {
       strafeDirUsed = botState.strafeDir;
     }
 
-    const wanderFocused = wanderActive || wanderResting;
-    if (wanderFocused) {
-      botState.peekMode = null;
-      botState.peekModeUntil = null;
-      botState.peekModeTargetId = null;
-      botState.peekThreatCount = 0;
-      botState.pushThroughUntil = null;
-      botState.pushThroughForTargetId = null;
-      if (typeof botState.pauseUntil === "number") {
-        botState.pauseUntil = null;
-      }
-    }
-
     const hasLineOfSight = !lineIntersectsAnyWall(
       bot.x,
       bot.y,
@@ -1283,6 +1605,37 @@ function createGameServer(io) {
     );
     const targetIsBotAlly = isBotAllyPlayer(target);
     const shouldShoot = !targetIsBotAlly && hasLineOfSight && dist < 550;
+
+    const pathMove = computePathMovement(
+      bot,
+      botState,
+      target,
+      hasLineOfSight,
+      now,
+      walls,
+      activeBullets,
+    );
+    const pathFollowing = !!(pathMove && pathMove.active);
+    const navigationFocused = pathFollowing || !!botState.navForcePath;
+    const pathRecentlyBlocked =
+      !hasLineOfSight &&
+      botState.navForcePath &&
+      (!botState.navPath || botState.navPath.length === 0) &&
+      typeof botState.navLastFailAt === "number" &&
+      now - botState.navLastFailAt < 800;
+
+    if (pathMove && pathMove.active) {
+      moveX = pathMove.moveX;
+      moveY = pathMove.moveY;
+      moveMode = "path";
+      strafeDirUsed = null;
+    } else if (pathRecentlyBlocked) {
+      const sidestepDir = Math.random() < 0.5 ? -1 : 1;
+      moveX = -moveDirY * sidestepDir;
+      moveY = moveDirX * sidestepDir;
+      moveMode = "pathBlocked";
+      strafeDirUsed = null;
+    }
 
     // Detect when we're trying to peek past a wall (line of sight blocked) and
     // repeatedly bouncing off bullet dodges. In that case, temporarily ignore
@@ -1295,11 +1648,11 @@ function createGameServer(io) {
       walls,
     );
     const pushActive =
-      !wanderFocused &&
+      !navigationFocused &&
       typeof botState.pushThroughUntil === "number" &&
       now < botState.pushThroughUntil &&
       botState.pushThroughForTargetId === target.id;
-    let pushingThrough = !wanderFocused && !!pushActive;
+    let pushingThrough = !navigationFocused && !!pushActive;
     if (pushingThrough && !lineBlockedToTarget) {
       botState.pushThroughUntil = null;
       botState.pushThroughForTargetId = null;
@@ -1312,7 +1665,7 @@ function createGameServer(io) {
     const DODGE_DURATION_MS = 650;
     let dodging = isDodgingActive;
 
-    const peekThreatEligible = !wanderFocused && threat && lineBlockedToTarget;
+    const peekThreatEligible = !navigationFocused && threat && lineBlockedToTarget;
     if (peekThreatEligible) {
       const lastThreatAt =
         typeof botState.lastPeekThreatAt === "number"
@@ -1422,6 +1775,7 @@ function createGameServer(io) {
           botState.dodgeDirY = chosen.y;
           botState.dodgeUntil = now + DODGE_DURATION_MS;
           botState.lastDodgedBulletId = threat.bullet.id;
+          botState.navPathNeedsRecalc = true;
           dodging = true;
         }
       }
@@ -1432,7 +1786,7 @@ function createGameServer(io) {
     }
 
     if (
-      !wanderFocused &&
+      !navigationFocused &&
       botState.peekMode === "push" &&
       typeof botState.peekModeUntil === "number" &&
       now < botState.peekModeUntil &&
@@ -1442,7 +1796,7 @@ function createGameServer(io) {
     }
 
     const fallbackPeekActive =
-      !wanderFocused &&
+      !navigationFocused &&
       botState.peekMode === "fallback" &&
       typeof botState.peekModeUntil === "number" &&
       now < botState.peekModeUntil &&
@@ -1462,129 +1816,12 @@ function createGameServer(io) {
       strafeDirUsed = null;
     }
 
-    // --- Simple "stuck near wall" detection + escape ---
-    // If the bot has been essentially in the same place for a short window
-    // *and* is right next to a wall, bias its movement to strafe around the wall
-    // instead of endlessly walking into it.
     if (!dodging && !fallbackPeekActive) {
-      const STUCK_WINDOW_MS = 1200;
-      const STUCK_MIN_MOVEMENT = 15; // pixels over the window
-      const NEAR_WALL_MARGIN = 6;
-      const UNSTUCK_DURATION_MS = 900;
-
-      if (typeof botState.stuckSampleTime !== "number") {
-        botState.stuckSampleTime = now;
-        botState.stuckSampleX = bot.x;
-        botState.stuckSampleY = bot.y;
-      } else if (now - botState.stuckSampleTime >= STUCK_WINDOW_MS) {
-        const sx = typeof botState.stuckSampleX === "number" ? botState.stuckSampleX : bot.x;
-        const sy = typeof botState.stuckSampleY === "number" ? botState.stuckSampleY : bot.y;
-        const movedDx = bot.x - sx;
-        const movedDy = bot.y - sy;
-        const movedDistSq = movedDx * movedDx + movedDy * movedDy;
-        const movedLittle = movedDistSq < STUCK_MIN_MOVEMENT * STUCK_MIN_MOVEMENT;
-
-        const radius = BOT_CONFIG.playerRadius + NEAR_WALL_MARGIN;
-        const nearWall = circleCollidesAnyWall(bot.x, bot.y, radius, walls);
-
-        const alreadyUnstucking =
-          typeof botState.unstuckUntil === "number" && now < botState.unstuckUntil;
-
-        if (nearWall && movedLittle && !alreadyUnstucking) {
-          // Try strafing left/right around the target and pick the direction
-          // that is less likely to keep us jammed into the wall and, if possible,
-          // improves line of sight.
-          const lateral1 = { x: -moveDirY, y: moveDirX };
-          const lateral2 = { x: moveDirY, y: -moveDirX };
-          const backOff = { x: -moveDirX, y: -moveDirY };
-
-          function scoreCandidate(dir) {
-            const step = BOT_CONFIG.moveSpeedPerTick * 4;
-            const testRadius = BOT_CONFIG.playerRadius;
-            const width = BOT_CONFIG.canvasWidth;
-            const height = BOT_CONFIG.canvasHeight;
-
-            let tx = bot.x + dir.x * step;
-            let ty = bot.y + dir.y * step;
-            tx = Math.max(testRadius, Math.min(tx, width - testRadius));
-            ty = Math.max(testRadius, Math.min(ty, height - testRadius));
-
-            if (circleCollidesAnyWall(tx, ty, testRadius, walls)) {
-              return -Infinity; // walking straight into a wall
-            }
-
-            let score = 0;
-
-            const losFromCandidate = !lineIntersectsAnyWall(
-              tx,
-              ty,
-              moveTargetX,
-              moveTargetY,
-              walls,
-            );
-            if (losFromCandidate) score += 2;
-
-            const currDistSq = moveDx * moveDx + moveDy * moveDy;
-            const cdx = moveTargetX - tx;
-            const cdy = moveTargetY - ty;
-            const candDistSq = cdx * cdx + cdy * cdy;
-            if (candDistSq < currDistSq) score += 1;
-
-            // Add a small random jitter so we don't pick the same option forever.
-            score += Math.random() * 0.5;
-            return score;
-          }
-
-          const candidates = [lateral1, lateral2, backOff].sort(
-            () => Math.random() - 0.5,
-          );
-          let best = null;
-          let bestScore = -Infinity;
-          for (const c of candidates) {
-            const s = scoreCandidate(c);
-            if (s > bestScore) {
-              bestScore = s;
-              best = c;
-            }
-          }
-
-          if (best && bestScore > -Infinity) {
-            botState.unstuckDirX = best.x;
-            botState.unstuckDirY = best.y;
-            botState.unstuckUntil = now + UNSTUCK_DURATION_MS;
-          }
-        }
-
-        // Start a new window from the current position either way.
-        botState.stuckSampleTime = now;
-        botState.stuckSampleX = bot.x;
-        botState.stuckSampleY = bot.y;
-      }
-
-      if (
-        typeof botState.unstuckUntil === "number" &&
-        now < botState.unstuckUntil &&
-        typeof botState.unstuckDirX === "number" &&
-        typeof botState.unstuckDirY === "number"
-      ) {
-        moveX = botState.unstuckDirX;
-        moveY = botState.unstuckDirY;
-        moveMode = "unstuck";
-        strafeDirUsed = null;
-      } else if (
-        typeof botState.unstuckUntil === "number" &&
-        now >= botState.unstuckUntil
-      ) {
-        botState.unstuckUntil = null;
-        botState.unstuckDirX = 0;
-        botState.unstuckDirY = 0;
-      }
-
       // Occasionally pause movement so bots don't orbit forever in stalemates.
       const PAUSE_INTERVAL_MS = 20000; // roughly "once every 20 seconds"
       const MIN_PAUSE_MS = 800;
       const MAX_PAUSE_MS = 1600;
-      const allowRandomPause = !wanderFocused && !wanderPauseActive && !wanderResting;
+      const allowRandomPause = !navigationFocused;
 
       if (typeof botState.pauseUntil === "number") {
         if (!allowRandomPause) {
@@ -1620,15 +1857,8 @@ function createGameServer(io) {
       }
     }
 
-    if (wanderResting) {
-      moveX = 0;
-      moveY = 0;
-      moveMode = "wanderPause";
-      strafeDirUsed = null;
-    }
-
     const moveLengthSq = moveX * moveX + moveY * moveY;
-    if (moveLengthSq < 1e-5 && moveMode !== "pause" && moveMode !== "wanderPause") {
+    if (moveLengthSq < 1e-5 && moveMode !== "pause") {
       moveMode = "idle";
       strafeDirUsed = null;
     }
