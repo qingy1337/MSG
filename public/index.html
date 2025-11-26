@@ -65,6 +65,10 @@
                     <input type="text" id="name-input" placeholder="Display Name">
                     <button id="join-btn" class="btn btn-primary">Join lobby</button>
                 </div>
+                <div class="bot-battle-shortcut">
+                    <div class="screen-subtitle">Just want to spectate?</div>
+                    <button id="open-bot-battle-btn" class="btn btn-ghost btn-xs">Open Bot vs. Bot mode</button>
+                </div>
             </div>
 
             <div id="weapon-screen" class="screen hidden">
@@ -88,6 +92,21 @@
                         <input type="checkbox" id="enable-bots-toggle">
                         Fill match with example bots
                     </label>
+                </div>
+                <div class="bot-battle-card">
+                    <div class="bot-battle-header">
+                        <div class="bot-battle-copy">
+                            <h2>Bot vs. Bot</h2>
+                            <p class="screen-subtitle">
+                                Spawn a bot-only free-for-all and watch them duke it out.
+                            </p>
+                        </div>
+                        <div class="bot-battle-controls">
+                            <label for="bot-battle-count">Bots</label>
+                            <input id="bot-battle-count" type="number" min="2" max="10" value="6">
+                            <button id="start-bot-battle-btn" class="btn btn-ghost">Start Bot vs. Bot</button>
+                        </div>
+                    </div>
                 </div>
             </div>
 

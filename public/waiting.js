@@ -40,6 +40,9 @@ const enableBotsCheckbox = document.getElementById("enable-bots-toggle");
 const waitingPlayersList = document.getElementById("waiting-players");
 const weaponOptionsEl = document.getElementById("weapon-options");
 const weaponConfirmBtn = document.getElementById("weapon-confirm-btn");
+const botBattleCountInput = document.getElementById("bot-battle-count");
+const startBotBattleBtn = document.getElementById("start-bot-battle-btn");
+const openBotBattleBtn = document.getElementById("open-bot-battle-btn");
 
 // DOM elements - auth + header
 const authOverlay = document.getElementById("auth-overlay");
@@ -261,6 +264,18 @@ if (nameInput) {
 }
 if (weaponConfirmBtn) {
   weaponConfirmBtn.addEventListener("click", joinWaitingRoom);
+}
+if (startBotBattleBtn) {
+  startBotBattleBtn.addEventListener("click", startBotBattle);
+}
+if (openBotBattleBtn) {
+  openBotBattleBtn.addEventListener("click", () => {
+    if (!currentUser) {
+      applyLoggedOutState();
+      return;
+    }
+    setActiveScreen(waitingScreen);
+  });
 }
 if (loginForm) {
   loginForm.addEventListener("submit", handleLoginSubmit);
@@ -767,6 +782,19 @@ function startGame() {
   socket.emit("startGame", { enableBots });
 }
 
+function startBotBattle() {
+  if (!currentUser) {
+    applyLoggedOutState();
+    return;
+  }
+  const raw = botBattleCountInput ? parseInt(botBattleCountInput.value, 10) : 0;
+  const clamped = Math.max(2, Math.min(10, Number.isFinite(raw) ? raw : 0));
+  if (botBattleCountInput) {
+    botBattleCountInput.value = clamped;
+  }
+  socket.emit("startBotBattle", { botCount: clamped });
+}
+
 function updateStartButtonState() {
   if (!startBtn) return;
   const humanCount = lastWaitingPlayersCount;
@@ -809,7 +837,7 @@ socket.on("gameStarting", (gameData) => {
   setActiveScreen(gameScreen);
 
   // Initialize game
-  initGame(gameData.players, gameData.walls);
+  initGame(gameData.players, gameData.walls, gameData.match || {});
 });
 
 socket.on("resetGame", () => {

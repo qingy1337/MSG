@@ -168,6 +168,13 @@ h1 {
     gap: 12px;
 }
 
+.bot-battle-shortcut {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 6px;
+}
+
 input {
     padding: 10px 12px;
     font-size: 15px;
@@ -314,6 +321,47 @@ button:disabled,
     align-items: center;
     gap: 6px;
     cursor: pointer;
+}
+
+.bot-battle-card {
+    margin-top: 14px;
+    padding: 14px 16px;
+    background: var(--bg-elevated-soft);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    width: 90%;
+    max-width: 680px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+.bot-battle-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.bot-battle-copy h2 {
+    margin: 0 0 4px;
+    font-size: 18px;
+    text-align: left;
+}
+
+.bot-battle-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.bot-battle-controls label {
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.bot-battle-controls input[type="number"] {
+    min-width: 90px;
+    width: 100px;
 }
 
 .game-shell {

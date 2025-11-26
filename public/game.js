@@ -12,6 +12,11 @@ let keys = {};
 let gameActive = false;
 let firingInterval = null;
 let lastShotAt = 0;
+let matchConfig = {
+  mode: "standard",
+  botFriendlyFire: false,
+  botTargetBots: false,
+};
 
 // Constants
 const PLAYER_RADIUS = 20;
@@ -21,9 +26,14 @@ const PLAYER_SPEED = 5;
 const BULLET_SPEED = 10;
 
 // Initialize game
-function initGame(gamePlayers, gameWalls) {
+function initGame(gamePlayers, gameWalls, matchSettings = {}) {
   players = gamePlayers;
   walls = gameWalls;
+  matchConfig = {
+    mode: matchSettings.mode || "standard",
+    botFriendlyFire: !!matchSettings.botFriendlyFire,
+    botTargetBots: !!matchSettings.botTargetBots,
+  };
   localPlayer = players.find((p) => p.id === socket.id);
   bullets = [];
   gameActive = true;
@@ -171,8 +181,8 @@ function updateBullets() {
     // Check player collisions
     for (const player of players) {
       if (player.alive && player.id !== bullet.playerId) {
-        if (shooterIsBot && player.isBot) {
-          // Bot bullets pass through other bots without dealing damage.
+        if (shooterIsBot && player.isBot && !matchConfig.botFriendlyFire) {
+          // Bot bullets pass through allied bots without dealing damage.
           continue;
         }
 

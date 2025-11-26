@@ -60,11 +60,18 @@ function createGameServer(io) {
     maxPerMatch: 10,
     // Tuned so bots feel closer to human speed (~300 units/sec at 20 ticks/sec).
     moveSpeedPerTick: 11,
-    weaponKey: "sniper",
+    weaponKey: "autoRifle",
     playerRadius: 20,
     canvasWidth: 900,
     canvasHeight: 600,
     aimInaccuracy: 0.0,
+  };
+  const matchSettings = {
+    mode: "standard",
+    botsAreAllies: true,
+    botFriendlyFire: false,
+    botTargetBots: false,
+    botSpawnRandom: false,
   };
   let nextBotId = 1;
 
@@ -102,10 +109,35 @@ function createGameServer(io) {
   function registerSocketHandlers(socket) {
     socket.on("join", (payload) => handleJoin(socket, payload));
     socket.on("startGame", (options) => handleStartGame(options));
+    socket.on("startBotBattle", (options) => handleStartBotBattle(options));
     socket.on("playerUpdate", (data) => handlePlayerUpdate(socket, data));
     socket.on("shoot", (bulletData) => handleShoot(socket, bulletData));
     socket.on("playerHit", (payload) => handlePlayerHit(payload));
     socket.on("disconnect", () => handleDisconnect(socket));
+  }
+
+  function setStandardMatchSettings() {
+    matchSettings.mode = "standard";
+    matchSettings.botsAreAllies = true;
+    matchSettings.botFriendlyFire = false;
+    matchSettings.botTargetBots = false;
+    matchSettings.botSpawnRandom = false;
+  }
+
+  function setBotBattleSettings() {
+    matchSettings.mode = "botBattle";
+    matchSettings.botsAreAllies = false;
+    matchSettings.botFriendlyFire = true;
+    matchSettings.botTargetBots = true;
+    matchSettings.botSpawnRandom = true;
+  }
+
+  function serializeMatchSettings() {
+    return {
+      mode: matchSettings.mode,
+      botFriendlyFire: matchSettings.botFriendlyFire,
+      botTargetBots: matchSettings.botTargetBots,
+    };
   }
 
   function handleJoin(socket, payload) {
@@ -129,6 +161,7 @@ function createGameServer(io) {
 
   function handleStartGame(options) {
     if (gameInProgress.status) return;
+    setStandardMatchSettings();
 
     const config = options && typeof options === "object" ? options : {};
     const enableBots = !!config.enableBots;
@@ -171,10 +204,10 @@ function createGameServer(io) {
     }
 
     if (botCount > 0) {
-      createBotsForCurrentMatch(botCount);
+      createBotsForCurrentMatch(botCount, { randomSpawns: matchSettings.botSpawnRandom });
     }
 
-    io.emit("gameStarting", { players: activePlayers, walls });
+    io.emit("gameStarting", { players: activePlayers, walls, match: serializeMatchSettings() });
     io.socketsLeave("waiting");
     console.log(
       "Game started with",
@@ -182,6 +215,39 @@ function createGameServer(io) {
       "players",
       botCount > 0 ? `(including ${botCount} bot${botCount > 1 ? "s" : ""})` : "",
     );
+  }
+
+  function handleStartBotBattle(options) {
+    if (gameInProgress.status) return;
+
+    const config = options && typeof options === "object" ? options : {};
+    const rawCount =
+      config && typeof config.botCount !== "undefined"
+        ? Number(config.botCount)
+        : 0;
+    const parsedCount = Number.isFinite(rawCount) ? Math.floor(rawCount) : 0;
+    const botCount = Math.max(0, Math.min(BOT_CONFIG.maxPerMatch, parsedCount));
+
+    if (botCount < 2) {
+      return;
+    }
+
+    setBotBattleSettings();
+    gameInProgress.status = true;
+    clearActiveBullets(activeBullets);
+
+    const walls = generateWalls();
+    wallLayoutVersion += 1;
+    invalidateCachedNavGrid();
+    gameWalls.length = 0;
+    gameWalls.push(...walls);
+    activePlayers.length = 0;
+
+    createBotsForCurrentMatch(botCount, { randomSpawns: true });
+
+    io.emit("gameStarting", { players: activePlayers, walls, match: serializeMatchSettings() });
+    io.socketsLeave("waiting");
+    console.log("Bot vs Bot match started with", botCount, "bots");
   }
 
   function handlePlayerUpdate(socket, data) {
@@ -230,7 +296,8 @@ function createGameServer(io) {
 
     const shooter = shooterId ? activePlayers.find((p) => p.id === shooterId) : null;
 
-    if (shooter && shooter.isBot && isBotAllyPlayer(target)) {
+    const botsAreFriendly = shooter && shooter.isBot && !matchSettings.botFriendlyFire;
+    if (botsAreFriendly && isBotAllyPlayer(target)) {
       return;
     }
 
@@ -379,7 +446,7 @@ function createGameServer(io) {
     if (alivePlayers.length === 0) return;
 
     const aliveHumans = alivePlayers.filter((p) => !p.isBot);
-    if (aliveHumans.length === 0) {
+    if (matchSettings.botsAreAllies && aliveHumans.length === 0) {
       scheduleGameOver({ name: "Bots" });
       return;
     }
@@ -397,6 +464,7 @@ function createGameServer(io) {
     activePlayers.length = 0;
     gameWalls.length = 0;
     gameInProgress.status = false;
+    setStandardMatchSettings();
     nextBotId = 1;
     // Reset bullet bookkeeping between matches
     clearActiveBullets(activeBullets);
@@ -1213,7 +1281,9 @@ function createGameServer(io) {
     let best = null;
 
     for (const b of bullets) {
-      if (!b || b.shooterIsBot) continue;
+      if (!b) continue;
+      if (b.shooterIsBot && !matchSettings.botFriendlyFire) continue;
+      if (b.playerId && b.playerId === bot.id) continue;
       if (
         typeof b.x !== "number" ||
         typeof b.y !== "number" ||
@@ -1269,13 +1339,14 @@ function createGameServer(io) {
 
   // --- Simple server-side bots (step 0) ---
 
-  function createBotsForCurrentMatch(count) {
+  function createBotsForCurrentMatch(count, options = {}) {
     const numBots = Math.max(
       0,
       Math.min(count || 0, BOT_CONFIG.maxPerMatch),
     );
     if (numBots === 0) return;
 
+    const useRandomSpawns = !!options.randomSpawns;
     const radius = BOT_CONFIG.playerRadius;
     const canvasWidth = BOT_CONFIG.canvasWidth;
     const canvasHeight = BOT_CONFIG.canvasHeight;
@@ -1290,14 +1361,17 @@ function createGameServer(io) {
     }
 
     for (let i = 0; i < numBots; i++) {
-      const botId = `bot-${nextBotId++}`;
+      const botNumber = nextBotId++;
+      const botId = `bot-${botNumber}`;
       const color =
         colors[(activePlayers.length + i) % colors.length] || "#888888";
-      const spawn = { x: spawnX, y: spawnY };
+      const spawn = useRandomSpawns
+        ? getValidSpawnPosition(gameWalls, activePlayers)
+        : { x: spawnX, y: spawnY };
       const bot = {
         id: botId,
-        name: `BOT ${i + 1}`,
-        displayName: `BOT ${i + 1}`,
+        name: `BOT ${botNumber}`,
+        displayName: `BOT ${botNumber}`,
         accountUsername: null,
         color,
         weapon: BOT_CONFIG.weaponKey,
@@ -1428,9 +1502,10 @@ function createGameServer(io) {
 
     let target = null;
     let closestDistSq = Infinity;
+    const allowBotTargets = !!matchSettings.botTargetBots;
     for (const p of players) {
-      // Bots should only target real players, never other bots (including themselves).
-      if (!p || !p.alive || p.id === bot.id || p.isBot) continue;
+      if (!p || !p.alive || p.id === bot.id) continue;
+      if (p.isBot && !allowBotTargets) continue;
       const dx = p.x - bot.x;
       const dy = p.y - bot.y;
       const distSq = dx * dx + dy * dy;
@@ -1644,7 +1719,10 @@ function createGameServer(io) {
       aimTargetY,
       walls,
     );
-    const targetIsBotAlly = isBotAllyPlayer(target);
+    const targetIsBotAlly =
+      matchSettings.botFriendlyFire || matchSettings.botTargetBots
+        ? false
+        : isBotAllyPlayer(target);
     const shouldShoot = !targetIsBotAlly && hasLineOfSight && dist < 550;
 
     const pathMove = computePathMovement(
