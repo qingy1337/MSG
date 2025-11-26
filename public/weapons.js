@@ -10,7 +10,7 @@ const WEAPONS = {
     weaponLength: 30,
     bulletSpeed: 11.5,
     bulletRadius: 5,
-    cooldownMs: 90,
+    cooldownMs: 100,
     automatic: false,
   },
   autoRifle: {
@@ -20,7 +20,7 @@ const WEAPONS = {
     weaponLength: 40,
     bulletSpeed: 12,
     bulletRadius: 4,
-    cooldownMs: 80, // ~10 shots/second
+    cooldownMs: 70,
     automatic: true,
   },
   miniGun: {
@@ -30,7 +30,7 @@ const WEAPONS = {
     weaponLength: 20,
     bulletSpeed: 14,
     bulletRadius: 5,
-    cooldownMs: 5, // ~10 shots/second
+    cooldownMs: 10,
     automatic: true,
   },
   sniper: {

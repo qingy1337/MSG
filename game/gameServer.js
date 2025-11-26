@@ -23,12 +23,10 @@ const colors = [
 
 const MAX_HEALTH = 100;
 const WEAPON_DAMAGE = {
-  // These values are the *actual* per-shot damage used on the server.
-  // They were manually doubled after fixing the old "double hit" bug.
-  pistol: 28,
-  autoRifle: 18,
-  sniper: 90,
-  miniGun: 5,
+  pistol: 22.5,     // 1000 / 100 * 22.5  = 225
+  autoRifle: 15.75, // 1000 / 70  * 15.75 = 225
+  sniper: 90,       // 1000 / 800 * 90    = 112.5
+  miniGun: 2.25,    // 1000 / 10  * 2.25  = 225
 };
 
 const DEFAULT_BULLET_RADIUS = 5;
@@ -74,7 +72,7 @@ function createGameServer(io) {
   // Simple server-side bot config (step 0: scripted bots)
   const BOT_CONFIG = {
     // When bots are enabled, try to roughly fill up to this many total players.
-    targetTotalPlayers: 10,
+    targetTotalPlayers: 2,
     maxPerMatch: 10,
     // Tuned so bots feel closer to human speed (~300 units/sec at 20 ticks/sec).
     moveSpeedPerTick: 11,
@@ -602,8 +600,8 @@ function createGameServer(io) {
   function segmentsIntersect(x1, y1, x2, y2, x3, y3, x4, y4) {
     const den = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
     if (den === 0) return false;
-    const t = ((x3 - x1) * (y3 - y4) - (y3 - y1) * (x3 - x4)) / den;
-    const u = ((x3 - x1) * (y1 - y2) - (y3 - y1) * (x1 - x2)) / den;
+    const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / den;
+    const u = ((x1 - x3) * (y1 - y2) - (y1 - y3) * (x1 - x2)) / den;
     return t >= 0 && t <= 1 && u >= 0 && u <= 1;
   }
 
