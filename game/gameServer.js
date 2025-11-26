@@ -737,7 +737,7 @@ function createGameServer(io) {
     return !collidesWithBulletsForPath(pos.x, pos.y, nav.radius, bullets);
   }
 
-  function findNearestClearCell(nav, startCol, startRow, bullets, maxRing = 3) {
+  function findNearestClearCell(nav, startCol, startRow, bullets, maxRing = 8) {
     if (isCellClear(nav, startCol, startRow, bullets)) {
       return { col: startCol, row: startRow };
     }
@@ -825,6 +825,17 @@ function createGameServer(io) {
       anchor = next;
     }
     return smoothed;
+  }
+
+  function pathCost(points) {
+    if (!points || points.length < 2) return 0;
+    let cost = 0;
+    for (let i = 1; i < points.length; i++) {
+      const dx = points[i].x - points[i - 1].x;
+      const dy = points[i].y - points[i - 1].y;
+      cost += Math.hypot(dx, dy);
+    }
+    return cost;
   }
 
   function findPath(nav, startPos, goalPos, bullets) {
@@ -944,12 +955,30 @@ function createGameServer(io) {
     const STUCK_WINDOW_MS = 900;
     const STUCK_MIN_MOVEMENT = 12;
     const TOUCH_MARGIN = 1.5;
+    const PROGRESS_WINDOW_MS = 450;
+    const PROGRESS_EPS = Math.max(3, radius * 0.35);
+    const PATH_REPLACE_COOLDOWN_MS = 600;
+    const PATH_LOCK_MS = 700;
+    const PATH_IMPROVEMENT_RATIO = 0.92;
+    const GOAL_SHIFT_REPLAN_DIST = Math.max(radius * 1.5, 12);
+    const LINGER_RADIUS = radius * 5;
+    const LINGER_TIMEOUT_MS = 900;
 
     if (hasLineOfSight) {
       botState.navPath = null;
       botState.navPathIndex = 0;
       botState.navPathNeedsRecalc = false;
       botState.navForcePath = false;
+      botState.navProgressTargetIdx = null;
+      botState.navProgressCheckAt = null;
+      botState.navLastBlockedAt = null;
+      botState.navPathCost = null;
+      botState.navPathLockUntil = null;
+      botState.navLastGoalX = null;
+      botState.navLastGoalY = null;
+      botState.navLingerAnchorX = null;
+      botState.navLingerAnchorY = null;
+      botState.navLingerStart = null;
       return null;
     }
 
@@ -992,6 +1021,13 @@ function createGameServer(io) {
       botState.navPath.length > 0 &&
       typeof botState.navPathIndex === "number" &&
       botState.navPathIndex < botState.navPath.length;
+    if (
+      !pathActive &&
+      (!botState.navLastFailAt || now - botState.navLastFailAt >= PATH_RETRY_MS)
+    ) {
+      botState.navForcePath = true;
+      botState.navPathNeedsRecalc = true;
+    }
     const traveledSinceCalc =
       typeof botState.navLastCalcX === "number" && typeof botState.navLastCalcY === "number"
         ? Math.hypot(bot.x - botState.navLastCalcX, bot.y - botState.navLastCalcY)
@@ -1001,28 +1037,164 @@ function createGameServer(io) {
       botState.navPathNeedsRecalc = true;
     }
 
+    // If we linger in the same small area for too long, force a replan to break oscillation.
+    if (
+      typeof botState.navLingerAnchorX !== "number" ||
+      typeof botState.navLingerAnchorY !== "number"
+    ) {
+      botState.navLingerAnchorX = bot.x;
+      botState.navLingerAnchorY = bot.y;
+      botState.navLingerStart = now;
+    } else {
+      const dxL = bot.x - botState.navLingerAnchorX;
+      const dyL = bot.y - botState.navLingerAnchorY;
+      const distL = Math.hypot(dxL, dyL);
+      if (distL > LINGER_RADIUS) {
+        console.log("RECHANGING ANCHOR!!!")
+        botState.navLingerAnchorX = bot.x;
+        botState.navLingerAnchorY = bot.y;
+        botState.navLingerStart = now;
+      } else if (now - (botState.navLingerStart || 0) >= LINGER_TIMEOUT_MS) {
+        console.log("RECALCULATING!!!")
+        botState.navPathNeedsRecalc = true;
+        botState.navForcePath = true;
+        if (pathActive && botState.navPathIndex < botState.navPath.length - 1) {
+          botState.navPathIndex += 1; // skip the sticky waypoint
+        }
+        botState.navLingerAnchorX = bot.x;
+        botState.navLingerAnchorY = bot.y;
+        botState.navLingerStart = now;
+      }
+    }
+
+    // If we are not closing distance to the current waypoint, force a replan.
+    if (pathActive) {
+      const activeIdx = Math.max(
+        0,
+        Math.min(
+          typeof botState.navPathIndex === "number" ? botState.navPathIndex : 0,
+          botState.navPath.length - 1,
+        ),
+      );
+      const wp = botState.navPath[activeIdx];
+      const distToWp = Math.hypot(wp.x - bot.x, wp.y - bot.y);
+      if (
+        botState.navProgressTargetIdx !== activeIdx ||
+        typeof botState.navProgressCheckAt !== "number"
+      ) {
+        botState.navProgressTargetIdx = activeIdx;
+        botState.navProgressCheckAt = now;
+        botState.navProgressLastX = bot.x;
+        botState.navProgressLastY = bot.y;
+        botState.navProgressLastDist = distToWp;
+      } else if (now - botState.navProgressCheckAt >= PROGRESS_WINDOW_MS) {
+        const movedSq =
+          (bot.x - botState.navProgressLastX) * (bot.x - botState.navProgressLastX) +
+          (bot.y - botState.navProgressLastY) * (bot.y - botState.navProgressLastY);
+        const progress =
+          (typeof botState.navProgressLastDist === "number" ? botState.navProgressLastDist : distToWp) -
+          distToWp;
+        if (progress < PROGRESS_EPS && movedSq < PROGRESS_EPS * PROGRESS_EPS) {
+          botState.navPathNeedsRecalc = true;
+          botState.navForcePath = true;
+          if (botState.navPathIndex < botState.navPath.length - 1) {
+            botState.navPathIndex += 1; // skip a sticky waypoint
+          }
+        }
+        botState.navProgressCheckAt = now;
+        botState.navProgressLastX = bot.x;
+        botState.navProgressLastY = bot.y;
+        botState.navProgressLastDist = distToWp;
+      } else if (
+        typeof botState.navProgressLastDist !== "number" ||
+        distToWp < botState.navProgressLastDist
+      ) {
+        botState.navProgressLastDist = distToWp;
+      }
+    } else {
+      botState.navProgressTargetIdx = null;
+      botState.navProgressCheckAt = null;
+    }
+
     let shouldComputePath = false;
     if (pathActive) {
-      shouldComputePath = !!botState.navPathNeedsRecalc;
+      shouldComputePath = !!botState.navPathNeedsRecalc || !!botState.navForcePath;
     } else {
       shouldComputePath = !!botState.navForcePath || !!botState.navPathNeedsRecalc;
     }
 
-    if (shouldComputePath && now - (botState.navLastFailAt || 0) >= PATH_RETRY_MS) {
-      const path = findPath(nav, { x: bot.x, y: bot.y }, { x: target.x, y: target.y }, bullets);
+    const canRetryFail = now - (botState.navLastFailAt || 0) >= PATH_RETRY_MS;
+    if (shouldComputePath && (botState.navForcePath || canRetryFail)) {
+      let path = findPath(nav, { x: bot.x, y: bot.y }, { x: target.x, y: target.y }, bullets);
+      if (!path && bullets && bullets.length > 0) {
+        path = findPath(nav, { x: bot.x, y: bot.y }, { x: target.x, y: target.y }, []); // fallback ignoring bullets
+      }
       if (path && path.length > 0) {
-        botState.navPath = path;
-        botState.navPathIndex = path.length > 1 ? 1 : 0;
-        botState.navPathNeedsRecalc = false;
-        botState.navForcePath = false;
-        botState.navLastCalcAt = now;
-        botState.navLastCalcX = bot.x;
-        botState.navLastCalcY = bot.y;
-        botState.navLastFailAt = null;
+        const newCost = pathCost(path);
+        const currentCost =
+          pathActive && typeof botState.navPathCost === "number"
+            ? botState.navPathCost
+            : pathCost(botState.navPath);
+        const lastAccepted =
+          typeof botState.navLastAcceptedAt === "number"
+            ? botState.navLastAcceptedAt
+            : 0;
+        const goalShift =
+          typeof botState.navLastGoalX === "number" &&
+          typeof botState.navLastGoalY === "number"
+            ? Math.hypot(target.x - botState.navLastGoalX, target.y - botState.navLastGoalY)
+            : Infinity;
+        const blockedRecently =
+          typeof botState.navLastBlockedAt === "number" &&
+          now - botState.navLastBlockedAt < PATH_RETRY_MS * 2;
+        const locked =
+          pathActive &&
+          typeof botState.navPathLockUntil === "number" &&
+          now < botState.navPathLockUntil;
+        const cooldownMet =
+          !pathActive || now - lastAccepted >= PATH_REPLACE_COOLDOWN_MS;
+        const improved =
+          !pathActive ||
+          newCost < currentCost * PATH_IMPROVEMENT_RATIO ||
+          goalShift > GOAL_SHIFT_REPLAN_DIST ||
+          blockedRecently;
+
+        const shouldReplace =
+          botState.navForcePath ||
+          !pathActive ||
+          goalShift > GOAL_SHIFT_REPLAN_DIST ||
+          blockedRecently ||
+          (improved && cooldownMet);
+
+        if (shouldReplace && (!locked || botState.navForcePath || blockedRecently || goalShift > GOAL_SHIFT_REPLAN_DIST)) {
+          botState.navPath = path;
+          botState.navPathIndex = path.length > 1 ? 1 : 0;
+          botState.navPathNeedsRecalc = false;
+          botState.navForcePath = false;
+          botState.navLastCalcAt = now;
+          botState.navLastCalcX = bot.x;
+          botState.navLastCalcY = bot.y;
+          botState.navLastFailAt = null;
+          botState.navPathCost = newCost;
+          botState.navLastAcceptedAt = now;
+          botState.navLastGoalX = target.x;
+          botState.navLastGoalY = target.y;
+          botState.navPathLockUntil = now + PATH_LOCK_MS;
+          botState.navFailCount = 0;
+        } else {
+          botState.navPathNeedsRecalc = false;
+          botState.navForcePath = false;
+          botState.navLastCalcAt = now;
+          botState.navLastCalcX = bot.x;
+          botState.navLastCalcY = bot.y;
+        }
       } else {
         botState.navPath = null;
         botState.navPathIndex = 0;
         botState.navLastFailAt = now;
+        botState.navForcePath = false;
+        botState.navFailCount =
+          typeof botState.navFailCount === "number" ? botState.navFailCount + 1 : 1;
       }
     }
 
@@ -1042,7 +1214,8 @@ function createGameServer(io) {
         botState.navPath.length - 1,
       ),
     );
-    const reachDist = radius * 0.6;
+    const reachDist = Math.max(radius * 0.8, nav.cellSize * 0.75);
+    let blockedPath = false;
     while (idx < botState.navPath.length) {
       const wp = botState.navPath[idx];
       const dx = wp.x - bot.x;
@@ -1054,6 +1227,9 @@ function createGameServer(io) {
       }
       if (!directPathClear(bot.x, bot.y, wp.x, wp.y, nav, bullets)) {
         botState.navPathNeedsRecalc = true;
+        botState.navForcePath = true;
+        botState.navLastBlockedAt = now;
+        blockedPath = true;
         break;
       }
       botState.navPathIndex = idx;
@@ -1062,6 +1238,9 @@ function createGameServer(io) {
         moveY: dy / (dist || 1e-6),
         active: true,
       };
+    }
+    if (blockedPath) {
+      return null;
     }
     botState.navPath = null;
     botState.navPathIndex = 0;
