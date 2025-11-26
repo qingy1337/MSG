@@ -414,9 +414,15 @@ button:disabled,
 }
 
 .shop-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    --shop-card-min: 280px;
+    --shop-card-max: 280px;
+    display: flex;
+    flex-wrap: wrap;
     gap: 12px;
+    justify-content: center;
+    max-width: calc((var(--shop-card-max) * 3) + (12px * 2));
+    margin: 0 auto;
+    padding: 0px;
 }
 
 .shop-card {
@@ -427,6 +433,9 @@ button:disabled,
     display: flex;
     flex-direction: column;
     gap: 6px;
+    flex: 1 1 var(--shop-card-min);
+    min-width: var(--shop-card-min);
+    max-width: var(--shop-card-max);
 }
 
 .shop-weapon-header-main {
@@ -456,6 +465,7 @@ button:disabled,
 
 .shop-weapon-body {
     margin-top: 8px;
+    padding: 0px;
 }
 
 .shop-weapon-body.collapsed {
