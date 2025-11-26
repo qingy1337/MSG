@@ -7,6 +7,20 @@ const {
   saveUsers,
 } = require("../lib/userStore");
 const { DEFAULT_SKIN_BY_WEAPON } = require("../lib/skins");
+const {
+  isBotAlliedName,
+  isBotAllyPlayer,
+  hasDefaultSkin,
+  isPointInsideAnyWall,
+  lineIntersectsAnyWall,
+  segmentCrossesWallDiscrete,
+  distanceToLineSq,
+  circleCollidesAnyWall,
+  worldToGrid,
+  gridToWorld,
+  cellKey,
+  isCellWithinBounds,
+} = require("./helpers");
 
 const colors = [
   "#FF5733",
@@ -34,36 +48,6 @@ const DEFAULT_BULLET_SPEED = 10;
 const BULLET_MAX_LIFETIME_MS = 4000;
 
 function createGameServer(io) {
-  function isBotAlliedName(name) {
-    if (typeof name !== "string") return false;
-    const trimmed = name.trim();
-    // Matches "BOT 1" through "BOT 100" with no leading zeroes.
-    return /^BOT ([1-9][0-9]?|100)$/.test(trimmed);
-  }
-
-  function isBotAllyPlayer(player) {
-    if (!player) return false;
-    if (player.isBot) return true;
-    if (!hasDefaultSkin(player)) return false;
-    const displayName =
-      typeof player.displayName === "string"
-        ? player.displayName
-        : typeof player.name === "string"
-          ? player.name
-          : "";
-    return isBotAlliedName(displayName);
-  }
-
-  function hasDefaultSkin(player) {
-    if (!player || typeof player.weapon !== "string") return false;
-    const defaultSkin = DEFAULT_SKIN_BY_WEAPON[player.weapon];
-    const equipped = player.weaponSkinKey;
-    if (defaultSkin == null) {
-      return equipped == null;
-    }
-    return equipped === defaultSkin;
-  }
-
   // Game state
   const waitingPlayers = [];
   const activePlayers = [];
@@ -76,7 +60,7 @@ function createGameServer(io) {
     maxPerMatch: 10,
     // Tuned so bots feel closer to human speed (~300 units/sec at 20 ticks/sec).
     moveSpeedPerTick: 11,
-    weaponKey: "miniGun",
+    weaponKey: "sniper",
     playerRadius: 20,
     canvasWidth: 900,
     canvasHeight: 600,
@@ -93,6 +77,16 @@ function createGameServer(io) {
   let wallLayoutVersion = 0;
 
   io.on("connection", (socket) => {
+    hydrateSocketUser(socket);
+    console.log(
+      "New connection:",
+      socket.id,
+      socket.user ? `as ${socket.user.username}` : "(unauthenticated)",
+    );
+    registerSocketHandlers(socket);
+  });
+
+  function hydrateSocketUser(socket) {
     const cookieHeader =
       (socket.handshake && socket.handshake.headers && socket.handshake.headers.cookie) ||
       (socket.request && socket.request.headers && socket.request.headers.cookie) ||
@@ -103,305 +97,272 @@ function createGameServer(io) {
       ensureUserCurrencies(socket.user);
       ensureUserSkins(socket.user);
     }
+  }
 
+  function registerSocketHandlers(socket) {
+    socket.on("join", (payload) => handleJoin(socket, payload));
+    socket.on("startGame", (options) => handleStartGame(options));
+    socket.on("playerUpdate", (data) => handlePlayerUpdate(socket, data));
+    socket.on("shoot", (bulletData) => handleShoot(socket, bulletData));
+    socket.on("playerHit", (payload) => handlePlayerHit(payload));
+    socket.on("disconnect", () => handleDisconnect(socket));
+  }
+
+  function handleJoin(socket, payload) {
+    if (!socket.user) {
+      socket.emit("authError", {
+        message: "You must be logged in to join the game.",
+      });
+      return;
+    }
+
+    const { displayName, weapon } = parseJoinPayload(payload, socket.user.username);
+    const player = buildWaitingPlayer(socket, displayName, weapon);
+    waitingPlayers.push(player);
+    socket.join("waiting");
+
+    io.to("waiting").emit("updateWaitingList", waitingPlayers);
     console.log(
-      "New connection:",
-      socket.id,
-      socket.user ? `as ${socket.user.username}` : "(unauthenticated)",
+      `${socket.user.username} joined the waiting room as "${displayName}" with ${weapon}`,
     );
+  }
 
-    // Player joins waiting room
-    socket.on("join", (payload) => {
-      if (!socket.user) {
-        socket.emit("authError", {
-          message: "You must be logged in to join the game.",
-        });
-        return;
+  function handleStartGame(options) {
+    if (gameInProgress.status) return;
+
+    const config = options && typeof options === "object" ? options : {};
+    const enableBots = !!config.enableBots;
+
+    const humanCount = waitingPlayers.length;
+    let botCount = 0;
+    if (enableBots) {
+      const targetPlayers = BOT_CONFIG.targetTotalPlayers;
+      const maxBots = BOT_CONFIG.maxPerMatch;
+      const missing = Math.max(0, targetPlayers - humanCount);
+      botCount = Math.min(maxBots, missing);
+      if (humanCount === 1 && botCount === 0 && maxBots > 0) {
+        botCount = 1;
       }
+    }
 
-      const playerColor = colors[Math.floor(Math.random() * colors.length)];
-      let displayName = "";
-      let weapon = 'pistol';
+    const totalPlayers = humanCount + botCount;
+    if (totalPlayers < 2) return;
 
-      if (typeof payload === 'string') {
-        // Backwards compatibility if older client sends plain string
-        displayName = payload;
-      } else if (payload && typeof payload === 'object') {
-        // Support both legacy "name" and new "displayName" field
-        displayName = String(
-          payload.displayName || payload.name || '',
-        );
-        if (typeof payload.weapon === 'string') {
-          const key = payload.weapon;
-          // Allow-listed weapons for now (keep extensible by adding here)
-          const allowed = new Set([...Object.keys(WEAPON_DAMAGE)]);
-          weapon = allowed.has(key) ? key : 'pistol';
-        }
-      }
+    gameInProgress.status = true;
+    clearActiveBullets(activeBullets);
 
-      displayName = displayName.substring(0, 16);
-      if (!displayName) {
-        displayName = socket.user.username;
-      }
+    const walls = generateWalls();
+    wallLayoutVersion += 1;
+    invalidateCachedNavGrid();
+    gameWalls.length = 0;
+    gameWalls.push(...walls);
 
-      const player = {
-        id: socket.id,
-        // Keep name for rendering, but do not treat it as account username.
-        name: displayName,
-        displayName,
-        accountUsername: socket.user.username,
-        color: playerColor,
-        weapon,
-        weaponSkinKey:
-          (socket.user &&
-            socket.user.skins &&
-            socket.user.skins.equippedByWeapon &&
-            socket.user.skins.equippedByWeapon[weapon]) ||
-          DEFAULT_SKIN_BY_WEAPON[weapon] ||
-          null,
-      };
+    while (waitingPlayers.length > 0) {
+      const player = waitingPlayers.pop();
+      const spawnPosition = getValidSpawnPosition(walls, activePlayers);
+      activePlayers.push({
+        ...player,
+        x: spawnPosition.x,
+        y: spawnPosition.y,
+        angle: 0,
+        alive: true,
+        health: MAX_HEALTH,
+      });
+    }
 
-      waitingPlayers.push(player);
-      socket.join("waiting");
+    if (botCount > 0) {
+      createBotsForCurrentMatch(botCount);
+    }
 
-      io.to("waiting").emit("updateWaitingList", waitingPlayers);
-      console.log(
-        `${socket.user.username} joined the waiting room as "${displayName}" with ${weapon}`,
-      );
-    });
+    io.emit("gameStarting", { players: activePlayers, walls });
+    io.socketsLeave("waiting");
+    console.log(
+      "Game started with",
+      activePlayers.length,
+      "players",
+      botCount > 0 ? `(including ${botCount} bot${botCount > 1 ? "s" : ""})` : "",
+    );
+  }
 
-    // Start game
-    socket.on("startGame", (options) => {
-      if (gameInProgress.status) return;
+  function handlePlayerUpdate(socket, data) {
+    const player = activePlayers.find((p) => p.id === socket.id);
+    if (player && player.alive) {
+      player.x = data.x;
+      player.y = data.y;
+      player.angle = data.angle;
 
-      const config =
-        options && typeof options === "object" ? options : {};
-      const enableBots = !!config.enableBots;
-
-      const humanCount = waitingPlayers.length;
-      let botCount = 0;
-      if (enableBots) {
-        const targetPlayers = BOT_CONFIG.targetTotalPlayers;
-        const maxBots = BOT_CONFIG.maxPerMatch;
-        const missing = Math.max(0, targetPlayers - humanCount);
-        botCount = Math.min(maxBots, missing);
-        // If there is exactly one human, ensure at least one bot so the game can start.
-        if (humanCount === 1 && botCount === 0 && maxBots > 0) {
-          botCount = 1;
-        }
-      }
-
-      const totalPlayers = humanCount + botCount;
-      if (totalPlayers < 2) {
-        return;
-      }
-
-      gameInProgress.status = true;
-      clearActiveBullets(activeBullets);
-
-      // Generate walls
-      const walls = generateWalls();
-      wallLayoutVersion += 1;
-      invalidateCachedNavGrid();
-      gameWalls.length = 0;
-      gameWalls.push(...walls);
-
-      // Move all waiting players to active game
-      while (waitingPlayers.length > 0) {
-        const player = waitingPlayers.pop();
-        // Space out spawns and ensure no direct LOS to existing players
-        const spawnPosition = getValidSpawnPosition(walls, activePlayers);
-
-        activePlayers.push({
-          ...player,
-          x: spawnPosition.x,
-          y: spawnPosition.y,
-          angle: 0,
-          alive: true,
-          health: MAX_HEALTH,
-        });
-      }
-
-      // Add simple scripted bots if requested
-      if (botCount > 0) {
-        createBotsForCurrentMatch(botCount);
-      }
-
-      // Notify all clients that game is starting
-      io.emit("gameStarting", { players: activePlayers, walls: walls });
-
-      // Move players from waiting room to game room
-      io.socketsLeave("waiting");
-      console.log(
-        "Game started with",
-        activePlayers.length,
-        "players",
-        botCount > 0 ? `(including ${botCount} bot${botCount > 1 ? "s" : ""})` : "",
-      );
-    });
-
-    // Player movement update
-    socket.on("playerUpdate", (data) => {
-      const player = activePlayers.find((p) => p.id === socket.id);
-      if (player && player.alive) {
-        player.x = data.x;
-        player.y = data.y;
-        player.angle = data.angle;
-
-        io.emit("gameState", activePlayers);
-      }
-    });
-
-    // Player shoots
-    socket.on("shoot", (bulletData) => {
-      const player = activePlayers.find((p) => p.id === socket.id);
-      if (player && player.alive) {
-        // Guard against shooting through walls: ignore shots whose spawn point is inside a wall
-        const bx = bulletData && typeof bulletData.x === 'number' ? bulletData.x : null;
-        const by = bulletData && typeof bulletData.y === 'number' ? bulletData.y : null;
-        if (bx == null || by == null) return;
-        // Use both point-inside and robust discrete segment check from player -> muzzle tip
-        if (
-          isPointInsideAnyWall(bx, by, gameWalls) ||
-          segmentCrossesWallDiscrete(player.x, player.y, bx, by, gameWalls, 2) ||
-          lineIntersectsAnyWall(player.x, player.y, bx, by, gameWalls)
-        ) {
-          return; // do not emit invalid bullet
-        }
-        const bullet = {
-          ...bulletData,
-          bulletId: nextBulletId++,
-          playerId: socket.id,
-        };
-        io.emit("newBullet", bullet);
-        trackActiveBullet(bullet, player, activeBullets);
-      }
-    });
-
-    // Player hit
-    socket.on("playerHit", (payload) => {
-      const now = Date.now();
-      // Backward compatibility: if payload is a string, treat as target only
-      let targetId = typeof payload === 'string' ? payload : payload && payload.targetId;
-      const shooterId = payload && payload.shooterId ? payload.shooterId : null;
-      const bulletId =
-        payload && typeof payload.bulletId === "number"
-          ? payload.bulletId
-          : null;
-
-      const target = activePlayers.find((p) => p.id === targetId);
-      if (!target || !target.alive) return;
-
-      const shooter = shooterId
-        ? activePlayers.find((p) => p.id === shooterId)
-        : null;
-
-      if (shooter && shooter.isBot && isBotAllyPlayer(target)) {
-        // Bot bullets should not damage other bots or bot-allied names.
-        return;
-      }
-
-      // If we've already processed a hit for this bullet, ignore duplicates
-      if (bulletId != null) {
-        if (processedBulletHits.has(bulletId)) {
-          removeActiveBullet(bulletId, activeBullets);
-          return;
-        }
-        processedBulletHits.add(bulletId);
-        removeActiveBullet(bulletId, activeBullets);
-      }
-
-      if (shooter && shooter.isBot) {
-        const shooterState =
-          shooter.botState && typeof shooter.botState === "object"
-            ? shooter.botState
-            : (shooter.botState = {});
-        shooterState.lastDamageDealtAt = now;
-      }
-
-      if (target && target.isBot) {
-        const targetState =
-          target.botState && typeof target.botState === "object"
-            ? target.botState
-            : (target.botState = {});
-        targetState.lastDamageTakenAt = now;
-      }
-
-      // Determine damage from shooter's weapon; default to pistol damage
-      let damage = WEAPON_DAMAGE.pistol;
-      if (shooter && typeof WEAPON_DAMAGE[shooter.weapon] === 'number') {
-        damage = WEAPON_DAMAGE[shooter.weapon];
-      }
-
-      target.health = Math.max(0, (target.health ?? MAX_HEALTH) - damage);
-      if (target.health <= 0) {
-        target.alive = false;
-        io.emit("playerKilled", target.id);
-
-        // Award coins to the shooter for a kill
-        if (shooter && shooter.accountUsername) {
-          const shooterUsername = shooter.accountUsername;
-          const targetUsername = target && target.accountUsername;
-          // Prevent farming coins by eliminating a player tied to the same account
-          const sameAccountKill =
-            typeof targetUsername === "string" && shooterUsername === targetUsername;
-          const shooterNamedAsBot = isBotAlliedName(shooter.displayName || shooter.name);
-          const killedBot = !!(target && target.isBot);
-
-          if (!sameAccountKill && !(shooterNamedAsBot && killedBot)) {
-            const accountUser = usersByUsername.get(shooterUsername);
-            if (accountUser) {
-              if (!accountUser.currencies || typeof accountUser.currencies !== "object") {
-                accountUser.currencies = {};
-              }
-              const currentCoins =
-                typeof accountUser.currencies.Coins === "number"
-                  ? accountUser.currencies.Coins
-                  : 0;
-              const newCoins = currentCoins + 5;
-              accountUser.currencies.Coins = newCoins;
-              saveUsers();
-
-              // Notify the shooter so their UI can update immediately
-              io.to(shooter.id).emit("coinsUpdated", { coins: newCoins });
-            }
-          } else {
-            console.log(
-              `Skipping coin reward: ${shooterUsername} eliminated same-account player.`,
-            );
-          }
-        }
-      }
-
-      // Broadcast updated state so clients can render health bars
       io.emit("gameState", activePlayers);
+    }
+  }
 
-      // End the game if a winner is decided or only bots remain
+  function handleShoot(socket, bulletData) {
+    const player = activePlayers.find((p) => p.id === socket.id);
+    if (!player || !player.alive) return;
+
+    const bx = bulletData && typeof bulletData.x === "number" ? bulletData.x : null;
+    const by = bulletData && typeof bulletData.y === "number" ? bulletData.y : null;
+    if (bx == null || by == null) return;
+
+    const spawnBlocked =
+      isPointInsideAnyWall(bx, by, gameWalls) ||
+      segmentCrossesWallDiscrete(player.x, player.y, bx, by, gameWalls, 2) ||
+      lineIntersectsAnyWall(player.x, player.y, bx, by, gameWalls);
+    if (spawnBlocked) return;
+
+    const bullet = {
+      ...bulletData,
+      bulletId: nextBulletId++,
+      playerId: socket.id,
+    };
+    io.emit("newBullet", bullet);
+    trackActiveBullet(bullet, player, activeBullets);
+  }
+
+  function handlePlayerHit(payload) {
+    const now = Date.now();
+    let targetId = typeof payload === "string" ? payload : payload && payload.targetId;
+    const shooterId = payload && payload.shooterId ? payload.shooterId : null;
+    const bulletId =
+      payload && typeof payload.bulletId === "number" ? payload.bulletId : null;
+
+    const target = activePlayers.find((p) => p.id === targetId);
+    if (!target || !target.alive) return;
+
+    const shooter = shooterId ? activePlayers.find((p) => p.id === shooterId) : null;
+
+    if (shooter && shooter.isBot && isBotAllyPlayer(target)) {
+      return;
+    }
+
+    if (bulletId != null) {
+      if (processedBulletHits.has(bulletId)) {
+        removeActiveBullet(bulletId, activeBullets);
+        return;
+      }
+      processedBulletHits.add(bulletId);
+      removeActiveBullet(bulletId, activeBullets);
+    }
+
+    if (shooter && shooter.isBot) {
+      const shooterState =
+        shooter.botState && typeof shooter.botState === "object"
+          ? shooter.botState
+          : (shooter.botState = {});
+      shooterState.lastDamageDealtAt = now;
+    }
+
+    if (target && target.isBot) {
+      const targetState =
+        target.botState && typeof target.botState === "object"
+          ? target.botState
+          : (target.botState = {});
+      targetState.lastDamageTakenAt = now;
+    }
+
+    let damage = WEAPON_DAMAGE.pistol;
+    if (shooter && typeof WEAPON_DAMAGE[shooter.weapon] === "number") {
+      damage = WEAPON_DAMAGE[shooter.weapon];
+    }
+
+    target.health = Math.max(0, (target.health ?? MAX_HEALTH) - damage);
+    if (target.health <= 0) {
+      target.alive = false;
+      io.emit("playerKilled", target.id);
+
+      if (shooter && shooter.accountUsername) {
+        const shooterUsername = shooter.accountUsername;
+        const targetUsername = target && target.accountUsername;
+        const sameAccountKill =
+          typeof targetUsername === "string" && shooterUsername === targetUsername;
+        const shooterNamedAsBot = isBotAlliedName(shooter.displayName || shooter.name);
+        const killedBot = !!(target && target.isBot);
+
+        if (!sameAccountKill && !(shooterNamedAsBot && killedBot)) {
+          const accountUser = usersByUsername.get(shooterUsername);
+          if (accountUser) {
+            if (!accountUser.currencies || typeof accountUser.currencies !== "object") {
+              accountUser.currencies = {};
+            }
+            const currentCoins =
+              typeof accountUser.currencies.Coins === "number"
+                ? accountUser.currencies.Coins
+                : 0;
+            const newCoins = currentCoins + 5;
+            accountUser.currencies.Coins = newCoins;
+            saveUsers();
+
+            io.to(shooter.id).emit("coinsUpdated", { coins: newCoins });
+          }
+        } else {
+          console.log(
+            `Skipping coin reward: ${shooterUsername} eliminated same-account player.`,
+          );
+        }
+      }
+    }
+
+    io.emit("gameState", activePlayers);
+    maybeTriggerGameOver();
+  }
+
+  function handleDisconnect(socket) {
+    const waitingIndex = waitingPlayers.findIndex((p) => p.id === socket.id);
+    if (waitingIndex !== -1) {
+      waitingPlayers.splice(waitingIndex, 1);
+      io.to("waiting").emit("updateWaitingList", waitingPlayers);
+    }
+
+    const activeIndex = activePlayers.findIndex((p) => p.id === socket.id);
+    if (activeIndex !== -1) {
+      activePlayers.splice(activeIndex, 1);
+      io.emit("playerLeft", socket.id);
       maybeTriggerGameOver();
-    });
+    }
 
-    // Disconnect
-    socket.on("disconnect", () => {
-      // Remove from waiting list
-      const waitingIndex = waitingPlayers.findIndex((p) => p.id === socket.id);
-      if (waitingIndex !== -1) {
-        waitingPlayers.splice(waitingIndex, 1);
-        io.to("waiting").emit("updateWaitingList", waitingPlayers);
+    console.log("Disconnected:", socket.id);
+  }
+
+  function parseJoinPayload(payload, fallbackName) {
+    let displayName = "";
+    let weapon = "pistol";
+
+    if (typeof payload === "string") {
+      displayName = payload;
+    } else if (payload && typeof payload === "object") {
+      displayName = String(payload.displayName || payload.name || "");
+      if (typeof payload.weapon === "string") {
+        const key = payload.weapon;
+        const allowed = new Set([...Object.keys(WEAPON_DAMAGE)]);
+        weapon = allowed.has(key) ? key : "pistol";
       }
+    }
 
-      // Remove from active game
-      const activeIndex = activePlayers.findIndex((p) => p.id === socket.id);
-      if (activeIndex !== -1) {
-        activePlayers.splice(activeIndex, 1);
-        io.emit("playerLeft", socket.id);
+    displayName = displayName.substring(0, 16);
+    if (!displayName) {
+      displayName = fallbackName;
+    }
 
-        // Check if game is over
-        maybeTriggerGameOver();
-      }
+    return { displayName, weapon };
+  }
 
-      console.log("Disconnected:", socket.id);
-    });
-  });
+  function buildWaitingPlayer(socket, displayName, weapon) {
+    const playerColor = colors[Math.floor(Math.random() * colors.length)];
+    return {
+      id: socket.id,
+      name: displayName,
+      displayName,
+      accountUsername: socket.user.username,
+      color: playerColor,
+      weapon,
+      weaponSkinKey:
+        (socket.user &&
+          socket.user.skins &&
+          socket.user.skins.equippedByWeapon &&
+          socket.user.skins.equippedByWeapon[weapon]) ||
+        DEFAULT_SKIN_BY_WEAPON[weapon] ||
+        null,
+    };
+  }
 
   function scheduleGameOver(winner) {
     if (gameOverTimeout) return;
@@ -560,82 +521,6 @@ function createGameServer(io) {
     return walls;
   }
 
-  // Utility: check if a point lies inside any wall rectangle
-  function isPointInsideAnyWall(x, y, walls) {
-    for (const wall of walls) {
-      if (
-        x >= wall.x &&
-        x <= wall.x + wall.width &&
-        y >= wall.y &&
-        y <= wall.y + wall.height
-      ) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  // Utility: line-rectangle intersection against any wall
-  function lineIntersectsAnyWall(x0, y0, x1, y1, walls) {
-    for (const wall of walls) {
-      if (lineIntersectsRect(x0, y0, x1, y1, wall)) return true;
-    }
-    return false;
-  }
-
-  function lineIntersectsRect(x0, y0, x1, y1, rect) {
-    if (
-      (x0 >= rect.x && x0 <= rect.x + rect.width && y0 >= rect.y && y0 <= rect.y + rect.height) ||
-      (x1 >= rect.x && x1 <= rect.x + rect.width && y1 >= rect.y && y1 <= rect.y + rect.height)
-    ) return true;
-    const r = rect;
-    const edges = [
-      [r.x, r.y, r.x + r.width, r.y],
-      [r.x + r.width, r.y, r.x + r.width, r.y + r.height],
-      [r.x + r.width, r.y + r.height, r.x, r.y + r.height],
-      [r.x, r.y + r.height, r.x, r.y],
-    ];
-    for (const [ex0, ey0, ex1, ey1] of edges) {
-      if (segmentsIntersect(x0, y0, x1, y1, ex0, ey0, ex1, ey1)) return true;
-    }
-    return false;
-  }
-
-  function segmentsIntersect(x1, y1, x2, y2, x3, y3, x4, y4) {
-    const den = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
-    if (den === 0) return false;
-    const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / den;
-    const u = ((x1 - x3) * (y1 - y2) - (y1 - y3) * (x1 - x2)) / den;
-    return t >= 0 && t <= 1 && u >= 0 && u <= 1;
-  }
-
-  // Robust discrete raycast along the path
-  function segmentCrossesWallDiscrete(x0, y0, x1, y1, walls, step = 2) {
-    const dx = x1 - x0;
-    const dy = y1 - y0;
-    const len = Math.sqrt(dx * dx + dy * dy);
-    if (len === 0) return false;
-    const steps = Math.max(1, Math.ceil(len / step));
-    for (let i = 1; i <= steps; i++) {
-      const t = i / steps;
-      const px = x0 + dx * t;
-      const py = y0 + dy * t;
-      if (isPointInsideAnyWall(px, py, walls)) return true;
-    }
-    return false;
-  }
-
-  function distanceToLineSq(px, py, x0, y0, vx, vy) {
-    const denom = vx * vx + vy * vy;
-    if (denom < 1e-9) return Infinity;
-    const t = ((px - x0) * vx + (py - y0) * vy) / denom;
-    const closestX = x0 + vx * t;
-    const closestY = y0 + vy * t;
-    const dx = px - closestX;
-    const dy = py - closestY;
-    return dx * dx + dy * dy;
-  }
-
   function invalidateCachedNavGrid() {
     cachedNavGrid = null;
   }
@@ -691,29 +576,6 @@ function createGameServer(io) {
       walls,
       version: wallLayoutVersion,
     };
-  }
-
-  function worldToGrid(x, y, nav) {
-    const col = Math.floor(x / nav.cellSize);
-    const row = Math.floor(y / nav.cellSize);
-    return {
-      col: Math.max(0, Math.min(nav.cols - 1, col)),
-      row: Math.max(0, Math.min(nav.rows - 1, row)),
-    };
-  }
-
-  function gridToWorld(col, row, nav) {
-    const x = col * nav.cellSize + nav.cellSize / 2;
-    const y = row * nav.cellSize + nav.cellSize / 2;
-    return { x, y };
-  }
-
-  function cellKey(col, row) {
-    return `${col},${row}`;
-  }
-
-  function isCellWithinBounds(nav, col, row) {
-    return col >= 0 && row >= 0 && col < nav.cols && row < nav.rows;
   }
 
   function collidesWithBulletsForPath(x, y, radius, bullets) {
@@ -2046,19 +1908,6 @@ function createGameServer(io) {
     botState.lastStrafeDirUsed = moveMode === "strafe" ? strafeDirUsed : null;
 
     return { moveX, moveY, aimAngle, shoot: shouldShoot };
-  }
-
-  function circleCollidesAnyWall(cx, cy, radius, walls) {
-    for (const wall of walls) {
-      const closestX = Math.max(wall.x, Math.min(cx, wall.x + wall.width));
-      const closestY = Math.max(wall.y, Math.min(cy, wall.y + wall.height));
-      const dx = cx - closestX;
-      const dy = cy - closestY;
-      if (Math.sqrt(dx * dx + dy * dy) < radius) {
-        return true;
-      }
-    }
-    return false;
   }
 
   function fireBulletFromBot(bot) {
