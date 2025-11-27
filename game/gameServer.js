@@ -37,10 +37,10 @@ const colors = [
 
 const MAX_HEALTH = 100;
 const WEAPON_DAMAGE = {
-  pistol: 22.5,     // 1000 / 100 * 22.5  = 225
-  autoRifle: 15.75, // 1000 / 70  * 15.75 = 225
+  pistol: 10.5,     // 1000 / 100 * 22.5  = 225
+  autoRifle: 5.75,  // 1000 / 70  * 15.75 = 225
   sniper: 90,       // 1000 / 800 * 90    = 112.5
-  miniGun: 2.25,    // 1000 / 10  * 2.25  = 225
+  miniGun: 3.25,    // 1000 / 10  * 2.25  = 225
 };
 
 const DEFAULT_BULLET_RADIUS = 5;
@@ -56,11 +56,11 @@ function createGameServer(io) {
   // Simple server-side bot config (step 0: scripted bots)
   const BOT_CONFIG = {
     // When bots are enabled, try to roughly fill up to this many total players.
-    targetTotalPlayers: 2,
+    targetTotalPlayers: 4,
     maxPerMatch: 10,
     // Tuned so bots feel closer to human speed (~300 units/sec at 20 ticks/sec).
     moveSpeedPerTick: 11,
-    weaponKey: "sniper",
+    weaponKey: "miniGun",
     playerRadius: 20,
     canvasWidth: 900,
     canvasHeight: 600,

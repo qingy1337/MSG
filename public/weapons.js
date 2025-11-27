@@ -40,7 +40,7 @@ const WEAPONS = {
     weaponLength: 50, // visibly longer than pistol/auto
     bulletSpeed: 16,  // faster bullets
     bulletRadius: 10, // ~2x size
-    cooldownMs: 800,
+    cooldownMs: 1300,
     automatic: false,
   },
 };
