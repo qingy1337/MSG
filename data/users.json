@@ -4,7 +4,7 @@
     "username": "qing",
     "passwordHash": "120000:527376a4c7facb358546550205746662:8803cf5b1c16b4a2f9a8f8be0478fa4bec09c8104df42842cc397818c661e2ff",
     "currencies": {
-      "Coins": 4440
+      "Coins": 4565
     },
     "skins": {
       "owned": [
@@ -30,8 +30,8 @@
         "pistol": "pistol_cybernetic",
         "autoRifle": "autoRifle_poisonivy",
         "miniGun": "miniGun_midas",
-        "sniper": "sniper_calibrated",
-        "shotgun": "shotgun_silverline"
+        "sniper": "sniper_flatpack",
+        "shotgun": "shotgun_bubble_trouble"
       }
     }
   },
@@ -40,7 +40,7 @@
     "username": "ggg",
     "passwordHash": "120000:6e213f5bc9566e97880dca1ac766b17a:ee762808405c3234c19bd55b0fa3283dac8b6398d850c4223254b980bd8ba576",
     "currencies": {
-      "Coins": 1925
+      "Coins": 1950
     },
     "skins": {
       "owned": [

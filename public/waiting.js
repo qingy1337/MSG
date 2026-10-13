@@ -39,6 +39,9 @@ const startBtn = document.getElementById("start-btn");
 const enableBotsCheckbox = document.getElementById("enable-bots-toggle");
 const startFloorRow = document.getElementById('pve-start-floor-row');
 const startFloorInput = document.getElementById('pve-start-floor');
+const pvpDebugRow = document.getElementById('pvp-debug-row');
+const pvpDebugMap = document.getElementById('pvp-debug-map');
+const pvpDebugDouble = document.getElementById('pvp-debug-double');
 const waitingPlayersList = document.getElementById("waiting-players");
 const weaponOptionsEl = document.getElementById("weapon-options");
 const weaponConfirmBtn = document.getElementById("weapon-confirm-btn");
@@ -71,6 +74,14 @@ let lastNonShopScreen = loginScreen;
 let shopSkins = [];
 let shopSectionCollapseState = {};
 let lastWaitingPlayersCount = 0;
+
+if(pvpDebugMap) {
+  const random=document.createElement('option');random.value='';random.textContent='Random map';pvpDebugMap.appendChild(random);
+  for(const id of globalThis.PVP_MAP_IDS||[]) {
+    const option=document.createElement('option');option.value=id;
+    option.textContent=globalThis.PVP_MAPS?.[id]?.name||id;pvpDebugMap.appendChild(option);
+  }
+}
 
 function setCoinsValue(coins) {
   const safeCoins = typeof coins === "number" ? coins : 0;
@@ -129,6 +140,8 @@ function applyAuthenticatedState(user) {
 function applyLoggedOutState() {
   currentUser = null;
   startFloorInput.value='1';
+  if(pvpDebugMap)pvpDebugMap.value='';
+  if(pvpDebugDouble)pvpDebugDouble.checked=true;
   updateStartButtonState();
   if (userInfoEl) {
     userInfoEl.classList.add("hidden");
@@ -258,6 +271,9 @@ if (startBtn) {
 }
 if (enableBotsCheckbox) {
   enableBotsCheckbox.addEventListener("change", updateStartButtonState);
+}
+if(pvpDebugDouble) {
+  pvpDebugDouble.addEventListener('change',updateStartButtonState);
 }
 if (nameInput) {
   nameInput.addEventListener("keypress", (e) => {
@@ -780,11 +796,16 @@ function startGame() {
     if(!startFloorInput.reportValidity())return;
     options.startFloor=floor;
   }
+  if(!enableBots&&currentUser?.username==='qing') {
+    if(pvpDebugMap?.value)options.pvpMap=pvpDebugMap.value;
+    options.debugDouble=!!pvpDebugDouble?.checked;
+  }
   socket.emit("startGame", options);
 }
 
 function updateStartButtonState() {
   startFloorRow.classList.toggle('hidden',currentUser?.username!=='qing'||!enableBotsCheckbox?.checked);
+  pvpDebugRow?.classList.toggle('hidden',currentUser?.username!=='qing'||!!enableBotsCheckbox?.checked);
   if (!startBtn) return;
   const humanCount = lastWaitingPlayersCount;
   const botsEnabled =
@@ -795,6 +816,10 @@ function updateStartButtonState() {
   if (!canStart && botsEnabled && humanCount >= 1) {
     canStart = true;
     label = "Start Game (with bots)";
+  }
+  if(!canStart&&!botsEnabled&&currentUser?.username==='qing'&&pvpDebugDouble?.checked&&humanCount>=1) {
+    canStart=true;
+    label='Start PvP Debug Match';
   }
 
   if (canStart) {

@@ -15,6 +15,7 @@ const { perceive, chooseIntent, angleDelta, alertNearbyBots } = require('./botAw
 const { recordEnemyHit, currentEnemyFear, fearRetreatGoal, enemyCanAttack } = require('./enemyReactions');
 const { MOVEMENT, advanceJump, startJump } = require("../public/movement");
 const { DEFAULT_MAP, createPveMap, createPvpMap, moveOnTerrain, regeneratePlayers, updateCargoLifts, groundHeight, canOccupy } = require('../public/arenaMap');
+const {PVP_MAPS}=require('../public/pvpMaps');
 const { LIFT_TIMING, inElevator, floorSpawn, updateExitDoor } = require('../public/floors');
 const {
   usersByUsername,
@@ -68,7 +69,7 @@ function createGameServer(io) {
   function publishSnapshot(){
     // One replaceable packet for all moving entities. A separate reliable
     // grenade packet here makes the transport busy and drops this snapshot.
-    const humanRooms=activePlayers.filter(player=>!player.isBot).map(player=>player.id);
+    const humanRooms=activePlayers.filter(player=>!player.isBot&&!player.debugCloneOf).map(player=>player.id);
     const channel=humanRooms.length&&typeof io.to==='function'?io.to(humanRooms):io;
     (channel.volatile||channel).emit('gameState',activePlayers.map(playerFrame),{
       serverNow:Date.now(),sequence:++snapshotSequence,
@@ -218,6 +219,10 @@ function createGameServer(io) {
 
     const config = options && typeof options === "object" ? options : {};
     const enableBots = !!config.enableBots;
+    const qingDebug=!enableBots&&socket.user?.username==='qing'&&waitingPlayers.some(p=>p.id===socket.id);
+    const selectedPvpMap=qingDebug&&typeof config.pvpMap==='string'&&PVP_MAPS[config.pvpMap]
+      ? config.pvpMap : undefined;
+    const debugDouble=qingDebug&&config.debugDouble===true;
     const startFloor=enableBots && socket.user?.username==='qing' &&
       waitingPlayers.some(p=>p.id===socket.id) && Number.isSafeInteger(config.startFloor) && config.startFloor>=1
       ? config.startFloor : 1;
@@ -232,14 +237,15 @@ function createGameServer(io) {
       }
     }
 
-    const totalPlayers = humanCount + botCount;
+    const totalPlayers = humanCount + botCount + (debugDouble?1:0);
     if (humanCount === 0 || totalPlayers < 2) return;
 
     gameInProgress.status = true;
     matchParticipantIds.clear();
     clearActiveBullets(activeBullets);
 
-    const layout = enableBots ? createPveMap(undefined,startFloor) : createPvpMap(undefined,undefined,lastPvpMapId);
+    const layout = enableBots ? createPveMap(undefined,startFloor) :
+      createPvpMap(undefined,selectedPvpMap,selectedPvpMap?undefined:lastPvpMapId);
     if(!enableBots)lastPvpMapId=layout.map.id;
     recentTerrain=enableBots?[layout.map.composition]:[];
     gameMap = layout.map;
@@ -260,7 +266,7 @@ function createGameServer(io) {
       const player = waitingPlayers.pop();
       matchParticipantIds.add(player.id);
       const spawnPosition = enableBots ? getTeamSpawn(false, activePlayers.filter(p => !p.isBot).length) : getValidSpawnPosition(solids(), activePlayers);
-      activePlayers.push({
+      const activePlayer={
         ...player,
         x: spawnPosition.x,
         y: spawnPosition.y,
@@ -274,7 +280,17 @@ function createGameServer(io) {
         height: enableBots ? 0 : (spawnPosition.height || 0),
         groundHeight: enableBots ? 0 : (spawnPosition.height || 0),
         ceilingHeight: enableBots ? gameMap.elevator.ceiling : gameMap.ceiling,
-      });
+      };
+      activePlayers.push(activePlayer);
+      if(debugDouble&&player.id===socket.id) {
+        const cloneId=`debug-clone:${player.id}`;
+        const cloneSpawn=getValidSpawnPosition(solids(),activePlayers);
+        activePlayers.push({...activePlayer,id:cloneId,name:`${player.name} · CLONE`,
+          displayName:`${player.displayName||player.name} · CLONE`,debugCloneOf:player.id,
+          x:cloneSpawn.x,y:cloneSpawn.y,height:cloneSpawn.height||0,groundHeight:cloneSpawn.height||0,
+          team:cloneId,angle:Math.atan2(spawnPosition.y-cloneSpawn.y,spawnPosition.x-cloneSpawn.x),
+          grenadeChargeAt:null,lastShotAt:0,lastProcessedInput:undefined});
+      }
     }
 
     if (botCount > 0) {
@@ -518,6 +534,9 @@ function createGameServer(io) {
     if (activeIndex !== -1) {
       activePlayers.splice(activeIndex, 1);
       io.emit("playerLeft", socket.id);
+      for(let i=activePlayers.length-1;i>=0;i--)if(activePlayers[i].debugCloneOf===socket.id) {
+        io.emit('playerLeft',activePlayers[i].id);activePlayers.splice(i,1);
+      }
       maybeTriggerGameOver();
     }
 

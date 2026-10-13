@@ -10,6 +10,7 @@ import awareness from '../game/botAwareness.js';
 import reactions from '../game/enemyReactions.js';
 import {updateCharacterMotion} from '../public/characterMotion.mjs';
 import { createTerrainModel } from '../public/pveEnvironment.mjs';
+import {createTempleEnvironment} from '../public/templeEnvironment.mjs';
 import { createElevatorModel } from '../public/elevator.mjs';
 const { createPveMap, moveOnTerrain, groundHeight, canOccupy, regeneratePlayers } = maps;
 const { startJump, advanceJump } = movement;
@@ -202,7 +203,7 @@ test('PvE floors retain the expanded arena and non-overlapping landmarks', () =>
     assert.ok(!(w.x<s.x+s.width && w.x+w.width>s.x && w.y<s.y+s.height && w.y+w.height>s.y));
 });
 
-test('PvP retains the original scatter terrain independently of PvE rooms',()=>{
+test('PvP compacts the original scatter terrain independently of PvE rooms',()=>{
   const pve=createPveMap(731),pvp=maps.createPvpMap(731,'maze'),original=floors.generateScatterFloor(731);
   assert.equal(pvp.map.mode,'pvp');
   assert.equal(pvp.map.id,'maze');assert.equal(pvp.map.name,'The Maze');
@@ -213,11 +214,16 @@ test('PvP retains the original scatter terrain independently of PvE rooms',()=>{
   assert.equal(pvp.map.elevator,undefined);
   assert.equal(pvp.map.floor,undefined);
   assert.deepEqual(pvp,maps.createPvpMap(731,'maze'));
-  assert.deepEqual(pvp.map.terrain,original.map.terrain,'The Maze keeps the original scatter terrain');
-  assert.deepEqual(pvp.walls,original.walls.filter(w=>w.kind!=='cabin'),'The Maze keeps the original walls');
+  assert.equal(pvp.map.width,original.map.width*.72);assert.equal(pvp.map.height,original.map.height*.72);
+  assert.equal(pvp.map.terrain.length,original.map.terrain.length,'The Maze keeps every scatter landmark');
+  assert.equal(pvp.walls.length,original.walls.filter(w=>w.kind!=='cabin').length,'The Maze keeps every scatter wall');
+  for(let i=0;i<pvp.map.terrain.length;i++) {
+    assert.equal(pvp.map.terrain[i].x,original.map.terrain[i].x*.72);
+    assert.equal(pvp.map.terrain[i].y,original.map.terrain[i].y*.72);
+  }
 });
 
-test('PvP spawns safely across the expanded arena, traverses ramps, and never regenerates',t=>{
+test('PvP spawns safely across compact arenas, traverses ramps, and never regenerates',t=>{
   let tick,now=100000,seed=731;
   t.mock.method(global,'setInterval',fn=>{tick=fn;return 0;});t.mock.method(Date,'now',()=>now);
   t.mock.method(Math,'random',()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;});
@@ -226,14 +232,17 @@ test('PvP spawns safely across the expanded arena, traverses ramps, and never re
     const solids=[...game.gameWalls,...game.gameMap.terrain];
     assert.ok(game.activePlayers.every(p=>!p.isBot&&canOccupy(p.x,p.y,0,solids)));
     assert.equal(new Set(game.activePlayers.map(p=>p.team)).size,4);
-    assert.ok(game.activePlayers.some(p=>p.x>900||p.y>600),'spawns use the expanded map');
+    const xs=game.activePlayers.map(p=>p.x),ys=game.activePlayers.map(p=>p.y);
+    assert.ok(Math.max(...xs)-Math.min(...xs)>game.gameMap.width*.25||
+      Math.max(...ys)-Math.min(...ys)>game.gameMap.height*.25,'spawns use separated pockets');
     for(const p of game.activePlayers)assert.equal(p.ceilingHeight,game.gameMap.ceiling);
     const p=game.activePlayers.find(p=>p.id==='p0');p.health=50;
     now+=2000;tick();assert.equal(p.health,50);
     game.gameWalls.length=0;game.gameMap.terrain=terrainFixture().map.terrain;
     Object.assign(p,{x:390,y:330,height:0});
     handlers.playerUpdate({x:850,y:330,angle:0,height:999});
-    assert.equal(p.x,850);assert.equal(p.height,5.4,'PvP uses authoritative terrain elevation');
+    assert.ok(Math.abs(p.x-Math.min(850,game.gameMap.width-16))<1e-6);
+    assert.equal(p.height,5.4,'PvP uses authoritative terrain elevation');
     assert.equal(events.some(e=>e.name==='floorState'||e.name==='floorStarting'),false);
   } finally {game.close();}
 });
@@ -435,7 +444,7 @@ test('PvE defeat triggers when the last human disconnects; ordinary PvP stays fr
   finally {pve.game.close();}
   const pvp=fixture(2,false);
   try {
-    assert.ok(pvp.game.gameMap.width>=900); assert.ok(pvp.game.gameMap.terrain.length>0);
+    assert.ok(pvp.game.gameMap.width>=750); assert.ok(pvp.game.gameMap.terrain.length>0);
     assert.ok(pvp.game.gameMap.id&&pvp.game.gameMap.name);
     assert.equal(pvp.game.gameMap.elevator,undefined);
     pvp.game.gameWalls.length=0;
@@ -467,6 +476,25 @@ test('authored PvP machinery, catwalks and lifts render finite geometry',()=>{
       assert.ok(Number.isFinite(value),`${id} ${s.kind} has finite bounds`);
     assert.ok(model.children.length>0,`${id} ${s.kind} has visible geometry`);
   }
+});
+
+test('Overgrown Temple replaces generic wall boxes with one finite bespoke environment',()=>{
+  const {map,walls}=maps.createPvpMap(0,'temple'),model=createTempleEnvironment(map,walls);
+  assert.equal(model.name,'overgrown-temple-environment');
+  let meshes=0,foliage=0,arches=0,cliffs=0;
+  model.traverse(object=>{
+    if(!object.isMesh)return;meshes++;
+    const position=object.geometry.attributes.position;
+    assert.ok(position&&Array.from(position.array).every(Number.isFinite));
+    if(object.geometry.type==='IcosahedronGeometry')foliage++;
+    if(object.geometry.type==='TorusGeometry')arches++;
+    if(object.geometry.type==='BufferGeometry')cliffs++;
+  });
+  assert.ok(meshes>70,'custom masonry, arches, cliffs and forest are present');
+  assert.equal(arches,4,'each undercroft entrance has a true curved arch');
+  assert.ok(cliffs>=4,'the jungle perimeter uses continuous custom cliff faces');
+  assert.ok(foliage>=12,'the perimeter remains visibly overgrown without noisy prop spam');
+  model.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});
 });
 
 test('all PvE themes render finite terrain',()=>{

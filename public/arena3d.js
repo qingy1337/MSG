@@ -10,6 +10,7 @@ import {createGrenadeExplosion,poseGrenadeExplosion,EXPLOSION_DURATION} from './
 import { createHeavyWeapon, heavyWeaponMuzzleDepth, heavyWeaponViewScale, heavyWeaponViewYOffset, heavyWeaponViewZ } from './heavyWeapons.mjs';
 import { createMuzzleFlash, muzzleFlashScaleForWeapon, triggerMuzzleFlash, updateMuzzleFlash } from './muzzleFlash.mjs';
 import { createTerrainModel, poseCargoLift } from './pveEnvironment.mjs';
+import {createTempleEnvironment} from './templeEnvironment.mjs';
 import { createElevatorModel, poseElevator, elevatorDisplay } from './elevator.mjs';
 import { updateCharacterMotion } from './characterMotion.mjs';
 import { createOgreModel, poseOgre } from './ogre.mjs';
@@ -99,6 +100,7 @@ function floorMaterial(walls, areas = [], pve = false, zoneUniforms, palette = {
       floorHigh:{value:new THREE.Color(palette.floorHigh||'#4d6166')},
       reflectionBase:{value:new THREE.Color(palette.reflection||'#526b73')},
       reflectionGlow:{value:new THREE.Color(palette.reflectionGlow||'#2ed9e3')},
+      groundStyle:{value:palette.groundStyle==='grass'?1:0},
     },
     vertexShader: `varying vec3 point;
       void main() { vec4 p = modelMatrix * vec4(position, 1.0); point = p.xyz;
@@ -110,6 +112,7 @@ function floorMaterial(walls, areas = [], pve = false, zoneUniforms, palette = {
       uniform int areaCount; uniform vec3 areaPosition[6]; uniform vec3 areaColor[6];
       uniform float areaRadius[6]; uniform float ambientFloor;
       uniform vec3 floorLow; uniform vec3 floorHigh; uniform vec3 reflectionBase; uniform vec3 reflectionGlow;
+      uniform float groundStyle;
       float traceBox(vec3 o, vec3 d, vec3 lo, vec3 hi) {
         vec3 safeD = mix(vec3(0.00001), d, step(vec3(0.00001), abs(d)));
         vec3 a = (lo-o)/safeD, b = (hi-o)/safeD;
@@ -121,6 +124,17 @@ function floorMaterial(walls, areas = [], pve = false, zoneUniforms, palette = {
         vec2 grid = abs(fract(point.xz / 2.5 - 0.5) - 0.5) / max(fwidth(point.xz / 2.5), vec2(0.001));
         float seam = 1.0 - min(min(grid.x,grid.y),1.0);
         vec3 base = mix(floorLow,floorHigh,seam*0.48);
+        if(groundStyle>0.5) {
+          // Layered organic frequencies avoid the flat checker/noise look of
+          // arena turf while retaining a single inexpensive ground draw call.
+          float broad=sin(point.x*.19+sin(point.z*.11)*1.7)*sin(point.z*.16-point.x*.07);
+          float middle=sin(point.x*.83+point.z*.37)*sin(point.z*.71-point.x*.29);
+          vec2 cell=floor(point.xz*7.0);
+          float blade=fract(sin(dot(cell,vec2(12.9898,78.233)))*43758.5453);
+          float growth=clamp(.40+broad*.19+middle*.07+blade*.09,0.,1.);
+          base=mix(floorLow,floorHigh,growth);
+          base*=.94+.06*smoothstep(.35,.9,blade);
+        }
         float shadow = 1.0;
         vec3 lightDir = normalize(vec3(-0.5,1.0,-0.35));
         for (int i=0; i<64; i++) { if(i>=wallCount) break;
@@ -150,7 +164,8 @@ function floorMaterial(walls, areas = [], pve = false, zoneUniforms, palette = {
             float trim=1.0-smoothstep(0.015,0.09,abs(p.y-${WALL_HEIGHT - 0.32}));
             vec3 reflected=mix(reflectionBase,reflectionGlow,trim);
             float fresnel=0.10+0.32*pow(1.0-max(dot(normalize(cameraPosition-point),vec3(0.,1.,0.)),0.0),3.0);
-            base=mix(base,reflected,fresnel*exp(-nearest*0.08));
+            float reflectionAmount=groundStyle>0.5?.12:1.;
+            base=mix(base,reflected,fresnel*exp(-nearest*0.08)*reflectionAmount);
           }
         }
         gl_FragColor=vec4(base,1.0);
@@ -175,7 +190,10 @@ export class Arena3D {
     this.renderer.toneMappingExposure = 1.4;
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color('#9ebbc9');
-    this.camera = new THREE.PerspectiveCamera(68, 1, 0.04, 180);
+    // The weapon has its own close-range camera, so the world camera does not
+    // need a 4 cm near plane. A tighter depth range prevents grazing wall
+    // faces and façade trim from fighting in the depth buffer.
+    this.camera = new THREE.PerspectiveCamera(68, 1, 0.10, 140);
     this.viewScene = new THREE.Scene();
     this.viewCamera = new THREE.PerspectiveCamera(65, 1, 0.01, 10);
     this.viewScene.add(new THREE.HemisphereLight(0xe3f3ff, 0x73878b, 3));
@@ -264,15 +282,17 @@ export class Arena3D {
     this.minimapCache=null;
     const pve=map.mode==='pve',areas=planAreaLighting(map,walls);
     const palette=map.palette||{};
+    const temple=map.style==='temple';
     this.zoneUniforms=ambientZoneUniforms(planAmbientZones(map));
     this.scene.background.set(palette.sky||'#9ebbc9');
+    this.scene.fog=null;
     this.ambient.color.set(palette.ambient||'#e3f3ff');
     this.ambient.groundColor.set(palette.ground||'#73878b');
     this.sun.color.set(palette.sun||'#ffe7c4');
     this.rim.color.set(palette.rim||palette.glow||'#48baff');
-    this.ambient.intensity=pve?1.9:3.2;
-    this.sun.intensity=pve?1.5:3.5;
-    this.rim.intensity=pve?0.65:2;
+    this.ambient.intensity=palette.ambientIntensity??(pve?1.9:3.2);
+    this.sun.intensity=palette.sunIntensity??(pve?1.5:3.5);
+    this.rim.intensity=palette.rimIntensity??(pve?0.65:2);
     this.cargoModels=[];
     this.liftRise=0;this.liftSway=0;this.elevatorModel=null;this.arrivalModel=null;
     const width = map.width*SCALE, depth = map.height*SCALE;
@@ -289,18 +309,23 @@ export class Arena3D {
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), this.floor);
     floor.position.copy(center);
     floor.rotation.x = -Math.PI / 2; this.stage.add(floor);
-    const shadow = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), new THREE.ShadowMaterial({ opacity: 0.20 }));
+    const shadowMaterial=new THREE.ShadowMaterial({opacity:0.20,depthWrite:false});
+    shadowMaterial.polygonOffset=true;shadowMaterial.polygonOffsetFactor=-1;shadowMaterial.polygonOffsetUnits=-1;
+    const shadow = new THREE.Mesh(new THREE.PlaneGeometry(width, depth),shadowMaterial);
     shadow.position.copy(center);
-    shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.008; shadow.receiveShadow = true; this.stage.add(shadow);
+    shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.006; shadow.receiveShadow = true; this.stage.add(shadow);
     const dark = this.material(palette.wall||'#526d79', 0.5);
     const panel = this.material(palette.panel||'#9db5b8', 0.35, 0.32);
     const cap = this.material(palette.cap||'#bdd0cf', 0.5, 0.3);
     const glowColor=palette.glow||'#69e8df';
-    const glow = new THREE.MeshStandardMaterial({ color: glowColor, emissive: glowColor, emissiveIntensity: 1.5 });
+    const glow = new THREE.MeshStandardMaterial({ color: glowColor, emissive: glowColor,
+      emissiveIntensity:temple?0.08:1.5,roughness:temple?0.92:0.4 });
     this.box(this.stage, width+0.5, 0.45, depth+0.5, center.x, -0.26, center.z, dark, 0.15);
     const wallGeometry={body:[],cap:[],panel:[],glow:[]};
     for (const wall of walls) {
-      if(wall.kind==='cabin') continue;
+      // Temple collision is deliberately invisible; a dedicated architectural
+      // model below replaces the shared arena wall language completely.
+      if(wall.kind==='cabin'||temple) continue;
       const wallCenter=world(wall.x+wall.width/2,wall.y+wall.height/2);
       const w = wall.width * SCALE, d = wall.height * SCALE;
       const wallHeight=wall.top ?? WALL_HEIGHT;
@@ -316,18 +341,26 @@ export class Arena3D {
           // rounded edges. The old inset left only 0.005 protruding, so the
           // bevels intersected the wall face and flickered as the view moved.
           const face = sign * ((horizontal ? d : w) / 2 + 0.06);
-          wallGeometry.panel.push(roundedGeometry(horizontal ? length / count - 0.12 : 0.10, wallHeight - 1,
-            horizontal ? 0.10 : length / count - 0.12,
-            wallCenter.x+(horizontal ? along : face),wallHeight/2,
-            wallCenter.z+(horizontal ? face : along),0.045));
+          wallGeometry.panel.push(roundedGeometry(horizontal ? length / count - 0.12 : temple?0.07:0.10,
+            temple?Math.max(.35,wallHeight*.33):wallHeight-1,
+            horizontal ? temple?0.07:0.10 : length / count - 0.12,
+            wallCenter.x+(horizontal ? along : face),temple?wallHeight*.43:wallHeight/2,
+            wallCenter.z+(horizontal ? face : along),temple?0.025:0.045));
         }
       }
-      // Surface-mounted light strips remain visible outside the wall body.
-      for (const sign of [-1, 1]) {
-        wallGeometry.glow.push(roundedGeometry(horizontal ? w - 0.22 : 0.018, 0.055,
-          horizontal ? 0.018 : d - 0.22,
-          wallCenter.x+(horizontal ? 0 : sign*w/2),wallHeight-0.32,
-          wallCenter.z+(horizontal ? sign*d/2 : 0),0.005));
+      if(temple) {
+        // Moss sits on top of the ancient masonry. Keeping it in its own
+        // shallow batch creates a soft organic edge without extra lights.
+        wallGeometry.glow.push(roundedGeometry(Math.max(.02,w-.13),0.035,Math.max(.02,d-.13),
+          wallCenter.x,wallHeight+.025,wallCenter.z,0.012));
+      } else {
+        // Surface-mounted light strips remain visible outside the wall body.
+        for (const sign of [-1, 1]) {
+          wallGeometry.glow.push(roundedGeometry(horizontal ? w - 0.22 : 0.018, 0.055,
+            horizontal ? 0.018 : d - 0.22,
+            wallCenter.x+(horizontal ? 0 : sign*w/2),wallHeight-0.32,
+            wallCenter.z+(horizontal ? sign*d/2 : 0),0.005));
+        }
       }
     }
     const wallBody=mergedMesh(wallGeometry.body,dark,{castShadow:true});
@@ -338,6 +371,18 @@ export class Arena3D {
     if(wallBody){wallBody.layers.enable(1);this.wallOccluders.push(wallBody);}
     const terrainBatches=new Map();
     const occluderMaterial=new THREE.MeshBasicMaterial({colorWrite:false,depthWrite:false});
+    if(temple) {
+      collectStaticModel(createTempleEnvironment(map,walls),new THREE.Vector3(),terrainBatches);
+      // Keep label/health-bar occlusion aligned to authoritative collision even
+      // though the visible temple uses arches, blockwork, cliffs and foliage.
+      for(const solid of walls) {
+        if(solid.kind==='cabin')continue;
+        const bottom=solid.bottom||0,top=solid.top??WALL_HEIGHT;
+        const proxy=new THREE.Mesh(new THREE.BoxGeometry(solid.width*SCALE,Math.max(.02,top-bottom),solid.height*SCALE),occluderMaterial);
+        proxy.position.copy(world(solid.x+solid.width/2,solid.y+solid.height/2,(top+bottom)/2));
+        proxy.layers.set(1);this.stage.add(proxy);this.wallOccluders.push(proxy);
+      }
+    }
     for (const solid of map.terrain) {
       if(solid.kind==='exitDoor')continue;
       const model = createTerrainModel(solid);
@@ -347,7 +392,7 @@ export class Arena3D {
         model.traverse(mesh=>{if(mesh.isMesh){mesh.layers.enable(1);this.wallOccluders.push(mesh);}});
       } else {
         collectStaticModel(model,position,terrainBatches);
-        if(solid.kind!=='tree') {
+        if(!['tree','templeTree','templePool'].includes(solid.kind)) {
           const bottom=solid.bottom||0,top=solid.top??WALL_HEIGHT;
           const proxy=new THREE.Mesh(new THREE.BoxGeometry(solid.width*SCALE,Math.max(0.02,top-bottom),solid.height*SCALE),occluderMaterial);
           proxy.position.copy(world(solid.x+solid.width/2,solid.y+solid.height/2,(top+bottom)/2));
@@ -359,7 +404,7 @@ export class Arena3D {
       const mesh=mergedMesh(batch.geometries,batch.material,{castShadow:batch.castShadow,receiveShadow:batch.receiveShadow});
       if(mesh)this.stage.add(mesh);
     }
-    if(map.ceiling) {
+    if(map.ceiling&&map.roof!==false) {
       const ceilingMat=this.material('#b5c7c6',0.12,0.8);
       this.box(this.stage,width,0.2,depth,center.x,map.ceiling+0.1,center.z,ceilingMat);
       // Broad emissive luminaires and inset beams; no costly per-fixture lights.
@@ -707,9 +752,10 @@ export class Arena3D {
     // as they open. At transfer both cabins have exactly the same light state.
     const cabinFill=['riding','opening'].includes(state.phase)?1-sample.door:0;
     const pve=this.mapConfig.mode==='pve';
-    this.ambient.intensity=(pve?1.9:3.2)*(1-cabinFill)+3*cabinFill;
-    this.sun.intensity=(pve?1.5:3.5)*(1-cabinFill);
-    this.rim.intensity=(pve?.65:2)*(1-cabinFill);
+    const palette=this.mapConfig.palette||{};
+    this.ambient.intensity=(palette.ambientIntensity??(pve?1.9:3.2))*(1-cabinFill)+3*cabinFill;
+    this.sun.intensity=(palette.sunIntensity??(pve?1.5:3.5))*(1-cabinFill);
+    this.rim.intensity=(palette.rimIntensity??(pve?.65:2))*(1-cabinFill);
     this.areaLights?.traverse(o=>{if(o.isLight)o.intensity=o.userData.roomIntensity*(1-cabinFill);});
     elevatorDisplay(this.elevatorModel,state.phase==='riding'?`↑ ${state.floor+1}`:state.phase==='ready'?'EXIT':'LOCK');
     // A closed cabin is an intentional loading boundary. Hide the old floor
@@ -886,7 +932,9 @@ export class Arena3D {
         base.lineTo((left?0:this.mapConfig.width)*sx,edgeY*sy);base.stroke();
       }
       for(const s of this.mapConfig.terrain) {
-        base.fillStyle=s.kind==='lift'?'#f3c35d':s.kind==='ramp'?'#c3a974':s.kind==='tree'?'#60965e':'#7b9498';
+        base.fillStyle=s.kind==='lift'?'#f3c35d':s.kind==='ramp'?'#c3a974':
+          (s.kind==='tree'||s.kind==='templeTree'||s.kind==='templeRoot')?'#60965e':
+          s.kind==='templePool'?'#438b88':s.kind==='waterfall'?'#70bdb6':'#7b9498';
         base.fillRect(s.x*sx,s.y*sy,Math.max(2,s.width*sx),Math.max(2,s.height*sy));
       }
       for(const s of this.mapConfig.terrain.filter(s=>s.kind==='lift')) {

@@ -12,8 +12,8 @@ import {createElevatorModel,poseElevator} from '../public/elevator.mjs';
 const {generatePveFloor,generateScatterFloor,floorConnected,rectanglesOverlap,floorSpawn,LIFT_TIMING,elevatorSample,inElevator}=floors;
 
 test('authored PvP maps, variants, spawns and raised routes pass validation',()=>{
-  assert.deepEqual(pvpMaps.PVP_MAP_IDS,['foundry','courtyard','freight','tower','maze']);
-  assert.equal(new Set(pvpMaps.PVP_MAP_IDS.map(id=>pvpMaps.PVP_MAPS[id].name)).size,5);
+  assert.deepEqual(pvpMaps.PVP_MAP_IDS,['foundry','courtyard','freight','tower','temple','maze']);
+  assert.equal(new Set(pvpMaps.PVP_MAP_IDS.map(id=>pvpMaps.PVP_MAPS[id].name)).size,6);
   for(const id of pvpMaps.PVP_MAP_IDS)for(let variant=0;variant<3;variant++) {
     const layout=maps.createPvpMap(variant,id),again=maps.createPvpMap(variant,id);
     assert.deepEqual(layout,again,`${id} seed ${variant} is deterministic`);
@@ -33,13 +33,15 @@ test('authored PvP maps, variants, spawns and raised routes pass validation',()=
 
 test('Foundry is built around a connected industrial catwalk network',()=>{
   const {map,walls}=maps.createPvpMap(0,'foundry'),terrain=map.terrain;
+  assert.ok(map.width<1300&&map.height<900&&map.ceiling>=13,'compact footprint with a tall interior');
   assert.ok(terrain.filter(s=>s.kind==='catwalk'&&s.walkable).length>=7,'multiple joined walkways and platforms');
   assert.ok(terrain.filter(s=>s.kind==='catwalk'&&s.bridge).length>=3,'bridge crossings');
-  assert.equal(terrain.filter(s=>s.kind==='ramp'&&s.stairs).length,3,'multiple approaches to elevation');
+  assert.ok(terrain.filter(s=>s.kind==='ramp'&&s.stairs).length>=5,'stairs connect both elevated tiers');
   assert.ok(terrain.filter(s=>s.kind==='rail'&&s.style==='industrial').length>=24,'guardrails mark the upper route');
   for(const kind of ['furnace','tank','pipe','conveyor','crane'])
     assert.ok(terrain.some(s=>s.kind===kind),`Foundry includes ${kind} machinery`);
   assert.ok(map.spawns.filter(s=>s.height===3).length>=4,'upper works can host firefights immediately');
+  assert.ok(map.spawns.filter(s=>s.height===6).length>=2,'high wall walks can host firefights immediately');
   const graph=new navigation.NavigationGraph(map,walls),upper=map.spawns.filter(s=>s.height===3);
   for(const spawn of upper)assert.ok(graph.find(map.spawns[0],spawn).length,'each raised spawn has a ground route');
 });
@@ -63,7 +65,7 @@ test('Foundry elevated spawns place players on the catwalk instead of beneath it
 
 test('Tower has three stair-connected heights and two out-of-phase cargo lifts',()=>{
   const {map,walls}=maps.createPvpMap(0,'tower'),decks=map.terrain.filter(s=>s.walkable);
-  assert.equal(map.width,900);assert.equal(map.height,900);assert.equal(map.ceiling,15.5);
+  assert.equal(map.width,828);assert.equal(map.height,828);assert.equal(map.ceiling,15.5);
   assert.deepEqual([...new Set(decks.map(s=>s.top))].sort((a,b)=>a-b),[3,6,9]);
   assert.ok(map.terrain.filter(s=>s.kind==='ramp'&&s.stairs).length>=4);
   assert.ok(map.terrain.filter(s=>s.kind==='rail').length>=30);
@@ -77,12 +79,61 @@ test('Tower has three stair-connected heights and two out-of-phase cargo lifts',
   for(const lift of lifts)for(const deck of decks) {
     const overlapX=Math.min(lift.x+lift.width,deck.x+deck.width)-Math.max(lift.x,deck.x);
     const overlapY=Math.min(lift.y+lift.height,deck.y+deck.height)-Math.max(lift.y,deck.y);
-    assert.ok(overlapX<=0||overlapY<=0,`${lift.id} has a clear shaft through fixed floors`);
+    assert.ok(overlapX<=1e-6||overlapY<=1e-6,`${lift.id} has a clear shaft through fixed floors`);
   }
   maps.updateCargoLifts(map,[],100000);
   assert.deepEqual(lifts.map(s=>s.top),[0,9]);
   maps.updateCargoLifts(map,[],107000);
   assert.deepEqual(lifts.map(s=>s.top),[6,0]);
+});
+
+test('Overgrown Temple is a grassy two-layer sanctuary with reachable decks and tunnels',()=>{
+  const {map,walls}=maps.createPvpMap(0,'temple'),terrain=map.terrain;
+  assert.equal(map.style,'temple');assert.equal(map.roof,false);
+  assert.equal(map.palette.groundStyle,'grass','the arena floor uses its grass shader instead of the shared tile grid');
+  assert.ok(map.width<1150&&map.height<900,'compact close-to-medium-range footprint');
+  for(const kind of ['templeTree','templePool','waterfall','templeAltar','templePillar','templeRoot','templePath','templeCourt','ruinWall'])
+    assert.ok(terrain.some(s=>s.kind===kind),`Temple includes ${kind}`);
+  const terraces=terrain.filter(s=>s.kind==='ruinDeck'&&s.walkable);
+  assert.equal(terraces.length,4);assert.ok(terraces.every(s=>s.top===3&&s.bottom>=2.6));
+  const terraceCoverage=terraces.reduce((sum,s)=>sum+s.width*s.height,0)/(map.width*map.height);
+  assert.ok(terraceCoverage>.29,'the raised sanctuary occupies a substantial region of the arena');
+  const tree=terrain.find(s=>s.kind==='templeTree');
+  assert.ok(tree.collisionRadius<Math.min(tree.width,tree.height)*.25,
+    'the big tree collides with its trunk rather than its canopy and roots');
+  const treeEdge={x:tree.x+tree.width/2+tree.collisionRadius+16.1,y:tree.y+tree.height/2};
+  assert.ok(maps.canOccupy(treeEdge.x,treeEdge.y,0,[tree]),'players can move closely and smoothly around the trunk');
+  assert.equal(terrain.filter(s=>s.kind==='templePath').length,4,'stone paving identifies all four covered passages');
+  for(const deck of terraces)assert.ok(walls.some(w=>w.top<deck.bottom&&
+    Math.min(w.x+w.width,deck.x+deck.width)>Math.max(w.x,deck.x)&&
+    Math.min(w.y+w.height,deck.y+deck.height)>Math.max(w.y,deck.y)),
+  'the elevated sanctuary is supported by playable tunnel walls');
+  assert.ok(terrain.filter(s=>s.kind==='ramp'&&s.style==='temple').length>=2);
+  assert.ok(map.spawns.filter(s=>s.height>0).length>=4,'both terraces can begin with active firefights');
+  const northCenter=map.spawns.find(s=>Math.abs(s.x-map.width/2)<1&&s.y<map.height*.12);
+  assert.equal(northCenter?.height,3,'the enlarged north terrace never spawns a player beneath its roof');
+  const graph=new navigation.NavigationGraph(map,walls);
+  for(const terrace of terraces) {
+    const goal={x:terrace.x+terrace.width/2,y:terrace.y+terrace.height/2,height:terrace.top};
+    assert.ok(graph.find(map.spawns[0],goal).length,'every terrace has a permanent stair route');
+  }
+  // Walk the S-bend from the western grass approach, beneath the sanctuary,
+  // and out into the sacred court. Every interior point has a real low roof.
+  const scale=map.width/1300,route=[[250,510],[350,510],[380,420],[450,420],[480,450],[550,450]]
+    .map(([x,y])=>({x:x*scale,y:y*scale}));
+  const player={...route[0],height:0},solids=[...walls,...terrain];
+  assert.ok(maps.canOccupy(player.x,player.y,0,solids));
+  for(const point of route.slice(1))assert.ok(maps.moveOnTerrain(player,point.x,point.y,map,solids,0),'tunnel bend is walkable');
+  assert.equal(player.ceilingHeight,map.ceiling,'route emerges from the undercroft into the open court');
+});
+
+test('every PvP map is compact and stays inside the shared sightline budget',()=>{
+  for(const id of pvpMaps.PVP_MAP_IDS)for(let variant=0;variant<3;variant++) {
+    const layout=maps.createPvpMap(variant,id),metrics=pvpMaps.pvpSightlineMetrics(layout);
+    assert.ok(layout.map.width<=1520&&layout.map.height<=1040,`${id} has a compact combat footprint`);
+    assert.ok(metrics.p90<=820,`${id} p90 sightline ${metrics.p90.toFixed(0)} exceeds the budget`);
+    assert.ok(metrics.max<=1450,`${id} maximum sightline ${metrics.max.toFixed(0)} exceeds the budget`);
+  }
 });
 
 test('PvP seeded rotation can exclude the previous map',()=>{
@@ -154,6 +205,44 @@ test('only authenticated qing starting from the lobby can select a PvE floor',t=
       } else assert.equal(game.gameMap.mode,'pvp');
     } finally {game.close();}
   }
+});
+
+test('authenticated qing can select every PvP map and spawn one matching debug clone',t=>{
+  t.mock.method(global,'setInterval',()=>0);
+  for(const mapId of pvpMaps.PVP_MAP_IDS) {
+    let connect;const handlers={},events=[];
+    const io={on(_,fn){connect=fn;},emit(name,data){events.push({name,data});},socketsLeave(){},to(){return this;}};
+    const game=server.createGameServer(io);
+    connect({id:'qing-socket',user:{username:'qing'},on(name,fn){handlers[name]=fn;}});
+    game.waitingPlayers.push({id:'qing-socket',name:'qing',displayName:'qing',accountUsername:'qing',
+      color:'#abc123',weapon:'sniper',weaponSkinKey:'sniper_flatpack',primaryWeapon:'sniper',
+      primaryWeaponSkinKey:'sniper_flatpack',secondaryWeapon:'pistol',secondaryWeaponSkinKey:'pistol_default'});
+    try {
+      handlers.startGame({enableBots:false,pvpMap:mapId,debugDouble:true});
+      assert.equal(game.gameMap.id,mapId);
+      assert.equal(game.activePlayers.length,2);
+      const owner=game.activePlayers.find(p=>p.id==='qing-socket');
+      const clone=game.activePlayers.find(p=>p.debugCloneOf==='qing-socket');
+      assert.ok(owner&&clone);assert.equal(clone.isBot,undefined);
+      for(const key of ['color','weapon','weaponSkinKey','primaryWeapon','primaryWeaponSkinKey',
+        'secondaryWeapon','secondaryWeaponSkinKey','accountUsername','maxHealth'])
+        assert.equal(clone[key],owner[key],`${mapId} clone preserves ${key}`);
+      assert.ok(Math.hypot(clone.x-owner.x,clone.y-owner.y)>100,'clone uses a separate reviewed spawn');
+      assert.equal(events.find(e=>e.name==='gameStarting').data.players.length,2);
+    } finally {game.close();}
+  }
+
+  // Payload claims alone cannot enable the privileged solo/debug path.
+  let connect;const handlers={};
+  const io={on(_,fn){connect=fn;},emit(){},socketsLeave(){},to(){return this;}};
+  const game=server.createGameServer(io);
+  connect({id:'other',user:{username:'someone'},on(name,fn){handlers[name]=fn;}});
+  game.waitingPlayers.push({id:'other',name:'qing',accountUsername:'qing',weapon:'pistol'},
+    {id:'friend',name:'Friend',accountUsername:'friend',weapon:'pistol'});
+  try {
+    handlers.startGame({enableBots:false,pvpMap:'temple',debugDouble:true,username:'qing'});
+    assert.equal(game.activePlayers.length,2);assert.ok(game.activePlayers.every(p=>!p.debugCloneOf));
+  } finally {game.close();}
 });
 
 test('room proportions, terrain compositions and opposing elevators vary without recent repeats',()=>{

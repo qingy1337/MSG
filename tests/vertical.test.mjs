@@ -180,6 +180,16 @@ test('round Foundry machinery uses its visible footprint instead of invisible bo
   assert.ok(Number.isFinite(combat.rayBox(90,190,1,0,furnace,1.84)));
 });
 
+test('round terrain slides along a true tangent instead of jagged axis steps',()=>{
+  const tree={kind:'templeTree',collisionShape:'circle',collisionRadius:24,x:100,y:100,width:100,height:100,top:8};
+  const player={x:110,y:150,height:0,bodyHeight:2.2};
+  const map={width:400,height:400,ceiling:12,terrain:[tree]};
+  const moved=maps.moveOnTerrain(player,116,160,map,[tree],0);
+  const center={x:150,y:150},distance=Math.hypot(player.x-center.x,player.y-center.y);
+  assert.equal(moved,true);assert.ok(player.y>150,'inward diagonal movement advances along the circumference');
+  assert.ok(Math.abs(distance-(tree.collisionRadius+16-.09))<.015,'the slide remains on the smooth circular boundary');
+});
+
 test('stairs have real riser hits; elevated guards collide only at their actual height',()=>{
   const stairs={kind:'ramp',stairs:true,steps:15,axis:'x',x:0,y:0,width:180,height:100,top:3};
   assert.equal(combat.rayBox(-10,50,1,0,stairs,0.5),34);

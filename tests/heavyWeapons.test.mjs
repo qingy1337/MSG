@@ -99,11 +99,14 @@ test('minigun skins retain their themes while Midas is an original streamlined S
       assert.equal(model.userData.modelAsset,undefined,'Midas no longer loads third-party geometry');
       assert.equal(model.children.filter(c => c.name === 'rotary-barrel').length,0,
         'the SMG skin no longer pretends to be a six-barrel primitive model');
-      for(const name of ['midas-receiver','midas-muzzle-cap','midas-bore','midas-grip',
-        'midas-side-panel','midas-scope-housing','midas-scope-lens','midas-scope-dot']) {
+      for(const name of ['midas-receiver','midas-muzzle-cap','midas-muzzle-ring','midas-bore','midas-grip',
+        'midas-forward-grip','midas-forward-grip-accent','midas-side-panel',
+        'midas-scope-housing','midas-scope-lens','midas-scope-dot']) {
         assert.ok(model.getObjectByName(name),`${name} is part of the original Midas model`);
       }
       assert.equal(model.getObjectByName('midas-receiver').geometry.type,'ExtrudeGeometry');
+      assert.equal(model.getObjectByName('midas-muzzle-cap').geometry.type,'CylinderGeometry');
+      assert.equal(model.getObjectByName('midas-muzzle-ring').geometry.type,'CylinderGeometry');
       assert.equal(model.getObjectByName('midas-grip').geometry.type,'ExtrudeGeometry');
       assert.equal(model.getObjectByName('midas-scope-housing').geometry.type,'ExtrudeGeometry');
       assert.equal(model.getObjectByName('midas-scope-lens').geometry.type,'CircleGeometry');
@@ -114,6 +117,11 @@ test('minigun skins retain their themes while Midas is an original streamlined S
       const frontAccents=model.children.filter(child=>child.name==='midas-front-accent');
       assert.equal(frontAccents.length,2,'fore-end has mirrored silver inlays');
       assert.ok(frontAccents.every(accent=>accent.material.color.getHexString()==='bcc7cf'));
+      const forwardGrip=model.getObjectByName('midas-forward-grip');
+      const forwardGripInsets=model.children.filter(child=>child.name==='midas-forward-grip-inset');
+      assert.equal(forwardGrip.material.color.getHexString(),'bcc7cf','forward grip uses the silver shell');
+      assert.equal(forwardGripInsets.length,2,'forward grip has recessed panels on both sides');
+      assert.ok(forwardGripInsets.every(inset=>inset.material.color.getHexString()==='171c22'));
       model.updateMatrixWorld(true);
       const bounds=new THREE.Box3().setFromObject(model);
       assert.ok(bounds.max.x-bounds.min.x<0.24*length,'gold SMG stays narrow instead of using the wide minigun drum');
@@ -126,16 +134,25 @@ test('minigun skins retain their themes while Midas is an original streamlined S
       assert.ok((lensBounds.max.x-lensBounds.min.x)/(housingBounds.max.x-housingBounds.min.x)>0.68,
         'transparent optic fills most of its thin housing');
       const receiverBounds=new THREE.Box3().setFromObject(model.getObjectByName('midas-receiver'));
+      const stockBounds=new THREE.Box3().setFromObject(model.getObjectByName('midas-stock'));
       const noseBounds=new THREE.Box3().setFromObject(model.getObjectByName('midas-nose-shroud'));
       const muzzleBounds=new THREE.Box3().setFromObject(model.getObjectByName('midas-muzzle-cap'));
+      const forwardGripBounds=new THREE.Box3().setFromObject(forwardGrip);
+      const firingGripBounds=new THREE.Box3().setFromObject(model.getObjectByName('midas-grip'));
       assert.ok(receiverBounds.max.y>0.145*length,'receiver top remains at its taller height');
       assert.ok(receiverBounds.min.y>-0.05*length,'receiver height is trimmed only from the bottom');
+      assert.ok(stockBounds.max.y<=receiverBounds.max.y+0.006*length,
+        'rear stock flows into the receiver instead of rising into a hump');
       assert.ok(bounds.max.z-bounds.min.z>1.25*length,'SMG has a longer front-to-back silhouette');
       assert.ok(noseBounds.max.z>receiverBounds.min.z,'fore-end overlaps the receiver instead of hanging from an exposed barrel');
       assert.ok(noseBounds.max.x-noseBounds.min.x<=receiverBounds.max.x-receiverBounds.min.x,
         'fore-end does not flare wider than the receiver');
       assert.ok(muzzleBounds.max.x-muzzleBounds.min.x<noseBounds.max.x-noseBounds.min.x,
         'muzzle face contracts from the fore-end');
+      assert.ok(forwardGripBounds.max.z<firingGripBounds.min.z,
+        'the diagonal grip sits distinctly ahead of the firing hand');
+      assert.ok(forwardGripBounds.max.y>receiverBounds.min.y,
+        'the diagonal grip is visibly integrated into the receiver underside');
     } else {
       assert.equal(model.children.filter(c => c.name === 'rotary-barrel').length, 6);
       assert.equal(model.children.filter(c => c.name === 'barrel-bore').length, 6);

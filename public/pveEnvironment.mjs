@@ -13,6 +13,12 @@ export function createTerrainModel(s) {
   };
   const box = (bw, bh, bd, x, y, z, mat = stone) =>
     add(new RoundedBoxGeometry(bw, bh, bd, 2, Math.min(0.07, bw/4, bh/4, bd/4)), mat, x,y,z);
+  const beam = (from,to,radius,mat,segments=9,radius2=radius) => {
+    const a=new THREE.Vector3(...from),b=new THREE.Vector3(...to),direction=b.clone().sub(a);
+    const mesh=add(new THREE.CylinderGeometry(radius2,radius,direction.length(),segments),mat,
+      (a.x+b.x)/2,(a.y+b.y)/2,(a.z+b.z)/2);
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),direction.normalize());return mesh;
+  };
   if(s.kind==='lift') {
     const piston=box(w-0.12,1,d-0.12,w/2,0.5,d/2,dark);
     const deck=box(w,0.16,d,w/2,-0.08,d/2,trim);
@@ -55,12 +61,17 @@ export function createTerrainModel(s) {
     const beam=box(alongX?Math.hypot(length,rise):0.10,0.10,alongX?0.10:Math.hypot(length,rise),w/2,base(w/2,d/2)+1,d/2,trim);
     if(alongX)beam.rotation.z=Math.atan2(rise,length);else beam.rotation.x=-Math.atan2(rise,length);
   } else if (s.kind === 'ramp' && s.stairs) {
+    const stairBody=s.style==='temple'?material('#596553'):dark;
+    const stairTop=s.style==='temple'?material('#9a9b79'):trim;
+    const moss=s.style==='temple'?material('#63804b',0.02):null;
     const vertical=s.axis==='y',length=vertical?d:w;
     for(let i=0;i<s.steps;i++) {
       const rise=h*(i+1)/s.steps,t=s.reverse?s.steps-1-i:i;
       const x=vertical?w/2:(t+0.5)*length/s.steps,z=vertical?(t+0.5)*length/s.steps:d/2;
-      box(vertical?w:length/s.steps,rise,vertical?length/s.steps:d,x,rise/2,z,dark);
-      box(vertical?w-0.08:length/s.steps-0.04,0.018,vertical?length/s.steps-0.04:d-0.08,x,rise+0.012,z,trim);
+      box(vertical?w:length/s.steps,rise,vertical?length/s.steps:d,x,rise/2,z,stairBody);
+      box(vertical?w-0.08:length/s.steps-0.04,0.018,vertical?length/s.steps-0.04:d-0.08,x,rise+0.012,z,stairTop);
+      if(moss&&i%4===1)box(vertical?w*0.28:length/s.steps-0.05,0.022,
+        vertical?length/s.steps-0.05:d*0.24,vertical?w*0.7:x,rise+0.026,vertical?z:d*0.72,moss);
     }
   } else if (s.kind === 'ramp') {
     const roof = (x,z) => h * (s.reverse ? 1 - (s.axis === 'y' ? z/d : x/w) : (s.axis === 'y' ? z/d : x/w));
@@ -81,6 +92,170 @@ export function createTerrainModel(s) {
         s.axis === 'y' ? 0.045 : d-0.12, x,roof(x,z)+0.012,z,trim);
       if (s.axis === 'y') tread.rotation.x = Math.atan2(rise,length);
       else tread.rotation.z = Math.atan2(rise,length);
+    }
+  } else if(s.kind==='templePath') {
+    const earth=material('#3d4937',0.01),slab=material('#78806a',0.02),moss=material('#557344',0.01);
+    box(w,0.026,d,w/2,0.013,d/2,earth);
+    const alongX=w>=d,length=alongX?w:d,count=Math.max(3,Math.ceil(length/1.65));
+    for(let i=0;i<count;i++) {
+      const t=(i+.5)/count;
+      box(alongX?length/count-.055:w-.10,0.018,alongX?d-.10:length/count-.055,
+        alongX?length*t:w/2,0.075,alongX?d/2:length*t,i===1||i===count-2?moss:slab);
+    }
+  } else if(s.kind==='templeCourt') {
+    const earth=material('#344431',0.01),stoneField=material('#747b68',0.02);
+    const axial=material('#929078',0.02),joint=material('#465445',0.01),moss=material('#527044',0.01);
+    box(w,.026,d,w/2,.013,d/2,earth);
+    // Large ordered paving bays give the approach scale. Wide joints and two
+    // drainage lines are architectural details, not loose decorative props.
+    const columns=3,rows=6,pad=.13,gap=.055,bayW=(w-pad*2-gap*(columns-1))/columns;
+    const bayD=(d-pad*2-gap*(rows-1))/rows;
+    for(let row=0;row<rows;row++)for(let column=0;column<columns;column++) {
+      const x=pad+bayW/2+column*(bayW+gap),z=pad+bayD/2+row*(bayD+gap);
+      box(bayW,.022,bayD,x,.075,z,column===1?axial:stoneField);
+    }
+    for(const x of [pad*.55,w-pad*.55])box(.075,.029,d-pad*.8,x,.083,d/2,joint);
+    box(w*.22,.026,d*.12,w*.17,.09,d*.17,moss);
+    box(w*.18,.026,d*.16,w*.78,.09,d*.79,moss);
+  } else if(s.kind==='ruinDeck') {
+    const core=material('#535e4f',0.03),slab=material('#898b70',0.02),moss=material('#587746',0.01);
+    const vine=material('#385e36',0.01),leaf=material('#66884e',0.01);
+    box(w,Math.max(.12,h-.10),d,w/2,Math.max(.12,h-.10)/2,d/2,core);
+    // Broad continuous surfaces and perimeter bands make each wing read as
+    // one monumental roof instead of a row of little floating slabs.
+    const alongX=w>=d;
+    box(w-.10,.075,d-.10,w/2,h-.045,d/2,slab);
+    box(alongX?w-.18:.15,.12,alongX?.15:d-.18,w/2,h-.14,d/2,dark);
+    for(const sign of [-1,1])box(alongX?w-.16:.11,.15,alongX?.11:d-.16,
+      alongX?w/2:w/2+sign*(w/2-.085),h-.19,alongX?d/2+sign*(d/2-.085):d/2,stone);
+    for(let t=.12;t<.95;t+=.24)box(alongX?.16:w-.12,.10,alongX?d-.12:.16,
+      alongX?w*t:w/2,-.035,alongX?d/2:d*t,dark);
+    box(alongX?w*.38:w*.12,.026,alongX?d*.12:d*.38,
+      alongX?w*.66:w*.18,h+.018,alongX?d*.18:d*.66,moss);
+    // Growth hangs from the roof itself, keeping decoration visually attached
+    // and non-colliding instead of scattering separate flush props around it.
+    for(let i=0;i<4;i++) {
+      const t=.16+i*.22,x=alongX?w*t:.06,z=alongX?.06:d*t,drop=.34+(i%3)*.18;
+      beam([x,.02,z],[x+(i%2?.05:-.04),-drop,z],.018,vine,6,.011);
+      const l=add(new THREE.SphereGeometry(.075,6,4),leaf,x+(i%2?.07:-.06),-drop*.7,z);
+      l.scale.set(1,.3,.55);l.rotation.z=i%2?.5:-.5;
+    }
+  } else if(s.kind==='ruinWall') {
+    const core=material('#596354',0.02),blocks=material('#858770',0.02),moss=material('#557746',0.01);
+    box(w,h-.08,d,w/2,(h-.08)/2,d/2,core);
+    const alongX=w>=d,length=alongX?w:d,bays=Math.max(1,Math.ceil(length/2.8));
+    // Restrained pilasters and one carved band match the undercroft walls.
+    // They live on the two exterior faces; the previous almost-full-depth
+    // inserts left hidden surfaces 10 mm behind the core and flashed through.
+    for(let i=0;i<=bays;i++) {
+      const t=Math.min(1,i/bays),along=.14+(length-.28)*t;
+      for(const side of [-1,1])box(alongX?.16:.08,h-.28,alongX?.08:.16,
+        alongX?along:w/2+side*(w/2+.03),(h-.28)/2,
+        alongX?d/2+side*(d/2+.03):along,blocks);
+    }
+    // The horizontal band deliberately projects farther than the pilasters;
+    // crossing trim must never share their exact façade plane.
+    for(const side of [-1,1])box(alongX?w-.10:.12,.13,alongX?.12:d-.10,
+      alongX?w/2:w/2+side*(w/2+.05),h*.62,
+      alongX?d/2+side*(d/2+.05):d/2,blocks);
+    box(w+.035,.12,d+.035,w/2,h-.07,d/2,blocks);
+    box(Math.max(.08,w-.08),.055,Math.max(.08,d-.08),w/2,h+.01,d/2,moss);
+  } else if(s.kind==='ruinPlatform') {
+    const ruin=material('#626b58',0.04),face=material('#8d9074',0.02),moss=material('#597946',0.01);
+    box(w,h-0.10,d,w/2,(h-0.10)/2,d/2,ruin);
+    // Uneven slab courses and recessed corner stones make the terrace feel
+    // assembled from ancient masonry while preserving its clean collider.
+    const alongX=w>=d,count=Math.max(4,Math.floor((alongX?w:d)/1.15));
+    for(let i=0;i<count;i++) {
+      const t=(i+0.5)/count;
+      box(alongX?w/count-0.055:w-0.10,0.11,alongX?d-0.08:d/count-0.055,
+        alongX?w*t:w/2,h-0.055,alongX?d/2:d*t,i%3===1?stone:face);
+    }
+    for(const [x,z] of [[0.16,0.16],[w-0.16,0.16],[0.16,d-0.16],[w-0.16,d-0.16]])
+      box(0.28,h-0.28,0.28,x,(h-0.28)/2,z,dark);
+    box(w*0.56,0.025,d*0.13,w*0.58,h+0.012,d*0.13,moss);
+    box(w*0.22,0.028,d*0.18,w*0.16,h+0.014,d*0.76,moss);
+  } else if(s.kind==='templeTree') {
+    const bark=material('#59452f',0.02),barkLight=material('#796143',0.01);
+    const moss=material('#557642',0.01),leaves=material('#315f3c',0.01),sunLeaves=material('#5d8748',0.01);
+    const cx=w/2,cz=d/2,trunk=Math.min(w,d)*0.23;
+    add(new THREE.CylinderGeometry(trunk*0.72,trunk,h*0.72,11),bark,cx,h*0.36,cz);
+    // Buttress roots stay inside the authored circular footprint.
+    for(let i=0;i<7;i++) {
+      const a=i*Math.PI*2/7,r=Math.min(w,d)*0.27;
+      beam([cx,h*0.24,cz],[cx+Math.cos(a)*r,0.10,cz+Math.sin(a)*r],trunk*0.28,barkLight,8,trunk*0.08);
+    }
+    for(let i=0;i<6;i++) {
+      const a=i*Math.PI*2/6+0.35,end=[cx+Math.cos(a)*Math.min(w,d)*0.38,h*0.73+(i%2)*0.38,cz+Math.sin(a)*Math.min(w,d)*0.38];
+      beam([cx,h*0.48,cz],end,trunk*0.32,bark,9,trunk*0.15);
+      const crown=add(new THREE.IcosahedronGeometry(Math.min(w,d)*(i%2?0.22:0.27),1),i%2?sunLeaves:leaves,
+        end[0],end[1]+0.42,end[2]);crown.scale.set(1.25,0.8,1.05);crown.rotation.y=a;
+    }
+    const crown=add(new THREE.IcosahedronGeometry(Math.min(w,d)*0.34,2),leaves,cx,h*0.88,cz);
+    crown.scale.set(1.2,0.72,1.08);
+    for(let i=0;i<5;i++) {
+      const a=i*1.87;beam([cx+Math.cos(a)*trunk*.9,0.03,cz+Math.sin(a)*trunk*.9],
+        [cx+Math.cos(a)*trunk*1.25,h*.45,cz+Math.sin(a)*trunk*1.25],0.035,moss,6,0.018);
+    }
+  } else if(s.kind==='templePillar') {
+    const ruin=material('#747b68',0.03),moss=material('#5d7a49',0.01),radius=Math.min(w,d)*0.38;
+    add(new THREE.CylinderGeometry(radius*1.18,radius*1.28,0.22,10),dark,w/2,0.11,d/2);
+    add(new THREE.CylinderGeometry(radius*0.84,radius,h-0.36,10),ruin,w/2,(h-0.36)/2+0.22,d/2);
+    add(new THREE.CylinderGeometry(radius*1.03,radius*0.87,0.20,10),stone,w/2,h-0.24,d/2);
+    for(const y of [h*.28,h*.62])add(new THREE.TorusGeometry(radius*.91,0.045,5,10),dark,w/2,y,d/2).rotation.x=Math.PI/2;
+    box(radius*0.9,0.035,radius*0.55,w*.58,h-0.11,d*.42,moss);
+  } else if(s.kind==='templeRoot') {
+    const bark=material('#5f4932',0.01),moss=material('#66834c',0.01),alongX=w>=d;
+    const start=alongX?[0.08,h*.34,d*.52]:[w*.52,h*.34,0.08];
+    const end=alongX?[w-0.08,h*.24,d*.46]:[w*.46,h*.24,d-0.08];
+    beam(start,end,Math.min(w,d)*.31,bark,9,Math.min(w,d)*.20);
+    for(const t of [.22,.52,.78]) {
+      const x=alongX?w*t:w*(t%0.4+.25),z=alongX?d*(t%0.35+.3):d*t;
+      beam([x,h*.28,z],[x+(alongX?0:(t-.5)*w*.5),0.02,z+(alongX?(t-.5)*d*.5:0)],
+        Math.min(w,d)*.12,bark,7,0.025);
+    }
+    beam([...(alongX?[w*.18,h*.56,d*.48]:[w*.48,h*.56,d*.18])],
+      [...(alongX?[w*.78,h*.43,d*.48]:[w*.48,h*.43,d*.78])],0.035,moss,6,0.018);
+  } else if(s.kind==='templeAltar') {
+    const ruin=material('#737965',0.03),carved=material('#aaa47f',0.04),moss=material('#567543',0.01);
+    box(w,Math.min(h*.28,.28),d,w/2,Math.min(h*.14,.14),d/2,dark);
+    box(w*.82,h*.5,d*.78,w/2,h*.4,d/2,ruin);
+    box(w*.64,h*.22,d*.60,w/2,h*.78,d/2,carved);
+    for(const x of [w*.25,w*.5,w*.75])box(0.055,h*.28,0.035,x,h*.46,-0.012,dark);
+    const light=material('#9fc278',0.03);light.emissive.set('#608840');light.emissiveIntensity=.42;
+    const bowl=add(new THREE.CylinderGeometry(Math.min(w,d)*.14,Math.min(w,d)*.20,.15,12),light,w/2,h+.01,d/2);
+    bowl.scale.y=.45;box(w*.28,.025,d*.16,w*.7,h+.025,d*.3,moss);
+  } else if(s.kind==='templePool') {
+    const water=new THREE.MeshPhysicalMaterial({color:'#4b8f84',transparent:true,opacity:.74,roughness:.16,
+      metalness:.05,transmission:.08,clearcoat:.7,clearcoatRoughness:.18});
+    const bed=material('#526e62',0.02),edge=material('#7f856f',0.02);
+    box(w,Math.max(.018,h),d,w/2,Math.max(.009,h/2),d/2,bed);
+    box(w-.12,.018,d-.12,w/2,.075,d/2,water);
+    for(let x=.35;x<w;x+=1.3)for(let z=.3;z<d;z+=1.1)
+      add(new THREE.CylinderGeometry(.08+(x%1)*.035,.08+(x%1)*.035,.018,8),edge,x,.098,z);
+  } else if(s.kind==='waterfall') {
+    const rock=material('#56645b',0.02),moss=material('#4d7347',0.01);
+    const water=new THREE.MeshPhysicalMaterial({color:'#79c4ba',transparent:true,opacity:.72,roughness:.1,
+      transmission:.18,clearcoat:1,emissive:'#315e59',emissiveIntensity:.18});
+    box(w,h,d,w/2,h/2,d/2,rock);
+    const alongX=w>=d;
+    for(const side of [.12,.88])box(alongX?w*.76:w*.22,h*.9,alongX?d*.22:d*.76,
+      alongX?w/2:w*side,h*.47,alongX?d*side:d/2,moss);
+    box(alongX?w*.7:.035,h*.86,alongX?.035:d*.7,alongX?w/2:-.04,h*.48,alongX?-.04:d/2,water);
+    for(let i=0;i<7;i++) {
+      const foam=add(new THREE.IcosahedronGeometry(.10+(i%3)*.025,1),water,
+        alongX?w*(.25+i*.08):.05,.10+(i%2)*.06,alongX?.05:d*(.25+i*.08));foam.scale.y=.35;
+    }
+  } else if(s.kind==='templeVine') {
+    const vine=material('#42683d',0.01),leaf=material('#68904f',0.01),alongX=w>=d,length=alongX?w:d;
+    for(let i=0;i<Math.max(3,Math.floor(length/.65));i++) {
+      const t=(i+.4)/(Math.max(3,Math.floor(length/.65))),drop=h*(.45+.45*((i*7)%5)/4);
+      const x=alongX?w*t:w/2,z=alongX?d/2:d*t;
+      beam([x,h,z],[x+(i%2?.08:-.08),h-drop,z],.025,vine,6,.014);
+      for(const f of [.35,.68]) {
+        const l=add(new THREE.SphereGeometry(.10,6,4),leaf,x+(i%2?.11:-.11),h-drop*f,z);
+        l.scale.set(1,.32,.6);l.rotation.z=i%2?.55:-.55;
+      }
     }
   } else if(s.kind==='catwalk') {
     const steel=material('#38484c',0.65),grate=material(s.accent||'#d99149',0.55);

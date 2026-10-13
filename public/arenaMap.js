@@ -57,6 +57,34 @@ function horizontalClearance(s,x,y) {
   return -Math.min(x-minX,maxX-x,y-minY,maxY-y);
 }
 
+// Push a point to the smooth surface of a round obstacle. Axis-separated
+// collision alone makes circles feel like many tiny box corners; projecting
+// to the tangent lets the same deterministic client/server movement glide.
+function projectRoundedCollision(s,x,y,radius) {
+  const shape=s.collisionShape||(
+    s.kind==='furnace'||s.kind==='tank'?'circle':s.kind==='pipe'?'capsule':null
+  );
+  if(shape!=='circle'&&shape!=='capsule')return null;
+  const objectRadius=s.collisionRadius??Math.min(s.width,s.height)*(
+    s.kind==='furnace'?0.4:shape==='capsule'?0.36:0.42);
+  let cx=s.x+s.width/2,cy=s.y+s.height/2;
+  if(shape==='capsule') {
+    const alongX=s.width>=s.height;
+    const ax=alongX?s.x+objectRadius:cx,ay=alongX?cy:s.y+objectRadius;
+    const bx=alongX?s.x+s.width-objectRadius:ax,by=alongX?ay:s.y+s.height-objectRadius;
+    const vx=bx-ax,vy=by-ay,lengthSq=vx*vx+vy*vy;
+    const t=lengthSq?Math.max(0,Math.min(1,((x-ax)*vx+(y-ay)*vy)/lengthSq)):0;
+    cx=ax+vx*t;cy=ay+vy*t;
+  }
+  let dx=x-cx,dy=y-cy,distance=Math.hypot(dx,dy);
+  // The extra hundredth keeps the projected point outside the strict generic
+  // overlap comparison despite cross-engine floating-point rounding.
+  const safe=objectRadius+radius-0.09;
+  if(distance>=safe)return null;
+  if(distance<1e-6){dx=1;dy=0;distance=1;}
+  return {x:cx+dx/distance*safe,y:cy+dy/distance*safe};
+}
+
 function overlapsSolid(s,x,y,footHeight,radius,stepAllowance,bodyHeight) {
   const cx=Math.max(s.x,Math.min(x,s.x+s.width)),cy=Math.max(s.y,Math.min(y,s.y+s.height));
   return horizontalClearance(s,x,y)<radius-0.1&&walkingHeight(s,cx,cy)>footHeight+stepAllowance&&
@@ -136,7 +164,7 @@ function moveOnTerrain(player, x, y, map, solids, now) {
   const nearby=solids.filter(s=>s.x<=maxX&&s.x+s.width>=minX&&s.y<=maxY&&s.y+s.height>=minY);
   const steps = Math.max(1, Math.ceil(Math.hypot(dx, dy) / 4));
   for (let i = 0; i < steps; i++) {
-    const nx = player.x + dx / steps, ny = player.y + dy / steps;
+    let nx = player.x + dx / steps, ny = player.y + dy / steps;
     const grounded = player.jumpStartedAt == null;
     const foot=player.height || 0;
     // Only slopes get a stepping tolerance, never the vertical face of a box.
@@ -145,6 +173,13 @@ function moveOnTerrain(player, x, y, map, solids, now) {
        (nx>=s.x&&nx<=s.x+s.width&&ny>=s.y&&ny<=s.y+s.height)) &&
       Math.abs(walkingHeight(s,player.x,player.y)-foot)<0.29);
     const allowance=onRamp?0.28:0.001;
+    // Resolve round props along their real tangent before the general solid
+    // test. This removes the jagged staircase motion around trunks and tanks.
+    for(const s of nearby) {
+      if(!overlapsSolid(s,nx,ny,foot,radius,allowance,player.bodyHeight||2.2))continue;
+      const projected=projectRoundedCollision(s,nx,ny,radius);
+      if(projected){nx=projected.x;ny=projected.y;}
+    }
     const floor = supportHeight(nx,ny,foot,nearby,allowance);
     if (player.botType==='ogre' && Math.max(foot,floor)+player.bodyHeight>(map.ceiling||Infinity)) return false;
     const collisionFoot=grounded&&onRamp?Math.max(foot,floor):foot;
@@ -210,15 +245,24 @@ function createPvpMap(seed, mapId, excludeId) {
   if(selected!=='maze')return maps.buildAuthoredPvpMap(selected,resolvedSeed);
   const generate = typeof module !== 'undefined' && module.exports ? require('./floors').generateScatterFloor : generateScatterFloor;
   const {map,walls}=generate(resolvedSeed);
+  // PvE's original scatter canvas is deliberately huge. Compact the same
+  // deterministic arrangement for PvP so its random walls become meaningful
+  // cover instead of tiny islands in a sniper field.
+  const scale=0.72,resize=s=>({...s,x:s.x*scale,y:s.y*scale,width:s.width*scale,height:s.height*scale,
+    ...(Number.isFinite(s.collisionRadius)?{collisionRadius:s.collisionRadius*scale}:{}),
+    ...(Number.isFinite(s.collisionEndInset)?{collisionEndInset:s.collisionEndInset*scale}:{})});
+  map.width*=scale;map.height*=scale;map.terrain=map.terrain.map(resize);
   // Same scatter/landmarks, but a single free-for-all arena, not a floor run.
   map.mode='pvp';
   map.id='maze';map.name=maps.PVP_MAPS.maze.name;map.description=maps.PVP_MAPS.maze.description;
   map.palette={sky:'#9ebbc9',wall:'#526d79',panel:'#9db5b8',cap:'#bdd0cf',glow:'#69e8df',
     floorLow:'#303f47',floorHigh:'#4d6166',reflection:'#526b73',reflectionGlow:'#2ed9e3'};
   delete map.elevator;delete map.botSpawn;delete map.floor;
-  const pvpWalls=walls.filter(w=>w.kind!=='cabin');
+  const pvpWalls=walls.filter(w=>w.kind!=='cabin').map(resize);
   map.spawns=maps.derivePvpSpawns(map,pvpWalls);
-  return {map,walls:pvpWalls};
+  const layout={map,walls:pvpWalls},result=maps.validatePvpLayout(layout);
+  if(!result.valid)throw new Error(`${map.name} failed validation: ${result.errors.join(', ')}`);
+  return layout;
 }
 
 function regeneratePlayers(players, seconds) {

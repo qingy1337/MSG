@@ -318,6 +318,9 @@ button:disabled,
 
 #pve-start-floor-row { margin-top: 12px; font-size: 13px; }
 #pve-start-floor { width: 110px; margin-left: 8px; }
+#pvp-debug-row { margin-top: 12px; font-size: 13px; color: var(--text-muted); }
+#pvp-debug-map { width: 190px; margin-left: 8px; padding: 7px 10px; }
+.pvp-debug-clone-label { display: flex; justify-content: center; align-items: center; gap: 6px; margin-top: 9px; cursor: pointer; }
 
 .game-shell {
     display: flex;

@@ -131,28 +131,28 @@ export function createHeavyWeapon(weapon, skinKey, length) {
       return add(geometry, material, x, 0, 0, name);
     };
 
-    // Keep the fore-end joined to the receiver.  An earlier wide nose attached
-    // by exposed barrel read as a plunger in first person; this taper overlaps
-    // the receiver and contracts toward a compact muzzle instead.
+    // Keep the fore-end joined to the receiver, but hold a straight rectangular
+    // silhouette through nearly its full length.  Only the short muzzle stack
+    // beyond it becomes round, instead of making the whole weapon one taper.
     const noseProfile = new THREE.Shape();
     noseProfile.moveTo(0.56, -0.035);
-    noseProfile.lineTo(1.075, -0.018);
-    noseProfile.quadraticCurveTo(1.18, -0.014, 1.22, -0.005);
-    noseProfile.lineTo(1.22, 0.092);
-    noseProfile.quadraticCurveTo(1.18, 0.112, 1.1, 0.118);
+    noseProfile.lineTo(1.125, -0.035);
+    noseProfile.quadraticCurveTo(1.155, -0.035, 1.155, -0.005);
+    noseProfile.lineTo(1.155, 0.115);
+    noseProfile.quadraticCurveTo(1.155, 0.145, 1.125, 0.145);
     noseProfile.lineTo(0.59, 0.145);
     noseProfile.quadraticCurveTo(0.56, 0.112, 0.56, -0.035);
     noseProfile.closePath();
     extrudedProfile(noseProfile, 0.137, gold, 'midas-nose-shroud');
 
-    // Thin mirrored blades add silver detail at the very front while following
-    // the fore-end taper, so they read as inlays rather than bolted-on blocks.
+    // Straight mirrored inlays reinforce the rectangular main body.
     const frontAccentProfile = new THREE.Shape();
-    frontAccentProfile.moveTo(0.78, 0.098);
-    frontAccentProfile.lineTo(1.155, 0.073);
-    frontAccentProfile.quadraticCurveTo(1.18, 0.079, 1.155, 0.096);
-    frontAccentProfile.lineTo(0.8, 0.123);
-    frontAccentProfile.quadraticCurveTo(0.775, 0.118, 0.78, 0.098);
+    frontAccentProfile.moveTo(0.78, 0.102);
+    frontAccentProfile.lineTo(1.108, 0.102);
+    frontAccentProfile.quadraticCurveTo(1.125, 0.102, 1.125, 0.115);
+    frontAccentProfile.quadraticCurveTo(1.125, 0.128, 1.108, 0.128);
+    frontAccentProfile.lineTo(0.78, 0.128);
+    frontAccentProfile.quadraticCurveTo(0.765, 0.115, 0.78, 0.102);
     frontAccentProfile.closePath();
     for (const side of [-1, 1]) {
       extrudedProfile(frontAccentProfile, 0.008, silver, 'midas-front-accent', side * 0.071);
@@ -168,25 +168,26 @@ export function createHeavyWeapon(weapon, skinKey, length) {
     receiverProfile.closePath();
     extrudedProfile(receiverProfile, 0.145, gold, 'midas-receiver');
 
-    // A crisp chamfered tail replaces the bulbous rounded rear that made the
-    // weapon read like a retro ray gun. Its upper silhouette stays unchanged.
+    // A crisp chamfered tail replaces the bulbous rounded rear. Keep its top
+    // aligned with the receiver instead of arching upward behind the sight.
     const stockProfile = new THREE.Shape();
     stockProfile.moveTo(-0.05, 0.07);
     stockProfile.lineTo(-0.03, 0.045);
     stockProfile.lineTo(0.22, 0.035);
     stockProfile.lineTo(0.275, 0.065);
     stockProfile.lineTo(0.245, 0.142);
-    stockProfile.lineTo(0.025, 0.17);
-    stockProfile.lineTo(-0.03, 0.155);
+    stockProfile.lineTo(0.025, 0.145);
+    stockProfile.lineTo(-0.03, 0.142);
     stockProfile.lineTo(-0.05, 0.125);
     stockProfile.closePath();
     extrudedProfile(stockProfile, 0.125, gold, 'midas-stock');
 
-    // Only the final barrel opening is exposed; the main barrel now lives
-    // inside the continuous shell instead of becoming a skinny connector.
-    tube(0.029, 0.08, 0, 0.04, -1.19, graphite, 'midas-barrel-core');
-    box(0.106, 0.064, 0.018, 0, 0.04, -1.221, silver, 'midas-muzzle-cap');
-    tube(0.029, 0.012, 0, 0.04, -1.234, graphite, 'midas-bore');
+    // A compact sequence of circular pieces begins only after the rectangular
+    // shell ends: silver collar, gold locking ring, then the dark barrel mouth.
+    tube(0.047, 0.034, 0, 0.04, -1.165, silver, 'midas-muzzle-cap');
+    tube(0.04, 0.025, 0, 0.04, -1.192, brightGold, 'midas-muzzle-ring');
+    tube(0.03, 0.04, 0, 0.04, -1.216, graphite, 'midas-barrel-core');
+    tube(0.026, 0.012, 0, 0.04, -1.238, graphite, 'midas-bore');
 
     // Original tapered side insets echo the model's layered mechanical center
     // without retaining any of its exact surface geometry.
@@ -203,6 +204,36 @@ export function createHeavyWeapon(weapon, skinKey, length) {
       box(0.012, 0.014, 0.18, side * 0.086, 0.105, -0.37, brightGold, 'midas-side-ridge');
     }
     box(0.078, 0.016, 0.29, 0, 0.16, -0.38, silver, 'midas-top-rail');
+
+    // A second, rear-swept grip anchors the front half of the weapon.  Its
+    // upper edge disappears into the fore-end and its lower end leans back
+    // toward the firing hand, matching the useful silhouette of the Immortal
+    // reference without copying its surface geometry.
+    const forwardGripProfile = new THREE.Shape();
+    forwardGripProfile.moveTo(0.545, -0.027);
+    forwardGripProfile.lineTo(0.682, -0.021);
+    forwardGripProfile.lineTo(0.598, -0.205);
+    forwardGripProfile.quadraticCurveTo(0.582, -0.235, 0.548, -0.229);
+    forwardGripProfile.lineTo(0.493, -0.184);
+    forwardGripProfile.closePath();
+    extrudedProfile(forwardGripProfile, 0.09, silver, 'midas-forward-grip');
+
+    const forwardGripInset = new THREE.Shape();
+    forwardGripInset.moveTo(0.566, -0.051);
+    forwardGripInset.lineTo(0.646, -0.047);
+    forwardGripInset.lineTo(0.582, -0.188);
+    forwardGripInset.quadraticCurveTo(0.574, -0.204, 0.557, -0.2);
+    forwardGripInset.lineTo(0.522, -0.171);
+    forwardGripInset.closePath();
+    for (const side of [-1, 1]) {
+      extrudedProfile(forwardGripInset, 0.007, graphite, 'midas-forward-grip-inset', side * 0.049);
+    }
+    const forwardGripAccent = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0, -0.045, -0.654),
+      new THREE.Vector3(0, -0.11, -0.625),
+      new THREE.Vector3(0, -0.19, -0.575),
+    ]);
+    add(new THREE.TubeGeometry(forwardGripAccent, 10, 0.005, 7, false), brightGold, 0, 0, 0, 'midas-forward-grip-accent');
 
     // The grip and curved lower brace occupy the same broad locations visible
     // in the extracted projection, while using an original simplified contour.
