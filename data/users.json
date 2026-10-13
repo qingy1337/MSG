@@ -4,7 +4,7 @@
     "username": "qing",
     "passwordHash": "120000:527376a4c7facb358546550205746662:8803cf5b1c16b4a2f9a8f8be0478fa4bec09c8104df42842cc397818c661e2ff",
     "currencies": {
-      "Coins": 1950
+      "Coins": 4440
     },
     "skins": {
       "owned": [
@@ -19,22 +19,28 @@
         "miniGun_infiniti",
         "pistol_cybernetic",
         "sniper_calibrated",
-        "miniGun_poison"
+        "miniGun_poison",
+        "autoRifle_poisonivy",
+        "shotgun_default",
+        "shotgun_silverline",
+        "sniper_flatpack",
+        "shotgun_bubble_trouble"
       ],
       "equippedByWeapon": {
         "pistol": "pistol_cybernetic",
-        "autoRifle": "autoRifle_cybernetic",
-        "miniGun": "miniGun_poison",
-        "sniper": "sniper_calibrated"
+        "autoRifle": "autoRifle_poisonivy",
+        "miniGun": "miniGun_midas",
+        "sniper": "sniper_calibrated",
+        "shotgun": "shotgun_silverline"
       }
     }
   },
   {
     "id": 2,
     "username": "ggg",
-    "passwordHash": "120000:a49be03d05b22fc1548a7f81c13c9932:055e6938a50d6f05905763f50149b26e797ba7ea1bae352c4a8481f5699fd325",
+    "passwordHash": "120000:6e213f5bc9566e97880dca1ac766b17a:ee762808405c3234c19bd55b0fa3283dac8b6398d850c4223254b980bd8ba576",
     "currencies": {
-      "Coins": 1725
+      "Coins": 1925
     },
     "skins": {
       "owned": [
@@ -49,22 +55,26 @@
         "sniper_mario",
         "pistol_cybernetic",
         "sniper_calibrated",
-        "miniGun_poison"
+        "miniGun_poison",
+        "shotgun_default",
+        "sniper_flatpack",
+        "shotgun_silverline"
       ],
       "equippedByWeapon": {
-        "pistol": "pistol_cybernetic",
-        "autoRifle": "autoRifle_cybernetic",
+        "pistol": "pistol_basicBlue",
+        "autoRifle": "autoRifle_christmas",
         "miniGun": "miniGun_poison",
-        "sniper": "sniper_default"
+        "sniper": "sniper_flatpack",
+        "shotgun": "shotgun_silverline"
       }
     }
   },
   {
     "id": 3,
     "username": "yxli",
-    "passwordHash": "120000:ae5baf6ccdc8ffeb57e9bd18294b2f85:64c2709e73d2e5c7c59c01bf905c65b8e777790c68e8597d6948377f9e2fd2f5",
+    "passwordHash": "120000:6e213f5bc9566e97880dca1ac766b17a:ee762808405c3234c19bd55b0fa3283dac8b6398d850c4223254b980bd8ba576",
     "currencies": {
-      "Coins": 815
+      "Coins": 3605
     },
     "skins": {
       "owned": [
@@ -76,13 +86,15 @@
         "autoRifle_cybernetic",
         "miniGun_infiniti",
         "pistol_cybernetic",
-        "miniGun_poison"
+        "miniGun_poison",
+        "shotgun_default"
       ],
       "equippedByWeapon": {
         "pistol": "pistol_cybernetic",
         "autoRifle": "autoRifle_cybernetic",
         "miniGun": "miniGun_default",
-        "sniper": "sniper_default"
+        "sniper": "sniper_default",
+        "shotgun": "shotgun_default"
       }
     }
   },
@@ -91,20 +103,96 @@
     "username": "ruo",
     "passwordHash": "120000:9de7999fc787ef76db2c60df93c88dab:c054a9e1c534b36bf85cf050a4892d55008d415533ffef40d3a89c35efd74572",
     "currencies": {
-      "Coins": 25
+      "Coins": 2550
     },
     "skins": {
       "owned": [
         "pistol_default",
         "autoRifle_default",
         "miniGun_default",
-        "sniper_default"
+        "sniper_default",
+        "pistol_cybernetic",
+        "shotgun_default",
+        "autoRifle_cybernetic"
+      ],
+      "equippedByWeapon": {
+        "pistol": "pistol_cybernetic",
+        "autoRifle": "autoRifle_cybernetic",
+        "miniGun": "miniGun_default",
+        "sniper": "sniper_default",
+        "shotgun": "shotgun_default"
+      }
+    }
+  },
+  {
+    "id": 5,
+    "username": "34412412142",
+    "passwordHash": "120000:374c79d33e212040a17a2ecc7b11e602:58167da3e0f455687c3e6a66d0c50ec67ea0f77ce361bdfc12022f4a1637f286",
+    "currencies": {
+      "Coins": 10
+    },
+    "skins": {
+      "owned": [
+        "pistol_default",
+        "autoRifle_default",
+        "miniGun_default",
+        "sniper_default",
+        "shotgun_default"
       ],
       "equippedByWeapon": {
         "pistol": "pistol_default",
         "autoRifle": "autoRifle_default",
         "miniGun": "miniGun_default",
-        "sniper": "sniper_default"
+        "sniper": "sniper_default",
+        "shotgun": "shotgun_default"
+      }
+    }
+  },
+  {
+    "id": 6,
+    "username": "dsadsa",
+    "passwordHash": "120000:32fe279b3bf9e2d5d6484f470bfacc1a:d2a89d6464e260784147c0e68318418bbfe4a335551a16aaff61cf2af5600575",
+    "currencies": {
+      "Coins": 10
+    },
+    "skins": {
+      "owned": [
+        "pistol_default",
+        "autoRifle_default",
+        "miniGun_default",
+        "sniper_default",
+        "shotgun_default"
+      ],
+      "equippedByWeapon": {
+        "pistol": "pistol_default",
+        "autoRifle": "autoRifle_default",
+        "miniGun": "miniGun_default",
+        "sniper": "sniper_default",
+        "shotgun": "shotgun_default"
+      }
+    }
+  },
+  {
+    "id": 7,
+    "username": "waddwaawd",
+    "passwordHash": "120000:ea150f6938297934968ef6f576120ea5:96f9d86e0131d7dece6315fe333ac1f82c617e2eaf19e35af9300a366fbacb59",
+    "currencies": {
+      "Coins": 135
+    },
+    "skins": {
+      "owned": [
+        "pistol_default",
+        "autoRifle_default",
+        "miniGun_default",
+        "sniper_default",
+        "shotgun_default"
+      ],
+      "equippedByWeapon": {
+        "pistol": "pistol_default",
+        "autoRifle": "autoRifle_default",
+        "miniGun": "miniGun_default",
+        "sniper": "sniper_default",
+        "shotgun": "shotgun_default"
       }
     }
   }

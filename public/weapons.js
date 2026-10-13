@@ -3,14 +3,21 @@
 // Keys are used across client/server messages
 
 const WEAPONS = {
+  shotgun: {
+    key: 'shotgun', name: 'Shotgun',
+    description: 'Eight-pellet hitscan blast.',
+    weaponLength: 44, bulletSpeed: 14, bulletRadius: 3,
+    cooldownMs: 180, shotsPerReload: 2, reloadMs: 1400, automatic: false,
+  },
   pistol: {
     key: 'pistol',
     name: 'Pistol',
     description: 'Single-shot sidearm.',
+    selectable: false,
     weaponLength: 30,
     bulletSpeed: 11.5,
     bulletRadius: 5,
-    cooldownMs: 100,
+    cooldownMs: 75,
     automatic: false,
   },
   autoRifle: {
@@ -36,18 +43,21 @@ const WEAPONS = {
   sniper: {
     key: 'sniper',
     name: 'Sniper',
-    description: 'Big, fast bullets. Slow rate.',
+    description: 'High-damage precision hitscan. Slow rate.',
     weaponLength: 50, // visibly longer than pistol/auto
     bulletSpeed: 16,  // faster bullets
     bulletRadius: 10, // ~2x size
-    cooldownMs: 1300,
+    cooldownMs: 1100,
     automatic: false,
   },
 };
 
-const DEFAULT_WEAPON_KEY = 'pistol';
+// The pistol is always carried as a secondary, so new players choose a primary.
+const DEFAULT_WEAPON_KEY = 'autoRifle';
+const SECONDARY_WEAPON_KEY = 'pistol';
+const WEAPON_SWITCH_MS = 360;
 
 // Node (server) export
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { WEAPONS, DEFAULT_WEAPON_KEY };
+  module.exports = { WEAPONS, DEFAULT_WEAPON_KEY, SECONDARY_WEAPON_KEY, WEAPON_SWITCH_MS };
 }

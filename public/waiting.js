@@ -37,6 +37,8 @@ const nameInput = document.getElementById("name-input");
 const joinBtn = document.getElementById("join-btn");
 const startBtn = document.getElementById("start-btn");
 const enableBotsCheckbox = document.getElementById("enable-bots-toggle");
+const startFloorRow = document.getElementById('pve-start-floor-row');
+const startFloorInput = document.getElementById('pve-start-floor');
 const waitingPlayersList = document.getElementById("waiting-players");
 const weaponOptionsEl = document.getElementById("weapon-options");
 const weaponConfirmBtn = document.getElementById("weapon-confirm-btn");
@@ -63,7 +65,7 @@ const shopContentEl = document.getElementById("shop-content");
 
 // Player data
 let displayName = "";
-let selectedWeaponKey = (typeof DEFAULT_WEAPON_KEY !== 'undefined' ? DEFAULT_WEAPON_KEY : 'pistol');
+let selectedWeaponKey = (typeof DEFAULT_WEAPON_KEY !== 'undefined' ? DEFAULT_WEAPON_KEY : 'autoRifle');
 let currentUser = null;
 let lastNonShopScreen = loginScreen;
 let shopSkins = [];
@@ -101,6 +103,7 @@ function setAuthError(message) {
 
 function applyAuthenticatedState(user) {
   currentUser = user;
+  updateStartButtonState();
   if (userUsernameEl) {
     userUsernameEl.textContent = user.username;
   }
@@ -125,6 +128,8 @@ function applyAuthenticatedState(user) {
 
 function applyLoggedOutState() {
   currentUser = null;
+  startFloorInput.value='1';
+  updateStartButtonState();
   if (userInfoEl) {
     userInfoEl.classList.add("hidden");
   }
@@ -323,6 +328,7 @@ function goToWeaponSelection() {
   }
   displayName = nameInput.value.trim();
   if (!displayName) return;
+  window.cancelPendingGameReturn?.();
   // Move to weapon selection step
   setActiveScreen(weaponScreen);
   renderWeaponOptions();
@@ -335,7 +341,8 @@ function joinWaitingRoom() {
     return;
   }
   if (!displayName) return;
-  if (!selectedWeaponKey) selectedWeaponKey = 'pistol';
+  window.cancelPendingGameReturn?.();
+  if (!selectedWeaponKey || WEAPONS[selectedWeaponKey]?.selectable === false) selectedWeaponKey = 'autoRifle';
   socket.emit("join", { displayName, weapon: selectedWeaponKey });
   setActiveScreen(waitingScreen);
 }
@@ -343,7 +350,9 @@ function joinWaitingRoom() {
 function renderWeaponOptions() {
   if (typeof WEAPONS === 'undefined') return;
   weaponOptionsEl.innerHTML = "";
-  Object.keys(WEAPONS).forEach((key) => {
+  const primaryKeys=Object.keys(WEAPONS).filter(key=>WEAPONS[key].selectable!==false);
+  if(!primaryKeys.includes(selectedWeaponKey))selectedWeaponKey=primaryKeys[0]||'autoRifle';
+  primaryKeys.forEach((key) => {
     const w = WEAPONS[key];
     const card = document.createElement('div');
     card.className = 'weapon-card' + (selectedWeaponKey === key ? ' selected' : '');
@@ -764,10 +773,18 @@ async function equipSkin(skinKey) {
 function startGame() {
   const enableBots =
     enableBotsCheckbox && enableBotsCheckbox.checked;
-  socket.emit("startGame", { enableBots });
+  const options={enableBots};
+  if(enableBots&&currentUser?.username==='qing') {
+    const floor=Number(startFloorInput.value);
+    startFloorInput.setCustomValidity(Number.isSafeInteger(floor)&&floor>=1?'':'Enter a positive whole-number floor.');
+    if(!startFloorInput.reportValidity())return;
+    options.startFloor=floor;
+  }
+  socket.emit("startGame", options);
 }
 
 function updateStartButtonState() {
+  startFloorRow.classList.toggle('hidden',currentUser?.username!=='qing'||!enableBotsCheckbox?.checked);
   if (!startBtn) return;
   const humanCount = lastWaitingPlayersCount;
   const botsEnabled =
@@ -809,10 +826,13 @@ socket.on("gameStarting", (gameData) => {
   setActiveScreen(gameScreen);
 
   // Initialize game
-  initGame(gameData.players, gameData.walls);
+  initGame(gameData.players, gameData.walls, gameData.map);
 });
 
 socket.on("resetGame", () => {
+  // A player can queue again while the previous result timer is finishing.
+  // That old reset belongs to the game screen, not the new waiting room.
+  if (!waitingScreen.classList.contains("hidden") || !weaponScreen.classList.contains("hidden")) return;
   setActiveScreen(loginScreen);
   nameInput.value = "";
 });

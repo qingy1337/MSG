@@ -1,0 +1,218 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import * as THREE from 'three';
+import skins from '../public/skins.js';
+import { createHeavyWeapon,heavyWeaponMuzzleDepth,heavyWeaponViewScale,heavyWeaponViewYOffset,heavyWeaponViewZ } from '../public/heavyWeapons.mjs';
+import { createMuzzleFlash, triggerMuzzleFlash, updateMuzzleFlash } from '../public/muzzleFlash.mjs';
+
+function dispose(group) {
+  const materials = new Set();
+  group.traverse(object => {
+    if (!object.isMesh) return;
+    assert.ok(object.geometry.getAttribute('position').array.every(Number.isFinite));
+    object.geometry.dispose();
+    for (const material of Array.isArray(object.material) ? object.material : [object.material]) materials.add(material);
+  });
+  materials.forEach(material => material.dispose());
+}
+
+test('Calibrated sniper has purple rails, scope, and calibration marks in both views', () => {
+  for (const length of [0.8, 1.35]) {
+    const model = createHeavyWeapon('sniper', 'sniper_calibrated', length);
+    for (const name of ['scope', 'scope-lens', 'adjustment-dial', 'calibration-mark', 'converging-tip']) assert.ok(model.getObjectByName(name));
+    assert.equal(model.getObjectByName('purple-rail').material.color.getHexString(), '9241b5');
+    model.updateMatrixWorld(true);
+    const receiver = model.getObjectByName('receiver');
+    assert.equal(receiver.geometry.type, 'LatheGeometry');
+    const receiverBounds = new THREE.Box3().setFromObject(receiver);
+    assert.ok(receiverBounds.max.x - receiverBounds.min.x < 0.105 * length, 'receiver is narrow, not boxy');
+    assert.equal(model.getObjectByName('rear-fin'), undefined);
+    assert.ok(model.getObjectByName('receiver-trim'));
+    const scopeBounds = new THREE.Box3().setFromObject(model.getObjectByName('scope'));
+    assert.ok(scopeBounds.max.x - scopeBounds.min.x < 0.09 * length, 'scope stays slim');
+    assert.ok(new THREE.Box3().setFromObject(model).max.y < 0.2 * length, 'scope stays low-profile');
+    assert.ok(Math.abs(new THREE.Box3().setFromObject(model).min.z + 1.1 * length) < 1e-6);
+    dispose(model);
+  }
+});
+
+test('Flatpack sniper is a clean cardboard box profile in both views', () => {
+  const skin = skins.WEAPON_SKINS.sniper.find(entry => entry.key === 'sniper_flatpack');
+  assert.equal(skin.price, 2500);
+  for (const length of [0.8, 1.35]) {
+    const model = createHeavyWeapon('sniper', skin.key, length);
+    const barrel = model.getObjectByName('cardboard-barrel');
+    const sight = model.getObjectByName('cardboard-sight');
+    assert.ok(barrel && sight);
+    assert.equal(barrel.material.color.getHexString(), 'b77f43');
+    assert.equal(sight.material.color.getHexString(), 'c79b62');
+    model.updateMatrixWorld(true);
+    const barrelBounds = new THREE.Box3().setFromObject(barrel);
+    const sightBounds = new THREE.Box3().setFromObject(sight);
+    assert.ok(barrelBounds.max.y - barrelBounds.min.y > barrelBounds.max.x - barrelBounds.min.x,
+      'barrel is taller than it is wide');
+    assert.ok(barrelBounds.max.y - barrelBounds.min.y > 0.115 * length,
+      'barrel has a visibly taller profile');
+    assert.ok(sightBounds.max.x - sightBounds.min.x < barrelBounds.max.x - barrelBounds.min.x,
+      'sight is slightly narrower than the barrel');
+    assert.ok(sightBounds.max.y - sightBounds.min.y < barrelBounds.max.y - barrelBounds.min.y,
+      'sight is lower-profile than the barrel');
+    assert.ok(Math.abs((sightBounds.max.x - sightBounds.min.x) - (sightBounds.max.y - sightBounds.min.y)) < 1e-6,
+      'sight has a square front profile');
+    assert.ok(Math.abs((sightBounds.max.x - sightBounds.min.x) - 0.06 * length) < 1e-6,
+      'sight keeps its compact square size');
+    assert.ok(sightBounds.max.y - sightBounds.min.y > 0.05 * length,
+      'sight is tall enough to read clearly');
+    assert.ok(sightBounds.min.z > -0.35 * length,
+      'sight sits near the player over the rear receiver');
+    assert.ok(barrelBounds.max.x - barrelBounds.min.x < 0.09 * length,
+      'barrel stays notably slim');
+    assert.equal(model.children.filter(child => child.name === 'cardboard-sight').length, 1,
+      'sight remains one uninterrupted form');
+    for (const name of ['sight-rear-cap', 'sight-front-cap']) {
+      const cap = model.getObjectByName(name);
+      assert.ok(cap, `${name} exists`);
+      assert.equal(cap.geometry.type, 'ExtrudeGeometry');
+      assert.equal(cap.material.color.getHexString(), '3f2919');
+      const capBounds = new THREE.Box3().setFromObject(cap);
+      assert.ok(capBounds.max.x < sightBounds.max.x && capBounds.min.x > sightBounds.min.x,
+        `${name} leaves a cardboard rim`);
+      assert.ok((capBounds.max.x - capBounds.min.x) / (sightBounds.max.x - sightBounds.min.x) > 0.85,
+        `${name} fills the framed sight opening`);
+      const protrusion = name === 'sight-rear-cap'
+        ? capBounds.max.z - sightBounds.max.z
+        : sightBounds.min.z - capBounds.min.z;
+      assert.ok(protrusion <= 0.0006 * length, `${name} is recessed rather than attached outside`);
+    }
+    assert.equal(model.getObjectByName('packing-tape'), undefined);
+    assert.ok(model.getObjectByName('folded-edge'));
+    assert.ok(model.getObjectByName('cardboard-bore'));
+    dispose(model);
+  }
+});
+
+test('minigun skins retain their themes while Midas is an original streamlined SMG', () => {
+  for (const skin of skins.WEAPON_SKINS.miniGun) for (const length of [0.5, 0.72]) {
+    const model = createHeavyWeapon('miniGun', skin.key, length);
+    if(skin.key==='miniGun_midas') {
+      assert.equal(skin.price,5000);
+      assert.equal(model.userData.modelAsset,undefined,'Midas no longer loads third-party geometry');
+      assert.equal(model.children.filter(c => c.name === 'rotary-barrel').length,0,
+        'the SMG skin no longer pretends to be a six-barrel primitive model');
+      for(const name of ['midas-receiver','midas-muzzle-cap','midas-bore','midas-grip',
+        'midas-side-panel','midas-scope-housing','midas-scope-lens','midas-scope-dot']) {
+        assert.ok(model.getObjectByName(name),`${name} is part of the original Midas model`);
+      }
+      assert.equal(model.getObjectByName('midas-receiver').geometry.type,'ExtrudeGeometry');
+      assert.equal(model.getObjectByName('midas-grip').geometry.type,'ExtrudeGeometry');
+      assert.equal(model.getObjectByName('midas-scope-housing').geometry.type,'ExtrudeGeometry');
+      assert.equal(model.getObjectByName('midas-scope-lens').geometry.type,'CircleGeometry');
+      assert.equal(model.getObjectByName('midas-scope-lens').material.transparent,true);
+      assert.equal(model.getObjectByName('midas-receiver').material.color.getHexString(),'f1c232');
+      assert.equal(model.getObjectByName('midas-nose-shroud').material.color.getHexString(),'f1c232');
+      assert.equal(model.getObjectByName('midas-side-panel').material.color.getHexString(),'171c22');
+      const frontAccents=model.children.filter(child=>child.name==='midas-front-accent');
+      assert.equal(frontAccents.length,2,'fore-end has mirrored silver inlays');
+      assert.ok(frontAccents.every(accent=>accent.material.color.getHexString()==='bcc7cf'));
+      model.updateMatrixWorld(true);
+      const bounds=new THREE.Box3().setFromObject(model);
+      assert.ok(bounds.max.x-bounds.min.x<0.24*length,'gold SMG stays narrow instead of using the wide minigun drum');
+      assert.ok(bounds.max.y-bounds.min.y<0.58*length,'gold SMG keeps a low, controlled vertical profile');
+      const ringBounds=new THREE.Box3().setFromObject(model.getObjectByName('midas-scope-inner-ring'));
+      const ringSize=ringBounds.getSize(new THREE.Vector3());
+      assert.ok(Math.abs(ringSize.x-ringSize.y)<0.002*length,'reflex sight stays circular from the player view');
+      const housingBounds=new THREE.Box3().setFromObject(model.getObjectByName('midas-scope-housing'));
+      const lensBounds=new THREE.Box3().setFromObject(model.getObjectByName('midas-scope-lens'));
+      assert.ok((lensBounds.max.x-lensBounds.min.x)/(housingBounds.max.x-housingBounds.min.x)>0.68,
+        'transparent optic fills most of its thin housing');
+      const receiverBounds=new THREE.Box3().setFromObject(model.getObjectByName('midas-receiver'));
+      const noseBounds=new THREE.Box3().setFromObject(model.getObjectByName('midas-nose-shroud'));
+      const muzzleBounds=new THREE.Box3().setFromObject(model.getObjectByName('midas-muzzle-cap'));
+      assert.ok(receiverBounds.max.y>0.145*length,'receiver top remains at its taller height');
+      assert.ok(receiverBounds.min.y>-0.05*length,'receiver height is trimmed only from the bottom');
+      assert.ok(bounds.max.z-bounds.min.z>1.25*length,'SMG has a longer front-to-back silhouette');
+      assert.ok(noseBounds.max.z>receiverBounds.min.z,'fore-end overlaps the receiver instead of hanging from an exposed barrel');
+      assert.ok(noseBounds.max.x-noseBounds.min.x<=receiverBounds.max.x-receiverBounds.min.x,
+        'fore-end does not flare wider than the receiver');
+      assert.ok(muzzleBounds.max.x-muzzleBounds.min.x<noseBounds.max.x-noseBounds.min.x,
+        'muzzle face contracts from the fore-end');
+    } else {
+      assert.equal(model.children.filter(c => c.name === 'rotary-barrel').length, 6);
+      assert.equal(model.children.filter(c => c.name === 'barrel-bore').length, 6);
+      assert.ok(model.getObjectByName('carry-handle'));
+      if (skin.key === 'miniGun_infiniti') assert.equal(model.children.filter(c => c.name === 'infinity-loop').length, 4);
+      if (skin.key === 'miniGun_poison') assert.equal(model.getObjectByName('poison-leaf').material.color.getHexString(), '23ad17');
+    }
+    dispose(model);
+  }
+});
+
+test('Midas sits naturally in the first-person hand without shifting other heavy weapons', () => {
+  assert.equal(heavyWeaponViewYOffset('miniGun_midas'),-0.045);
+  assert.equal(heavyWeaponViewYOffset('miniGun_default'),0);
+  assert.equal(heavyWeaponViewYOffset('sniper_calibrated'),0);
+  assert.equal(heavyWeaponViewScale('miniGun_midas'),1);
+  assert.equal(heavyWeaponViewScale('miniGun_default'),1);
+  assert.equal(heavyWeaponViewZ('miniGun_midas'),-0.32);
+  assert.equal(heavyWeaponViewZ('miniGun_default'),-0.32);
+  assert.equal(heavyWeaponMuzzleDepth('miniGun_midas'),1.234);
+  assert.equal(heavyWeaponMuzzleDepth('miniGun_default'),1);
+  const viewModel=createHeavyWeapon('miniGun','miniGun_midas',0.5);
+  viewModel.scale.setScalar(0.5*heavyWeaponViewScale('miniGun_midas'));
+  viewModel.position.set(0.23,-0.2+heavyWeaponViewYOffset('miniGun_midas'),heavyWeaponViewZ('miniGun_midas'));
+  viewModel.updateMatrixWorld(true);
+  const gripBounds=new THREE.Box3().setFromObject(viewModel.getObjectByName('midas-grip'));
+  assert.ok(gripBounds.min.y<-.34&&gripBounds.max.y>-.34,'grip passes through the hand vertically');
+  assert.ok(gripBounds.min.z<-.285&&gripBounds.max.z>-.455,'grip overlaps the hand in depth');
+  const bounds=new THREE.Box3().setFromObject(viewModel);
+  assert.ok(bounds.max.z<-.29&&bounds.max.z>-.34,'full-size rear uses the standard first-person weapon depth');
+  const flashDepth=-0.32-0.5*heavyWeaponMuzzleDepth('miniGun_midas');
+  assert.ok(Math.abs(bounds.min.z-flashDepth)<0.015,'longer muzzle remains aligned with its first-person flash');
+  dispose(viewModel);
+});
+
+test('small muzzle flashes trigger, fade, retrigger, and expire without allocating new meshes', () => {
+  for (const size of [0.045, 0.1]) {
+    const flash = createMuzzleFlash(size), children = [...flash.children];
+    assert.equal(flash.visible, false);
+    triggerMuzzleFlash(flash); updateMuzzleFlash(flash, 0.016);
+    assert.equal(flash.visible, true);
+    updateMuzzleFlash(flash, 0.04);
+    assert.ok(flash.children[0].material.opacity < 1);
+    for (let i = 0; i < 100; i++) { triggerMuzzleFlash(flash); updateMuzzleFlash(flash, 0.01); }
+    assert.deepEqual(flash.children, children);
+    updateMuzzleFlash(flash, 0.1);
+    assert.equal(flash.visible, false);
+    assert.equal(flash.children[0].material.opacity, 0);
+    dispose(flash);
+  }
+});
+
+test('each muzzle burst varies shape, spark count, tint, and timing, then expands and fades', () => {
+  const flash = createMuzzleFlash(0.045);
+  triggerMuzzleFlash(flash, () => 0.1);
+  const first = {
+    scale: flash.children[0].scale.toArray(), color: flash.children[0].material.color.getHex(),
+    sparks: flash.children.slice(1).filter(s => s.visible).length, duration: flash.userData.duration,
+  };
+  triggerMuzzleFlash(flash, () => 0.9);
+  assert.notDeepEqual(flash.children[0].scale.toArray(), first.scale);
+  assert.notEqual(flash.children[0].material.color.getHex(), first.color);
+  assert.notEqual(flash.children.slice(1).filter(s => s.visible).length, first.sparks);
+  assert.notEqual(flash.userData.duration, first.duration);
+  const startScale = flash.scale.x, startPosition = flash.children[1].position.clone();
+  updateMuzzleFlash(flash, 0.016);
+  assert.ok(flash.scale.x > startScale);
+  assert.ok(flash.children[0].material.opacity < 1);
+  assert.ok(flash.children[1].position.distanceTo(startPosition) > 0);
+  dispose(flash);
+});
+
+test('premium weapon flashes can override the randomized fire color',()=>{
+  const flash=createMuzzleFlash(0.045);
+  triggerMuzzleFlash(flash,()=>0.4,'#5ff7ff');
+  assert.equal(flash.children[0].material.color.getHexString(),'5ff7ff');
+  triggerMuzzleFlash(flash,()=>0.7,'#ce70ff');
+  assert.equal(flash.children[0].material.color.getHexString(),'ce70ff');
+  dispose(flash);
+});

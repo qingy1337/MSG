@@ -86,8 +86,12 @@
                 <div class="bots-toggle-row">
                     <label class="bots-toggle-label">
                         <input type="checkbox" id="enable-bots-toggle">
-                        Fill match with example bots
+                        Co-op PvE · Players versus bot squads
                     </label>
+                </div>
+                <div id="pve-start-floor-row" class="hidden">
+                    <label for="pve-start-floor">Starting floor</label>
+                    <input id="pve-start-floor" class="auth-input" type="number" min="1" step="1" value="1" aria-label="PvE starting floor">
                 </div>
             </div>
 
@@ -109,9 +113,31 @@
 
             <div id="game-screen" class="screen hidden">
                 <div class="game-shell">
-                    <canvas id="game-canvas" width="900" height="600"></canvas>
+                    <div id="arena-viewport">
+                        <canvas id="game-canvas" aria-label="3D multiplayer arena"></canvas>
+                        <div class="minimap-panel"><span>TACTICAL MAP</span><canvas id="minimap" width="180" height="120" aria-label="Arena map showing only your position"></canvas><small>YOU ONLY <i></i></small></div>
+                        <div id="arena-label">SECTOR / 01 <span>LIVE ARENA</span></div>
+                        <div id="health-labels"></div>
+                        <div id="crosshair" aria-hidden="true"><span class="standard-crosshair">+</span><span class="shotgun-reticle"></span></div>
+                        <div id="grenade-charge-track" role="progressbar" aria-label="Grenade throw charge" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden><div id="grenade-charge"></div></div>
+                        <div id="look-prompt">CLICK TO PLAY <small>WASD to move · Space to jump · E to swap weapons · Mouse to look · Esc to release</small></div>
+                        <div id="local-health">
+                            <span id="local-health-text"></span>
+                            <div id="local-health-bar" role="progressbar" aria-label="Your health" aria-valuemin="0" aria-valuemax="101" aria-valuenow="101"><div id="local-health-fill"></div></div>
+                        </div>
+                        <div class="arena-controls">WASD / MOVE <b>·</b> SPACE / JUMP <b>·</b> E / SWAP <b>·</b> Q / GRENADE <b>·</b> CLICK / FIRE</div>
+                        <label class="render-setting"><input id="raytracing-toggle" type="checkbox" checked> Ray-traced reflections</label>
+                        <div id="render-error" class="hidden" role="alert"></div>
+                        <div id="grenade-hud" role="img" aria-label="3 of 3 grenades available">
+                            <svg class="grenade-icon available" viewBox="0 0 24 32" aria-hidden="true"><path fill="currentColor" d="M8 9h8l4 7v10l-4 4H8l-4-4V16z"/><path d="M9 9V5h7l5 12M15 5V2h4v4M5 18h14M5 24h14M12 11v17" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M6 18h12M6 24h12M12 12v16" stroke="#122822" stroke-width="1.3"/></svg>
+                            <svg class="grenade-icon available" viewBox="0 0 24 32" aria-hidden="true"><path fill="currentColor" d="M8 9h8l4 7v10l-4 4H8l-4-4V16z"/><path d="M9 9V5h7l5 12M15 5V2h4v4M5 18h14M5 24h14M12 11v17" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M6 18h12M6 24h12M12 12v16" stroke="#122822" stroke-width="1.3"/></svg>
+                            <svg class="grenade-icon available" viewBox="0 0 24 32" aria-hidden="true"><path fill="currentColor" d="M8 9h8l4 7v10l-4 4H8l-4-4V16z"/><path d="M9 9V5h7l5 12M15 5V2h4v4M5 18h14M5 24h14M12 11v17" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M6 18h12M6 24h12M12 12v16" stroke="#122822" stroke-width="1.3"/></svg>
+                        </div>
+                    </div>
                     <div id="game-info">
                         <div id="players-alive"></div>
+                        <div id="weapon-status" hidden></div>
+                        <div id="performance-info" aria-label="Performance diagnostics"></div>
                         <div id="game-message"></div>
                     </div>
                 </div>
@@ -121,9 +147,15 @@
 
     <script src="/socket.io/socket.io.js"></script>
     <script src="weapons.js"></script>
+    <script src="movement.js"></script>
+    <script src="arenaMap.js"></script>
+    <script src="inputMovement.js"></script>
+    <script src="floors.js"></script>
+    <script src="pvpMaps.js"></script>
     <script src="skins.js"></script>
     <script src="skinRendering.js"></script>
     <script src="waiting.js"></script>
-    <script src="game.js"></script>
+    <script type="importmap">{"imports":{"three":"/vendor/three/three.module.js","three/addons/":"/vendor/three/addons/"}}</script>
+    <script type="module" src="game.js"></script>
 </body>
 </html>

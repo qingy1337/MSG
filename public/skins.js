@@ -3,6 +3,47 @@
 // In Node (server.js) it can be required and will export WEAPON_SKINS.
 
 const WEAPON_SKINS = {
+  shotgun: [
+    {
+      key:'shotgun_default',weaponKey:'shotgun',name:'Field Pump',
+      description:'Gunmetal barrel, walnut furniture, and a ribbed pump grip.',
+      price:0,isDefault:true,bulletColor:'#dfae70',
+      shapes:[
+        {type:'line',fromX:0,fromY:0,toX:1,toY:0,lineWidth:5,color:'#39454d'},
+        {type:'line',fromX:0.05,fromY:0,toX:0.3,toY:0,lineWidth:9,color:'#895637'},
+        {type:'line',fromX:0.5,fromY:0,toX:0.75,toY:0,lineWidth:8,color:'#895637'},
+      ],
+    },
+    {
+      key:'shotgun_silverline',weaponKey:'shotgun',name:'Silverline',
+      description:'A smooth tapered silver shell with a skeletal stock.',
+      price:2000,isDefault:false,bulletColor:'#e8f3f8',
+      shapes:[
+        {type:'line',fromX:0,fromY:0,toX:1,toY:0,lineWidth:7,color:'#e8eef1',outlineColor:'#65727a'},
+        {type:'line',fromX:0.04,fromY:0,toX:0.3,toY:0,lineWidth:9,color:'#b6c2c8'},
+        {type:'line',fromX:0.5,fromY:0,toX:0.76,toY:0,lineWidth:8,color:'#b6c2c8'},
+        {type:'line',fromX:0.27,fromY:-0.12,toX:0.52,toY:-0.12,lineWidth:2,color:'#ffffff'},
+      ],
+    },
+    {
+      key:'shotgun_bubble_trouble',weaponKey:'shotgun',name:'Bubble Trouble',
+      description:'Twin chroma chambers in a pearl reactor frame.',
+      price:4000,isDefault:false,bulletColor:'#27e7f2',
+      shapes:[
+        {type:'line',fromX:0,toY:0,fromY:0,toX:1,lineWidth:9,color:'#9bb7bf',outlineColor:'#07162b'},
+        {type:'line',fromX:0.32,fromY:-0.12,toX:0.98,toY:-0.12,lineWidth:5,color:'#009db5',outlineColor:'#003e59'},
+        {type:'line',fromX:0.32,fromY:0.12,toX:0.98,toY:0.12,lineWidth:5,color:'#7e28c7',outlineColor:'#32114d'},
+        {type:'line',fromX:0.36,fromY:-0.18,toX:0.92,toY:-0.18,lineWidth:3.5,color:'#00c6d5',outlineColor:'#003e59'},
+        {type:'line',fromX:0.36,fromY:0.18,toX:0.92,toY:0.18,lineWidth:3.5,color:'#a64cf0',outlineColor:'#32114d'},
+        {type:'line',fromX:0.06,fromY:-0.09,toX:0.3,toY:-0.09,lineWidth:4,color:'#ff3fbd'},
+        {type:'line',fromX:0.06,fromY:0.09,toX:0.3,toY:0.09,lineWidth:4,color:'#ffe45d'},
+        {type:'circle',cx:0.55,cy:-0.12,radius:0.06,color:'#35f0f1'},
+        {type:'circle',cx:0.72,cy:0.12,radius:0.05,color:'#d45cff'},
+        {type:'circle',cx:0.42,cy:-0.12,radius:0.025,color:'#d9ffff'},
+        {type:'circle',cx:0.86,cy:0.12,radius:0.025,color:'#ffe0ff'},
+      ],
+    },
+  ],
   pistol: [
     {
       key: "pistol_default",
@@ -374,6 +415,22 @@ const WEAPON_SKINS = {
         },
       ],
     },
+    {
+      key: "miniGun_midas",
+      weaponKey: "miniGun",
+      name: "Midas",
+      description: "Sleek gold-and-silver SMG with a circular reflex sight.",
+      price: 5000,
+      isDefault: false,
+      bulletColor: "#ffd34f",
+      shapes: [
+        {type:'line',fromX:0.08,fromY:0,toX:0.94,toY:0,lineWidth:9,color:'#dfe3e6',outlineColor:'#737982'},
+        {type:'line',fromX:0.18,fromY:-0.13,toX:0.77,toY:-0.13,lineWidth:4,color:'#e1b13a',outlineColor:'#8d6a14'},
+        {type:'line',fromX:0,fromY:0,toX:0.24,toY:0,lineWidth:3,color:'#f1f2ef'},
+        {type:'polygon',points:[{x:0.22,y:0.04},{x:0.34,y:0.04},{x:0.31,y:0.3},{x:0.23,y:0.3}],fill:'#eef0ed',color:'#a67b17'},
+        {type:'polygon',points:[{x:0.43,y:0.04},{x:0.52,y:0.04},{x:0.55,y:0.23},{x:0.46,y:0.23}],fill:'#e6e8e5',color:'#d7a72d'},
+      ],
+    },
   ],
   sniper: [
     {
@@ -545,6 +602,49 @@ const WEAPON_SKINS = {
           radius: 0.1,
           lineWidth: 2.5,
           color: "#9e42f5",
+        },
+      ],
+    },
+    {
+      key: "sniper_flatpack",
+      weaponKey: "sniper",
+      name: "Flatpack",
+      description: "Clean-cut corrugated precision.",
+      price: 2500,
+      isDefault: false,
+      bulletColor: "#d39a55",
+      shapes: [
+        {
+          type: "rectcoord",
+          topLeftX: 0.08,
+          topLeftY: -0.073,
+          topRightX: 1,
+          topRightY: -0.073,
+          bottomRightX: 1,
+          bottomRightY: 0.073,
+          bottomLeftX: 0.08,
+          bottomLeftY: 0.073,
+          color: "#b77f43",
+        },
+        {
+          type: "rectcoord",
+          topLeftX: 0.08,
+          topLeftY: -0.1505,
+          topRightX: 0.35,
+          topRightY: -0.1505,
+          bottomRightX: 0.35,
+          bottomRightY: -0.0905,
+          bottomLeftX: 0.08,
+          bottomLeftY: -0.0905,
+          color: "#c79b62",
+        },
+        {
+          type: "rect",
+          cx: 1,
+          cy: 0,
+          width: 0.025,
+          height: 0.115,
+          color: "#54371f",
         },
       ],
     },

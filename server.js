@@ -9,9 +9,16 @@ const { createGameServer } = require("./game/gameServer");
 
 const app = express();
 const server = http.createServer(app);
-const io = socketIO(server);
+const io = socketIO(server,{
+  // State packets are repetitive JSON and compress extremely well. A modest
+  // compression level trades spare server CPU for substantially less egress
+  // and less queueing on slower clients.
+  perMessageDeflate:{threshold:1024,zlibDeflateOptions:{level:3}},
+});
 
 app.use(express.json());
+app.use("/vendor/three", express.static(path.join(__dirname, "node_modules/three/build")));
+app.use("/vendor/three/addons", express.static(path.join(__dirname, "node_modules/three/examples/jsm")));
 app.use(express.static(path.join(__dirname, "public")));
 
 // Attach core features

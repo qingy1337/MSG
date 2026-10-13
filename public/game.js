@@ -1,540 +1,293 @@
-// Game variables
-const canvas = document.getElementById("game-canvas");
-const ctx = canvas.getContext("2d");
-const playersAliveInfo = document.getElementById("players-alive");
-const gameMessage = document.getElementById("game-message");
+import { Arena3D } from './arena3d.js';
+import { SnapshotMotion } from './snapshotMotion.mjs';
+import { InputPrediction } from './inputPrediction.mjs';
+import {createGrenadeHud} from './grenadeHud.mjs';
+const updateGrenadeHud=createGrenadeHud(document);
+const inputPrediction=new InputPrediction();
+let jumpRequested=false;
+let grenadeChargeAt=null;
+function cancelGrenade(){if(grenadeChargeAt!=null)socket.emit('grenadeCancel');grenadeChargeAt=null;updateGrenadeHud(localPlayer?.grenades??0);}
+let lastProbeAt=-Infinity,lastMetricsAt=0,probeId=0,networkRtt=null,serverTickMs=null;
+const snapshotMotion=new SnapshotMotion();
+let lastSnapshotSequence=0;
 
-let players = [];
-let localPlayer = null;
-let bullets = [];
-let walls = [];
-let keys = {};
-let gameActive = false;
-let firingInterval = null;
-let lastShotAt = 0;
-
-// Constants
-const PLAYER_RADIUS = 20;
-const WEAPON_LENGTH = 30;
-const BULLET_RADIUS = 5;
-const PLAYER_SPEED = 5;
-const BULLET_SPEED = 10;
-
-// Initialize game
-function initGame(gamePlayers, gameWalls) {
-  players = gamePlayers;
-  walls = gameWalls;
-  localPlayer = players.find((p) => p.id === socket.id);
-  bullets = [];
-  gameActive = true;
-
-  // Set up keyboard controls
-  window.addEventListener("keydown", (e) => {
-    keys[e.key] = true;
-  });
-  window.addEventListener("keyup", (e) => {
-    keys[e.key] = false;
-  });
-
-  // Set up mouse controls
-  canvas.addEventListener("mousemove", handleMouseMove);
-  canvas.addEventListener("mousedown", handleMouseDown);
-  window.addEventListener("mouseup", handleMouseUp);
-  canvas.addEventListener("mouseleave", handleMouseUp);
-
-  // Start game loop
-  gameLoop();
-
-  // Update game info
-  updateGameInfo();
+const canvas = document.getElementById('game-canvas');
+const playersAliveInfo = document.getElementById('players-alive');
+const gameMessage = document.getElementById('game-message');
+let arena, players = [], walls = [], localPlayer;
+let gameMap = DEFAULT_MAP, mapSolids = [];
+let floorState = {phase:'combat',floor:1,startedAt:0}, floorClockOffset = 0;
+const riding = () => gameMap.mode === 'pve' && ['riding','opening'].includes(floorState.phase);
+const travelCabin=()=>riding()?(floorState.phase==='opening'?gameMap.arrivalElevator:gameMap.elevator):null;
+let gameActive = false, frame = 0, previousTime = 0, lastShotAt = 0, lastUpdateAt = 0;
+let firing = false, dirty = false, returnTimer, messageTimer;
+const keys = new Set();
+let pitch = 0;
+const lookPrompt = document.getElementById('look-prompt');
+const locked = () => document.pointerLockElement === canvas;
+function updateArenaLabel(map) {
+  const label=document.getElementById('arena-label');
+  if(!label)return;
+  const title=map.mode==='pve'?`FLOOR / ${String(map.floor||1).padStart(2,'0')}`:(map.name||'ARENA').toUpperCase();
+  const subtitle=document.createElement('span');
+  subtitle.textContent=map.mode==='pve'?'LIVE SECTOR':`PVP MAP${Number.isSafeInteger(map.variant)?` · VARIANT ${map.variant+1}`:''}`;
+  label.replaceChildren(document.createTextNode(title),subtitle);
+}
+function releaseMouse() {
+  cancelGrenade();
+  firing = false; keys.clear();jumpRequested=false;
+  if (locked()) document.exitPointerLock();
 }
 
-// Game loop
-function gameLoop() {
-  if (!gameActive) return;
+window.initGame = function initGame(gamePlayers, gameWalls, map = DEFAULT_MAP) {
+  stop(); clearTimeout(returnTimer); clearTimeout(messageTimer);
+  players = gamePlayers; walls = gameWalls; localPlayer = players.find(p => p.id === socket.id);
+  snapshotMotion.clear();lastSnapshotSequence=0;
+  inputPrediction.reset(Date.now());jumpRequested=false;
+  gameMap = map; mapSolids = [...walls, ...map.terrain];
+  updateArenaLabel(map);
+  floorState = {phase:'combat',floor:map.floor || 1,startedAt:0};
+  gameMessage.textContent = '';
+  try {
+    arena ||= new Arena3D(canvas); arena.build(walls, map);
+    document.getElementById('render-error').classList.add('hidden');
+  } catch (error) {
+    const message = document.getElementById('render-error');
+    message.textContent = 'The 3D arena could not start. Enable WebGL 2 / hardware acceleration, then reload.';
+    message.classList.remove('hidden'); console.error(error); return;
+  }
+  gameActive = true; pitch = 0; dirty = false; lastShotAt = -Infinity; lastUpdateAt = 0; previousTime = 0;
+  lookPrompt.hidden = false;
+  updateGameInfo(); frame = requestAnimationFrame(gameLoop);
+};
 
-  update();
-  render();
-  requestAnimationFrame(gameLoop);
+function stop() {
+  gameActive = false; releaseMouse(); cancelAnimationFrame(frame);
 }
 
-// Update game state
-function update() {
-  // Always advance bullets so spectators see live action.
-  // Only process local movement/controls if we have a living local player.
-  if (localPlayer && localPlayer.alive) {
-    // Player movement
-    let dx = 0;
-    let dy = 0;
+window.cancelPendingGameReturn = function cancelPendingGameReturn() {
+  clearTimeout(returnTimer);
+  returnTimer = null;
+};
 
-    if (keys["w"] || keys["ArrowUp"]) dy -= PLAYER_SPEED;
-    if (keys["s"] || keys["ArrowDown"]) dy += PLAYER_SPEED;
-    if (keys["a"] || keys["ArrowLeft"]) dx -= PLAYER_SPEED;
-    if (keys["d"] || keys["ArrowRight"]) dx += PLAYER_SPEED;
-
-    if (dx !== 0 || dy !== 0) {
-      // Normalize diagonal movement to prevent faster speed
-      const magnitude = Math.sqrt(dx * dx + dy * dy);
-      dx = (dx / magnitude) * PLAYER_SPEED;
-      dy = (dy / magnitude) * PLAYER_SPEED;
-
-      // Move player
-      localPlayer.x += dx;
-      localPlayer.y += dy;
-
-      // Check for wall collisions and resolve them by pushing the player out
-      for (const wall of walls) {
-        // Find the closest point on the wall to the player's center
-        const closestX = Math.max(
-          wall.x,
-          Math.min(localPlayer.x, wall.x + wall.width),
-        );
-        const closestY = Math.max(
-          wall.y,
-          Math.min(localPlayer.y, wall.y + wall.height),
-        );
-
-        // Calculate the distance between the player's center and the closest point
-        const distX = localPlayer.x - closestX;
-        const distY = localPlayer.y - closestY;
-        const distance = Math.sqrt(distX * distX + distY * distY);
-
-        // If the distance is less than the player's radius, there's a collision
-        if (distance < PLAYER_RADIUS) {
-          // Calculate the overlap between the player and the wall
-          const overlap = PLAYER_RADIUS - distance;
-          // Calculate the angle to push the player out of the wall
-          const pushAngle = Math.atan2(distY, distX);
-
-          // Move the player out of the wall
-          localPlayer.x += Math.cos(pushAngle) * overlap;
-          localPlayer.y += Math.sin(pushAngle) * overlap;
-        }
-      }
-
-      // Enforce boundary constraints after collision resolution
-      localPlayer.x = Math.max(
-        PLAYER_RADIUS,
-        Math.min(localPlayer.x, canvas.width - PLAYER_RADIUS),
-      );
-      localPlayer.y = Math.max(
-        PLAYER_RADIUS,
-        Math.min(localPlayer.y, canvas.height - PLAYER_RADIUS),
-      );
-
-      // Emit player position update
-      socket.emit("playerUpdate", {
-        x: localPlayer.x,
-        y: localPlayer.y,
-        angle: localPlayer.angle,
-      });
-    }
+function update(dt, now) {
+  if (!localPlayer?.alive || !gameActive) return;
+  inputPrediction.time+=dt*1000;
+  advanceJump(localPlayer, inputPrediction.time);
+  advanceKnockback(localPlayer,Date.now()+floorClockOffset,gameMap,mapSolids);
+  if (!locked()) return;
+  const right = Number(keys.has('d') || keys.has('arrowright')) - Number(keys.has('a') || keys.has('arrowleft'));
+  const forward = Number(keys.has('w') || keys.has('arrowup')) - Number(keys.has('s') || keys.has('arrowdown'));
+  let dx = Math.cos(localPlayer.angle) * forward - Math.sin(localPlayer.angle) * right;
+  let dy = Math.sin(localPlayer.angle) * forward + Math.cos(localPlayer.angle) * right;
+  const magnitude = Math.max(1,Math.hypot(dx,dy));
+  if(dt>0){
+    const input=inputPrediction.record(dx/magnitude,dy/magnitude,dt,jumpRequested,localPlayer.movementEpoch||0);
+    applyMovementInput(localPlayer,input,gameMap,mapSolids,inputPrediction.time,travelCabin());
+    jumpRequested=false;dirty=true;
   }
-
-  // Update bullets for all viewers (including spectators)
-  updateBullets();
+  if (dirty && now - lastUpdateAt >= 33) sendPosition(now);
+  if (firing && WEAPONS[localPlayer.weapon]?.automatic) attemptFire(now);
 }
 
-// Update bullets
-function updateBullets() {
-  for (let i = bullets.length - 1; i >= 0; i--) {
-    const bullet = bullets[i];
-    const speed = typeof bullet.speed === 'number' ? bullet.speed : BULLET_SPEED;
-    const bRadius = typeof bullet.radius === 'number' ? bullet.radius : BULLET_RADIUS;
-    const shooter =
-      bullet && bullet.playerId
-        ? players.find((p) => p.id === bullet.playerId)
-        : null;
-    const shooterIsBot = !!(shooter && shooter.isBot);
-
-    // Move bullet
-    bullet.x += Math.cos(bullet.angle) * speed;
-    bullet.y += Math.sin(bullet.angle) * speed;
-
-    // Check if bullet is out of bounds
-    if (
-      bullet.x < 0 ||
-      bullet.x > canvas.width ||
-      bullet.y < 0 ||
-      bullet.y > canvas.height
-    ) {
-      bullets.splice(i, 1);
-      continue;
-    }
-
-    // Check wall collisions
-    if (checkWallCollision(bullet.x, bullet.y, bRadius)) {
-      bullets.splice(i, 1);
-      continue;
-    }
-
-    // Check player collisions
-    for (const player of players) {
-      if (player.alive && player.id !== bullet.playerId) {
-        if (shooterIsBot && player.isBot) {
-          // Bot bullets pass through other bots without dealing damage.
-          continue;
-        }
-
-        const dx = player.x - bullet.x;
-        const dy = player.y - bullet.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-
-        if (distance < PLAYER_RADIUS + bRadius) {
-          // Player hit
-          socket.emit("playerHit", {
-            targetId: player.id,
-            shooterId: bullet.playerId,
-            bulletId: typeof bullet.bulletId === "number" ? bullet.bulletId : undefined,
-          });
-          bullets.splice(i, 1);
-          break;
-        }
-      }
-    }
-  }
+function sendPosition(now) {
+  socket.emit('playerUpdate', { inputs:inputPrediction.outgoing(), angle: localPlayer.angle });
+  lastUpdateAt = now; dirty = false;
 }
 
-// Render game
-function render() {
-  // Clear canvas
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  // Clear canvas and set background to white
-  ctx.fillStyle = "white"; // Set fill color to white
-  ctx.fillRect(0, 0, canvas.width, canvas.height); // Fill the entire canvas
-
-  // Draw walls
-  ctx.fillStyle = "#666";
-  for (const wall of walls) {
-    ctx.fillRect(wall.x, wall.y, wall.width, wall.height);
-  }
-
-  // Draw players
-  for (const player of players) {
-    if (!player.alive) continue;
-
-    // Draw player circle
-    ctx.fillStyle = player.color;
-    ctx.beginPath();
-    ctx.arc(player.x, player.y, PLAYER_RADIUS, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Draw player name (above health bar)
-    ctx.fillStyle = "black";
-    ctx.textAlign = "center";
-    ctx.font = "14px Consolas";
-    ctx.fillText(player.name, player.x, player.y - PLAYER_RADIUS - 18);
-
-    // Draw health bar
-    const maxHealth = 100; // mirror server MAX_HEALTH
-    const health = Math.max(0, typeof player.health === 'number' ? player.health : maxHealth);
-    const pct = Math.max(0, Math.min(1, health / maxHealth));
-    const barWidth = 50;
-    const barHeight = 6;
-    const barX = player.x - barWidth / 2;
-    const barY = player.y - PLAYER_RADIUS - 12;
-    // Background
-    ctx.fillStyle = "#e0e0e0";
-    ctx.fillRect(barX, barY, barWidth, barHeight);
-    // Border
-    ctx.strokeStyle = "#333";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(barX, barY, barWidth, barHeight);
-    // Fill color based on percentage
-    let color = "#4CAF50"; // green
-    if (pct <= 0.3) color = "#F44336"; // red
-    else if (pct <= 0.6) color = "#FFC107"; // amber
-    ctx.fillStyle = color;
-    ctx.fillRect(barX, barY, barWidth * pct, barHeight);
-
-    // Draw weapon (skin-aware)
-    if (typeof drawPlayerWeapon === "function") {
-      drawPlayerWeapon(ctx, player);
-    } else {
-      // Fallback simple line if skin helpers are unavailable
-      ctx.strokeStyle = "black";
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(player.x, player.y);
-      const weaponKey = player.weapon || (typeof DEFAULT_WEAPON_KEY !== 'undefined' ? DEFAULT_WEAPON_KEY : 'pistol');
-      const cfg = (typeof WEAPONS !== 'undefined' && WEAPONS[weaponKey]) || (typeof WEAPONS !== 'undefined' && WEAPONS.pistol) || { weaponLength: WEAPON_LENGTH };
-      const len = typeof cfg.weaponLength === 'number' ? cfg.weaponLength : WEAPON_LENGTH;
-      ctx.lineTo(
-        player.x + Math.cos(player.angle) * len,
-        player.y + Math.sin(player.angle) * len,
-      );
-      ctx.stroke();
-    }
-  }
-
-  // Draw bullets
-  for (const bullet of bullets) {
-    let fill = "black";
-    if (typeof getBulletColorForPlayer === "function" && bullet.playerId) {
-      const shooter = players.find((p) => p.id === bullet.playerId);
-      if (shooter) {
-        fill = getBulletColorForPlayer(shooter) || fill;
-      }
-    }
-    ctx.fillStyle = fill;
-    ctx.beginPath();
-    const r = typeof bullet.radius === 'number' ? bullet.radius : BULLET_RADIUS;
-    ctx.arc(bullet.x, bullet.y, r, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // Indicate if player is spectating
-  if (localPlayer && !localPlayer.alive) {
-    ctx.fillStyle = "rgba(255, 0, 0, 0.3)";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    ctx.fillStyle = "white";
-    ctx.font = "24px Arial";
-    ctx.textAlign = "center";
-    ctx.fillText("You were eliminated! Spectating...", canvas.width / 2, 30);
-  }
+function attemptFire(now = performance.now()) {
+  if (!gameActive || !localPlayer?.alive || !locked() || riding()) return;
+  const cfg = WEAPONS[localPlayer.weapon] || WEAPONS.pistol;
+  if(Date.now()+floorClockOffset<(localPlayer.weaponSwapUntil||0))return;
+  if(localPlayer.weapon==='shotgun'&&Date.now()+floorClockOffset<(localPlayer.shotgunReloadUntil||0))return;
+  if (now - lastShotAt < cfg.cooldownMs) return;
+  sendPosition(now); socket.emit('shoot', { angle: localPlayer.angle, pitch }); lastShotAt = now;
 }
 
-// Handle mouse movement
-function handleMouseMove(e) {
-  if (!localPlayer || !localPlayer.alive || !gameActive) return;
-
-  const rect = canvas.getBoundingClientRect();
-  const mouseX = e.clientX - rect.left;
-  const mouseY = e.clientY - rect.top;
-
-  // Calculate angle between player and mouse
-  const dx = mouseX - localPlayer.x;
-  const dy = mouseY - localPlayer.y;
-  const angle = Math.atan2(dy, dx);
-
-  localPlayer.angle = angle;
-
-  // Emit player rotation update
-  socket.emit("playerUpdate", {
-    x: localPlayer.x,
-    y: localPlayer.y,
-    angle: localPlayer.angle,
-  });
-}
-
-// Handle mouse down/up (shooting)
-function handleMouseDown() {
-  if (!localPlayer || !localPlayer.alive || !gameActive) return;
-  attemptFire();
-  const weaponKey = localPlayer.weapon || (typeof DEFAULT_WEAPON_KEY !== 'undefined' ? DEFAULT_WEAPON_KEY : 'pistol');
-  const cfg = (typeof WEAPONS !== 'undefined' && WEAPONS[weaponKey]) || WEAPONS.pistol;
-  if (cfg && cfg.automatic) {
-    const interval = Math.max(50, cfg.cooldownMs || 100);
-    clearInterval(firingInterval);
-    firingInterval = setInterval(attemptFire, interval);
+function gameLoop(now) {
+  if(previousTime)arena.recordFrame(now-previousTime);
+  const dt = previousTime ? Math.min((now - previousTime) / 1000, 0.05) : 0;
+  previousTime = now;
+  if(!riding())updateCargoLifts(gameMap,players,Date.now()+floorClockOffset);
+  updateExitDoor(gameMap,floorState,Date.now()+floorClockOffset);
+  update(dt, now);
+  arena.animateElevator(floorState, Date.now()+floorClockOffset);
+  arena.render(snapshotMotion.sample(players,socket.id,now), socket.id, dt, pitch);
+  updateGrenadeHud(localPlayer?.grenades??0,grenadeChargeAt==null||!localPlayer?.alive?null:performance.now()-grenadeChargeAt);
+  const shotgunStatus=document.getElementById('weapon-status');
+  shotgunStatus.hidden=!localPlayer?.alive;
+  if(!shotgunStatus.hidden) {
+    const otherWeapon=localPlayer.weapon==='pistol'?localPlayer.primaryWeapon:'pistol';
+    const swapHint=otherWeapon&&WEAPONS[otherWeapon]?` · E: ${WEAPONS[otherWeapon].name}`:'';
+    const reloadLeft=(localPlayer.shotgunReloadUntil||0)-(Date.now()+floorClockOffset);
+    const ammo=localPlayer.shotgunShotsRemaining===0&&reloadLeft<=0?2:(localPlayer.shotgunShotsRemaining??2);
+    shotgunStatus.textContent=localPlayer.weapon==='shotgun'?
+      (reloadLeft>0?`Reloading · ${(reloadLeft/1000).toFixed(1)}s${swapHint}`:`Shotgun · ${ammo}/2${swapHint}`):
+      `${WEAPONS[localPlayer.weapon]?.name||'Weapon'}${swapHint}`;
   }
-}
-
-function handleMouseUp() {
-  if (firingInterval) {
-    clearInterval(firingInterval);
-    firingInterval = null;
+  if(now-lastProbeAt>=2000){
+    lastProbeAt=now;const id=++probeId,sent=performance.now();
+    socket.timeout(2000).emit('networkProbe',(error,data)=>{
+      if(id!==probeId)return;
+      networkRtt=error?null:performance.now()-sent;serverTickMs=error?null:data.tickMs;
+    });
   }
+  if(now-lastMetricsAt>=500){
+    lastMetricsAt=now;
+    document.getElementById('performance-info').textContent=
+      `${Math.round(1000/arena.frameBudget.average)} FPS · Ping ${networkRtt==null?'…':Math.round(networkRtt)+' ms'} · Server ${serverTickMs==null?'…':serverTickMs.toFixed(1)+' ms'} · Render ${Math.round(arena.frameBudget.scale*100)}%`;
+  }
+  frame = requestAnimationFrame(gameLoop);
 }
 
-function attemptFire() {
-  if (!localPlayer || !localPlayer.alive || !gameActive) return;
-  const weaponKey = localPlayer.weapon || (typeof DEFAULT_WEAPON_KEY !== 'undefined' ? DEFAULT_WEAPON_KEY : 'pistol');
-  const cfg = (typeof WEAPONS !== 'undefined' && WEAPONS[weaponKey]) || WEAPONS.pistol;
-  const now = Date.now();
-  const cooldown = cfg && typeof cfg.cooldownMs === 'number' ? cfg.cooldownMs : 0;
-  if (cooldown > 0 && now - lastShotAt < cooldown) return;
-
-  const weaponLength = cfg && typeof cfg.weaponLength === 'number' ? cfg.weaponLength : WEAPON_LENGTH;
-  const bulletSpeed = cfg && typeof cfg.bulletSpeed === 'number' ? cfg.bulletSpeed : BULLET_SPEED;
-  const bulletRadius = cfg && typeof cfg.bulletRadius === 'number' ? cfg.bulletRadius : BULLET_RADIUS;
-
-  // Compute weapon tip position (spawn point)
-  const tipX = localPlayer.x + Math.cos(localPlayer.angle) * weaponLength;
-  const tipY = localPlayer.y + Math.sin(localPlayer.angle) * weaponLength;
-
-  // Prevent firing if the barrel path crosses or starts inside any wall
-  if (
-    barrelPathHitsWallDiscrete(localPlayer.x, localPlayer.y, tipX, tipY, 2) ||
-    barrelIntersectsAnyWall(localPlayer.x, localPlayer.y, tipX, tipY) ||
-    isPointInsideAnyWall(tipX, tipY)
-  ) {
+window.addEventListener('keydown', e => {
+  if (!gameActive || /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+  const key = e.key.toLowerCase();
+  if(key==='e'&&locked()) {
+    e.preventDefault();
+    if(!e.repeat&&localPlayer?.alive&&localPlayer.primaryWeapon){firing=false;socket.emit('switchWeapon');}
     return;
   }
-
-  const bulletData = {
-    x: tipX,
-    y: tipY,
-    angle: localPlayer.angle,
-    speed: bulletSpeed,
-    radius: bulletRadius,
-  };
-
-  // Emit bullet to server
-  socket.emit("shoot", bulletData);
-  lastShotAt = now;
-}
-
-// Check wall collision
-function checkWallCollision(x, y, radius) {
-  for (const wall of walls) {
-    // Find closest point on wall to the circle
-    const closestX = Math.max(wall.x, Math.min(x, wall.x + wall.width));
-    const closestY = Math.max(wall.y, Math.min(y, wall.y + wall.height));
-
-    // Calculate distance between circle center and closest point
-    const distX = x - closestX;
-    const distY = y - closestY;
-    const distance = Math.sqrt(distX * distX + distY * distY);
-
-    // Check collision
-    if (distance < radius) {
-      return true;
-    }
+  if(key==='q'&&locked()) {
+    e.preventDefault();
+    if(!e.repeat&&!riding()&&localPlayer?.alive&&localPlayer.grenades>0&&grenadeChargeAt==null){grenadeChargeAt=performance.now();socket.emit('grenadeCharge');}
+    return;
   }
-  return false;
-}
-
-// Simple point-in-rectangle check for walls
-function isPointInsideAnyWall(x, y) {
-  for (const wall of walls) {
-    if (
-      x >= wall.x &&
-      x <= wall.x + wall.width &&
-      y >= wall.y &&
-      y <= wall.y + wall.height
-    ) {
-      return true;
-    }
+  if (e.code === 'Space' && locked()) {
+    e.preventDefault();
+    if (!riding() && !e.repeat && localPlayer?.alive && localPlayer.jumpStartedAt==null && !localPlayer.knockback)jumpRequested=true;
+    return;
   }
-  return false;
-}
-
-// Check if the line segment from (x0,y0) to (x1,y1) intersects any wall
-function barrelIntersectsAnyWall(x0, y0, x1, y1) {
-  for (const wall of walls) {
-    if (lineIntersectsRect(x0, y0, x1, y1, wall)) return true;
+  if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
+    e.preventDefault(); keys.add(key);
   }
-  return false;
-}
-
-function lineIntersectsRect(x0, y0, x1, y1, rect) {
-  // If either endpoint is inside, it's intersecting
-  if (
-    x0 >= rect.x && x0 <= rect.x + rect.width &&
-    y0 >= rect.y && y0 <= rect.y + rect.height
-  ) return true;
-  if (
-    x1 >= rect.x && x1 <= rect.x + rect.width &&
-    y1 >= rect.y && y1 <= rect.y + rect.height
-  ) return true;
-
-  // Check segment against each rectangle edge
-  const r = rect;
-  const edges = [
-    [r.x, r.y, r.x + r.width, r.y],
-    [r.x + r.width, r.y, r.x + r.width, r.y + r.height],
-    [r.x + r.width, r.y + r.height, r.x, r.y + r.height],
-    [r.x, r.y + r.height, r.x, r.y],
-  ];
-  for (const [ex0, ey0, ex1, ey1] of edges) {
-    if (segmentsIntersect(x0, y0, x1, y1, ex0, ey0, ex1, ey1)) return true;
+});
+window.addEventListener('keyup', e => {
+  keys.delete(e.key.toLowerCase());
+  if(e.key.toLowerCase()==='q'&&grenadeChargeAt!=null){
+    if(gameActive&&locked()&&localPlayer?.alive&&!riding()){sendPosition(performance.now());socket.emit('throwGrenade',{angle:localPlayer.angle,pitch});grenadeChargeAt=null;}
+    else cancelGrenade();
   }
-  return false;
-}
-
-function segmentsIntersect(x1, y1, x2, y2, x3, y3, x4, y4) {
-  const den = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
-  if (den === 0) return false; // parallel lines
-  const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / den;
-  const u = ((x1 - x3) * (y1 - y2) - (y1 - y3) * (x1 - x2)) / den;
-  return t >= 0 && t <= 1 && u >= 0 && u <= 1;
-}
-
-// Robust discrete raycast along barrel path
-function barrelPathHitsWallDiscrete(x0, y0, x1, y1, step = 2) {
-  const dx = x1 - x0;
-  const dy = y1 - y0;
-  const len = Math.sqrt(dx * dx + dy * dy);
-  if (len === 0) return false;
-  const steps = Math.max(1, Math.ceil(len / step));
-  for (let i = 1; i <= steps; i++) {
-    const t = i / steps;
-    const px = x0 + dx * t;
-    const py = y0 + dy * t;
-    if (isPointInsideAnyWall(px, py)) return true;
+});
+window.addEventListener('blur', releaseMouse);
+document.addEventListener('visibilitychange', () => { if (document.hidden) { cancelGrenade();keys.clear(); firing = false; } });
+document.addEventListener('mousemove', e => {
+  if (!locked() || !gameActive || !localPlayer?.alive) return;
+  localPlayer.angle += e.movementX * MOVEMENT.mouseSensitivity;
+  pitch = Math.max(-1.35, Math.min(1.35, pitch - e.movementY * MOVEMENT.mouseSensitivity));
+  dirty = true;
+});
+document.addEventListener('pointerlockchange', () => {
+  cancelGrenade();
+  firing = false; keys.clear();
+  lookPrompt.hidden = locked() || !gameActive || !localPlayer?.alive;
+});
+document.addEventListener('pointerlockerror', () => {
+  lookPrompt.textContent = 'Mouse capture unavailable · Click to retry'; lookPrompt.hidden = false;
+});
+canvas.addEventListener('pointerdown', e => {
+  if (e.button !== 0 || !gameActive || !localPlayer?.alive) return;
+  if (!locked()) {
+    const request = canvas.requestPointerLock?.();
+    request?.catch(() => { lookPrompt.textContent = 'Mouse capture unavailable · Click to retry'; });
+    return;
   }
-  return false;
-}
+  firing = true; attemptFire();
+});
+window.addEventListener('pointerup', () => { firing = false; });
+document.getElementById('raytracing-toggle').addEventListener('change', e => {
+  if (arena?.floor) arena.floor.uniforms.reflections.value = e.target.checked;
+});
 
-// Update game info
 function updateGameInfo() {
-  const alivePlayers = players.filter((p) => p.alive);
-  playersAliveInfo.textContent = `Players Alive: ${alivePlayers.length}/${players.length}`;
+  if (gameMap.mode === 'pve') {
+    playersAliveInfo.textContent = `FLOOR ${gameMap.floor} · ${players.filter(p => p.alive && !p.isBot).length} PLAYERS · ${players.filter(p => p.alive && p.isBot).length} BOTS · +5 HP/s`;
+    return;
+  }
+  playersAliveInfo.textContent = `${players.filter(p => p.alive).length} / ${players.length} OPERATORS ALIVE`;
 }
 
-// Socket event handlers
-socket.on("gameState", (updatedPlayers) => {
-  players = updatedPlayers;
+socket.on('gameState', (updated,meta) => {
+  if(meta?.sequence&&meta.sequence<=lastSnapshotSequence)return;
+  if(meta?.sequence)lastSnapshotSequence=meta.sequence;
+  if(arena&&gameActive)arena.setGrenades(meta?.grenades||[],meta?.serverNow);
+  if(arena&&gameActive)arena.setPickups(meta?.pickups||[]);
+  // High-frequency frames contain only changing fields. Identity, cosmetics,
+  // teams and body configuration came from the reliable floor-start packet.
+  const previousById=new Map(players.map(player=>[player.id,player]));
+  updated=updated.map(frame=>Object.assign({},previousById.get(frame.id)||{},frame));
+  snapshotMotion.push(updated,performance.now());
+  // Rebase to the acknowledged input, then replay only outstanding commands.
+  const predicted = localPlayer; players = updated; localPlayer = players.find(p => p.id === socket.id);
+  if (gameActive && predicted?.alive && localPlayer?.alive) {
+    localPlayer.angle = predicted.angle;
+    inputPrediction.reconcile(localPlayer,predicted,meta?.serverNow??Date.now()+floorClockOffset,
+      (player,input,time)=>applyMovementInput(player,input,gameMap,mapSolids,time,travelCabin()),
+      player=>{if(!riding())updateCargoLifts(gameMap,[player],Date.now()+floorClockOffset);});
+  }
   updateGameInfo();
 });
-
-socket.on("newBullet", (bulletData) => {
-  bullets.push(bulletData);
+socket.on('shotFired', shot => { if (arena && gameActive) arena.shot(shot); });
+socket.on('weaponSwitched',data=>{
+  const player=players.find(p=>p.id===data?.id);
+  if(!player)return;
+  Object.assign(player,{weapon:data.weapon,weaponSkinKey:data.weaponSkinKey,weaponSwapUntil:data.weaponSwapUntil});
+  if(player===localPlayer)firing=false;
+  if(arena&&gameActive)arena.weaponSwitched(data.id);
 });
-
-socket.on("playerKilled", (playerId) => {
-  const player = players.find((p) => p.id === playerId);
-  if (player) {
-    player.alive = false;
-    player.health = 0;
-    updateGameInfo();
-
-    if (playerId === socket.id) {
-      gameMessage.textContent = "You were eliminated!";
-    } else {
-      gameMessage.textContent = `${player.name} was eliminated!`;
-    }
-
-    setTimeout(() => {
-      gameMessage.textContent = "";
-    }, 3000);
-  }
+socket.on('grenadeExploded',data=>{if(arena&&gameActive)arena.grenadeExplosion(data);});
+socket.on('grenadeThrown',data=>{if(arena&&gameActive)arena.setGrenades([data],data.serverNow,false);});
+function applyFloorState(state) {
+  cancelGrenade();
+  floorState=state;floorClockOffset=state.serverNow-Date.now();
+  clearTimeout(messageTimer);
+  if(riding()){firing=false;dirty=false;jumpRequested=false;inputPrediction.reset(state.serverNow);}
+  updateExitDoor(gameMap,state,Date.now()+floorClockOffset);
+  gameMessage.textContent=state.phase==='ready'?'Floor clear · Exit elevator unlocked (E on minimap)':
+    state.phase==='riding'?`Ascending to floor ${state.floor+1}…`:
+    state.phase==='opening'?`Floor ${state.floor} · Doors opening`:localPlayer?.alive?'':eliminatedMessage();
+  updateGameInfo();
+}
+socket.on('floorState',applyFloorState);
+socket.on('floorStarting',data=>{
+  const angle=localPlayer?.angle,wasAlive=localPlayer?.alive;
+  players=data.players;walls=data.walls;gameMap=data.map;mapSolids=[...walls,...gameMap.terrain];
+  updateArenaLabel(gameMap);
+  localPlayer=players.find(p=>p.id===socket.id);
+  if(localPlayer&&wasAlive&&Number.isFinite(angle))localPlayer.angle=angle+Math.PI;
+  if(localPlayer?.alive&&!wasAlive){pitch=0;firing=false;keys.clear();}
+  arena.build(walls,gameMap);
+  snapshotMotion.clear();
+  inputPrediction.reset(data.state.serverNow);jumpRequested=false;
+  applyFloorState(data.state);
+  arena.animateElevator(floorState,Date.now()+floorClockOffset);
+  lookPrompt.textContent='Click to resume';
+  lookPrompt.hidden=locked()||!localPlayer?.alive;
 });
-
-socket.on("playerLeft", (playerId) => {
-  const playerIndex = players.findIndex((p) => p.id === playerId);
-  if (playerIndex !== -1) {
-    const playerName = players[playerIndex].name;
-    players.splice(playerIndex, 1);
-    updateGameInfo();
-
-    gameMessage.textContent = `${playerName} left the game`;
-    setTimeout(() => {
-      gameMessage.textContent = "";
-    }, 3000);
-  }
+function eliminatedMessage() {
+  return gameMap.mode==='pve'?'Spectating · You’ll respawn next floor if your team survives':'You were eliminated · Spectating';
+}
+socket.on('playerKilled', (id,death) => {
+  const player = players.find(p => p.id === id); if (!player) return;
+  if(arena&&gameActive)arena.characterDeath(player,death);
+  player.alive = false; player.health = 0; updateGameInfo();
+  if (id === socket.id) { releaseMouse(); lookPrompt.hidden = true; }
+  gameMessage.textContent = id === socket.id ? eliminatedMessage() : `${player.name} was eliminated`;
+  clearTimeout(messageTimer);
+  if (id !== socket.id) messageTimer = setTimeout(() => { gameMessage.textContent = localPlayer?.alive ? '' : eliminatedMessage(); }, 3000);
 });
-
-socket.on("gameOver", (winner) => {
-  gameActive = false;
-  gameMessage.textContent = `Game Over! ${winner.name} wins!`;
-
-  setTimeout(() => {
-    if (typeof setActiveScreen === "function") {
-      setActiveScreen(loginScreen);
-    } else {
-      gameScreen.classList.add("hidden");
-      loginScreen.classList.remove("hidden");
-      if (typeof waitingScreen !== "undefined" && waitingScreen) {
-        waitingScreen.classList.add("hidden");
-      }
-      if (typeof weaponScreen !== "undefined" && weaponScreen) {
-        weaponScreen.classList.add("hidden");
-      }
-    }
-    nameInput.value = "";
-    gameMessage.textContent = "";
+socket.on('playerLeft', id => { players = players.filter(p => p.id !== id); updateGameInfo(); });
+socket.on('gameOver', winner => {
+  // Match lifecycle events are scoped server-side as well, but this guard
+  // protects a newly joined lobby from any stale/in-flight result packet.
+  if (!gameActive) return;
+  gameActive = false; releaseMouse(); lookPrompt.hidden = true; clearTimeout(messageTimer);
+  gameMessage.textContent = `Game over · ${winner.name} wins!`; clearTimeout(returnTimer);
+  returnTimer = setTimeout(() => {
+    returnTimer = null;
+    if (!waitingScreen.classList.contains('hidden') || !weaponScreen.classList.contains('hidden')) return;
+    stop(); setActiveScreen(loginScreen); nameInput.value = '';
   }, 5000);
 });
+socket.on('resetGame', stop);
+socket.on('disconnect', () => { stop(); gameMessage.textContent = 'Connection lost. Reconnect to join another match.'; });

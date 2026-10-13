@@ -316,12 +316,74 @@ button:disabled,
     cursor: pointer;
 }
 
+#pve-start-floor-row { margin-top: 12px; font-size: 13px; }
+#pve-start-floor { width: 110px; margin-left: 8px; }
+
 .game-shell {
     display: flex;
     flex-direction: column;
     height: 100%;
     border-radius: var(--radius-md);
     padding: 0px;
+    width: 100%;
+}
+
+#game-screen { width: 100%; align-items: stretch; }
+#arena-viewport { position: relative; width: 100%; height: min(78vh, 900px); min-height: 440px; overflow: hidden; border-radius: 14px; background: #07131d; }
+#arena-viewport #game-canvas { display: block; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
+.minimap-panel { position: absolute; top: 20px; left: 20px; padding: 12px; border: 1px solid #35515c; background: #0b1924e8; border-radius: 10px; color: #b6cbd0; text-align: left; pointer-events: none; }
+.minimap-panel > span { display: block; font-size: 9px; letter-spacing: 2px; margin-bottom: 10px; }
+#minimap { width: 180px; height: 120px; display: block; border-radius: 3px; }
+.minimap-panel small { display: flex; align-items: center; justify-content: space-between; font-size: 8px; letter-spacing: 1.7px; margin-top: 8px; }
+.minimap-panel small i { width: 5px; height: 5px; background: #8affd9; border-radius: 50%; }
+#arena-label { position: absolute; top: 24px; right: 24px; font-size: 14px; color: #c5e2e7; letter-spacing: 3px; text-align: right; pointer-events: none; }
+#arena-label span { display: block; font-size: 8px; color: #6f9da9; margin-top: 8px; }
+#health-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+#crosshair { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #e0fff4; font: 24px monospace; line-height: 1; text-shadow: 0 1px 3px #000; pointer-events: none; }
+#crosshair .shotgun-reticle { display: none; }
+#crosshair.shotgun { width: var(--shotgun-reticle-size, 72px); height: var(--shotgun-reticle-size, 72px); text-shadow: none; }
+#crosshair.shotgun .standard-crosshair { display: none; }
+#crosshair.shotgun .shotgun-reticle {
+    display: block;
+    position: absolute;
+    inset: 0;
+    box-sizing: border-box;
+    border: 2px solid #e0fff4d9;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px #061018b3, inset 0 0 0 1px #06101880, 0 0 8px #b8fff533;
+}
+#crosshair.shotgun .shotgun-reticle::after {
+    content: '';
+    position: absolute;
+    width: 5px;
+    height: 5px;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background: #f1fffb;
+    box-shadow: 0 0 0 1px #061018cc, 0 0 5px #d7fff4;
+}
+#look-prompt { position: absolute; top: 58%; left: 50%; transform: translateX(-50%); padding: 16px 22px; border: 1px solid #55727e; border-radius: 8px; background: #07131de8; color: #e0fff4; letter-spacing: 2px; text-align: center; pointer-events: none; }
+#look-prompt small { display: block; font-size: 10px; letter-spacing: 0; margin-top: 8px; white-space: nowrap; }
+#local-health { position: absolute; bottom: 55px; left: 22px; color: #c5f7e5; font: 18px monospace; pointer-events: none; }
+#local-health-bar { width: 190px; height: 10px; margin-top: 8px; background: #10232de6; border: 1px solid #adcac966; border-radius: 6px; overflow: hidden; }
+#local-health-fill { height: 100%; width: 100%; background: #7bf0c4; transition: width 0.12s ease-out, background-color 0.12s; }
+.character-health { position: absolute; transform: translate(-50%, -100%); width: 76px; padding: 5px 6px; border-radius: 4px; background: #07131dcc; color: #ecfafa; font-size: 9px; line-height: 13px; text-align: left; }
+.character-health span { display: inline-block; max-width: 45px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+.character-health strong { float: right; font-size: 9px; font-weight: 500; color: #c4e4dd; }
+.character-health i { display: block; height: 3px; margin-top: 3px; background: #3b4d53; border-radius: 2px; overflow: hidden; }
+.character-health b { display: block; height: 100%; transition: width 0.1s; }
+.arena-controls { position: absolute; bottom: 20px; left: 22px; font-size: 9px; letter-spacing: 1.4px; color: #a2bac3; pointer-events: none; }
+.arena-controls b { margin: 0 10px; color: #527782; }
+.render-setting { position: absolute; bottom: 17px; right: 22px; display: flex; align-items: center; gap: 8px; color: #a2bac3; font-size: 10px; }
+.render-setting input { accent-color: #76e4c9; }
+#render-error { position: absolute; inset: 30%; color: #fff; background: #142734; padding: 24px; border-radius: 12px; }
+@media (max-width: 650px) {
+    .minimap-panel { transform: scale(0.65); transform-origin: top left; top: 12px; left: 12px; }
+    .arena-controls { font-size: 7px; bottom: 46px; left: 12px; letter-spacing: 0.4px; }
+    .render-setting { left: 12px; right: auto; bottom: 12px; }
+    #arena-label { font-size: 10px; right: 12px; }
 }
 
 #game-canvas {
@@ -333,6 +395,13 @@ button:disabled,
         0 18px 42px rgba(15, 23, 42, 0.85);*/
 }
 
+#performance-info { font: 11px monospace; opacity: 0.75; }
+#grenade-hud { position:absolute;left:22px;bottom:112px;display:flex;gap:9px;pointer-events:none; }
+.grenade-icon { width:21px;height:28px;color:#b8d9cb;opacity:.2;transition:opacity .15s,filter .15s; }
+.grenade-icon.available { opacity:1;color:#d3ffea;filter:drop-shadow(0 0 4px #92f5c977); }
+#grenade-charge-track { position:absolute;left:calc(50% - 40px);top:50%;transform:translateY(-50%);width:10px;height:48px;background:#10231f;border:1px solid #d3ffea;border-radius:3px;overflow:hidden;opacity:.85;pointer-events:none; }
+#grenade-charge-track[hidden] { display:none; }
+#grenade-charge { position:absolute;bottom:0;left:0;width:100%;height:0;background:#ffca73; }
 #game-info {
     margin-top: 12px;
     display: flex;
