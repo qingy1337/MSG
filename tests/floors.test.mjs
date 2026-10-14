@@ -26,7 +26,9 @@ test('authored PvP maps, variants, spawns and raised routes pass validation',()=
     const graph=new navigation.NavigationGraph(layout.map,layout.walls);
     for(const deck of layout.map.terrain.filter(s=>s.walkable)) {
       const goal={x:deck.x+deck.width/2,y:deck.y+deck.height/2,height:deck.top};
-      assert.ok(graph.find(layout.map.spawns[0],goal).length,`${id} raised route is reachable`);
+      const lift=deck.liftServed&&layout.map.terrain.find(s=>s.kind==='lift'&&s.id===deck.liftServed);
+      assert.ok(lift||graph.find(layout.map.spawns[0],goal).length,`${id} raised route is reachable`);
+      if(lift)assert.equal(lift.maxTop,deck.top,`${id} lift reaches its raised route`);
     }
   }
 });
@@ -112,6 +114,26 @@ test('Overgrown Temple is a grassy two-layer sanctuary with reachable decks and 
   assert.ok(map.spawns.filter(s=>s.height>0).length>=4,'both terraces can begin with active firefights');
   const northCenter=map.spawns.find(s=>Math.abs(s.x-map.width/2)<1&&s.y<map.height*.12);
   assert.equal(northCenter?.height,3,'the enlarged north terrace never spawns a player beneath its roof');
+  const jumpables=terrain.filter(s=>s.kind==='templeStep');
+  const jumpApex=movement.MOVEMENT.jumpSpeed**2/(2*movement.MOVEMENT.gravity);
+  assert.equal(jumpables.length,6,'broken column drums create multiple ground-level jump routes');
+  assert.ok(jumpables.every(s=>s.top<=jumpApex&&s.collisionShape==='circle'),
+    'every broken column has a reachable top and a collider matching its round geometry');
+  const watchLift=terrain.find(s=>s.kind==='lift'&&s.id==='temple-watch-lift');
+  const watchDecks=terrain.filter(s=>s.kind==='templeTowerDeck');
+  const watchPillars=terrain.filter(s=>s.kind==='templeTowerPillar');
+  assert.ok(watchLift&&watchLift.maxTop>=7,'the side watchtower is genuinely tall');
+  assert.equal(watchDecks.length,4,'the firing deck forms a ring around its lift shaft');
+  assert.equal(watchPillars.length,4,'four tall masonry piers establish the tower silhouette');
+  assert.ok(watchDecks.every(deck=>deck.bottom>6.8&&deck.top===watchLift.maxTop&&deck.liftServed===watchLift.id));
+  for(const deck of watchDecks) {
+    const overlapX=Math.min(deck.x+deck.width,watchLift.x+watchLift.width)-Math.max(deck.x,watchLift.x);
+    const overlapY=Math.min(deck.y+deck.height,watchLift.y+watchLift.height)-Math.max(deck.y,watchLift.y);
+    assert.ok(overlapX<=1e-6||overlapY<=1e-6,'fixed tower deck never crosses the moving shaft');
+  }
+  assert.ok(map.spawns.some(s=>s.height===watchLift.maxTop&&
+    watchDecks.some(deck=>s.x>=deck.x&&s.x<=deck.x+deck.width&&s.y>=deck.y&&s.y<=deck.y+deck.height)),
+  'the firing deck participates in combat rather than remaining decorative');
   const graph=new navigation.NavigationGraph(map,walls);
   for(const terrace of terraces) {
     const goal={x:terrace.x+terrace.width/2,y:terrace.y+terrace.height/2,height:terrace.top};
@@ -245,18 +267,38 @@ test('authenticated qing can select every PvP map and spawn one matching debug c
   } finally {game.close();}
 });
 
-test('room proportions, terrain compositions and opposing elevators vary without recent repeats',()=>{
-  const shapes=new Set(),styles=new Set(),recent=[];
-  for(let floor=1;floor<=20;floor++) {
+test('BSP architecture, graph topology and opposing elevators vary without recent theme repeats',()=>{
+  const shapes=new Set(),styles=new Set(),topologies=new Set(),degrees=new Set(),roomCounts=new Set(),recent=[];
+  const features={lantern:0,multiTier:0,wallCatwalk:0,flat:0,loops:0,motif:0,fullHeightWalls:0};
+  for(let floor=1;floor<=64;floor++) {
     const {map,walls}=generatePveFloor(floor*7919,floor,recent);
     assert.ok(!recent.slice(-2).includes(map.composition));recent.push(map.composition);
-    shapes.add(`${map.width}/${map.height}`);styles.add(map.composition);
+    shapes.add(`${map.width}/${map.height}`);styles.add(map.composition);topologies.add(map.topology.signature);
+    degrees.add(map.topology.degreeSequence.join(','));roomCounts.add(map.zones.length);
+    features.lantern+=map.features.grandLantern;features.multiTier+=map.features.multiTier;
+    features.wallCatwalk+=map.features.wallCatwalks>0;features.flat+=map.terrain.every(s=>!s.walkable);
+    features.loops+=map.topology.loopCount>0;
+    features.motif+=map.features.architecturalMotifs.length>0;
+    features.fullHeightWalls+=map.features.fullHeightSecondaryWalls;
+    assert.ok(map.zones.length>=2&&map.zones.length<=9);
+    assert.equal(map.topology.zoneCount,map.zones.length);
+    assert.ok(map.topology.edgeCount>=map.zones.length-1,'generated room graph spans every zone');
+    assert.ok(map.topology.loopCount>=0,'compact two-zone plans may be intentionally linear');
+    const raised=map.zones.filter(z=>z.elevation>0).length;
+    assert.ok(raised===0||raised===1,'elevation is optional instead of stamped onto every floor');
+    assert.equal(map.terrain.filter(s=>s.kind==='lift').length,raised);
+    assert.ok(map.features.secondaryWalls>=5,'rooms receive locally generated partitions');
     assert.ok(map.arrivalElevator.x<map.width/4&&map.elevator.x>map.width*0.75);
     assert.equal(inElevator(floorSpawn(map,false,0),map),false);
     assert.ok(floorConnected(map,walls));
     assert.ok(validation.raisedTerrainConnected(map,walls));
   }
-  assert.equal(shapes.size,4);assert.equal(styles.size,5);
+  assert.ok(shapes.size>=40);assert.equal(topologies.size,64);assert.ok(degrees.size>=25);
+  assert.deepEqual([...roomCounts].sort(),[2,3,4,5,6,7,8,9]);
+  assert.ok(features.lantern>=10&&features.multiTier>=3&&features.wallCatwalk>=15);
+  assert.ok(features.motif>=35&&features.fullHeightWalls>=80,'wall grammars and ceiling-height dividers recur across seeds');
+  assert.ok(features.flat>=3&&features.loops>=30,'vertical and graph cadence both vary');
+  assert.deepEqual([...styles].sort(),['freight','processing','reactor','turbine']);
 });
 
 test('exit collision stays locked during combat and opens only after the clearance animation',()=>{
@@ -297,9 +339,11 @@ for(const generate of [generateScatterFloor,generatePveFloor])test(`${generate.n
   const signatures=new Set();
   const crossedAisles=new Set();
   const themes=new Set();
-  const pocketCounts=new Set(),landmarkPositions=new Set(),rampAxes=new Set();
-  const outlines=new Set();
+  const zoneCounts=new Set(),rampAxes=new Set();
+  const topologies=new Set(),degreeSequences=new Set(),propCounts=new Set();
   const deckAreas=new Set(),deckHeights=new Set(),upperSpawns=new Set();
+  const featureCounts={lantern:0,multiTier:0,wallCatwalk:0,flat:0,loops:0,motif:0,fullHeightWalls:0};
+  const motifKinds=new Set();
   for(let seed=0;seed<100;seed++) {
     const {map,walls}=generate(seed*7919,3),solids=[...walls,...map.terrain];
     assert.ok(floorConnected(map,walls),`connected seed ${seed}`);
@@ -312,48 +356,38 @@ for(const generate of [generateScatterFloor,generatePveFloor])test(`${generate.n
     assert.ok(walls.length>=27&&walls.length<=34,'moderate scattered wall density');
     assert.ok(map.terrain.filter(s=>s.kind==='cover').length<=5,'limited loose cover plus landmark cover');
     } else {
+      assert.ok(validation.raisedTerrainConnected(map,walls),`raised routes connected seed ${seed}`);
       themes.add(map.landmark.theme);
-      assert.ok(ramps.length===0||ramps.length===2,'flat rooms or connected raised routes');
-      assert.equal(map.rooms,undefined,'no fixed five-room floor plan');
-      assert.equal(map.doorways,undefined,'connections emerge from the geometry');
-      assert.ok(map.cutouts.length>=1&&map.cutouts.length<=4,'non-rectangular playable footprint');
-      outlines.add(map.cutouts.map(c=>`${c.x===12?'L':'R'}${c.y===12?'T':'B'}`).sort().join(','));
-      assert.ok(walls.slice(9).some(w=>!w.kind&&w.top===map.ceiling),'interior ceiling-height walls');
-      assert.ok(walls.slice(9).some(w=>!w.kind&&w.top<map.ceiling),'low walls remain too');
-      for(const c of map.cutouts) {
-        assert.equal(maps.canOccupy(c.x+c.width/2,c.y+c.height/2,0,solids),false);
-        assert.equal(maps.canOccupy(c.x+c.width/2,c.y+c.height/2,map.ceiling-2.2,solids),false,'cannot jump over map boundary');
-        const left=c.x===12,shooter={id:'p',x:left?c.x+c.width+40:c.x-40,y:c.y+c.height/2,height:4,alive:true};
-        const hit=combat.traceShot(shooter,left?Math.PI:0,[c],[],()=>true,0,{...map,terrain:[]});
-        assert.equal(hit.hit,'wall','boundary stops elevated shots');
-        assert.ok(Math.abs(hit.endX-(left?c.x+c.width:c.x))<0.001);
-      }
-      assert.ok(map.pockets.length<=6,'large raised areas can replace ground-level architectural fragments');
-      const deck=map.terrain.find(s=>s.walkable);
-      if(deck){deckAreas.add(deck.width*deck.height);deckHeights.add(deck.top);}
-      upperSpawns.add(!!map.upperBotSpawns);
+      assert.equal(map.rooms,undefined,'there is no selected room template');
+      assert.equal(map.doorways,undefined,'connections are compiled from shared BSP boundaries');
+      assert.deepEqual(map.pockets,map.zones,'lighting regions mirror generated zones');
+      assert.ok(map.zones.length>=2&&map.zones.length<=9);
+      assert.equal(map.topology.zoneCount,map.zones.length);
+      assert.ok(map.topology.edgeCount>=map.zones.length-1);
+      assert.ok(map.topology.loopCount>=0);
+      assert.equal(map.terrain.filter(s=>s.kind==='lift').length,map.topology.raisedCount);
+      assert.ok(map.features.secondaryWalls>=5,'natural secondary walls break up room interiors');
+      featureCounts.lantern+=map.features.grandLantern;featureCounts.multiTier+=map.features.multiTier;
+      featureCounts.wallCatwalk+=map.features.wallCatwalks>0;
+      featureCounts.flat+=map.terrain.every(s=>!s.walkable);featureCounts.loops+=map.topology.loopCount>0;
+      featureCounts.motif+=map.features.architecturalMotifs.length>0;
+      featureCounts.fullHeightWalls+=map.features.fullHeightSecondaryWalls;
+      for(const motif of map.features.architecturalMotifs)motifKinds.add(motif.kind);
+      const decks=map.terrain.filter(s=>s.walkable);
+      for(const value of decks){deckAreas.add(value.width*value.height);deckHeights.add(value.top);}
+      upperSpawns.add(map.upperBotSpawns.length>0);
       if(map.upperBotSpawns)for(const p of map.upperBotSpawns) {
-        assert.equal(p.height,deck.top);
-        assert.equal(maps.groundHeight(p.x,p.y,map.terrain),deck.top);
+        assert.equal(maps.groundHeight(p.x,p.y,map.terrain),p.height);
       }
-      pocketCounts.add(map.pockets.length);
-      if(map.landmark.bounds)landmarkPositions.add(`${Math.floor(map.landmark.bounds.x/200)},${Math.floor(map.landmark.bounds.y/200)}`);
+      zoneCounts.add(map.zones.length);
       if(ramps.length)rampAxes.add(ramps[0].axis);
-      if(map.composition==='overlook') {
-      const axis=ramps[0].axis,vertical=axis==='y';
-      const ordered=[...ramps].sort((a,b)=>a[axis]-b[axis]),first=ordered[0],last=ordered[1];
-      const start=first[axis]-24,end=last[axis]+(vertical?last.height:last.width)+24;
-      const p={x:vertical?first.x+first.width/2:start,y:vertical?start:first.y+first.height/2,height:0};
-      for(let value=start;value<=end;value+=2)assert.ok(maps.moveOnTerrain(p,vertical?p.x:value,vertical?value:p.y,map,solids,1000),
-        'both ramps form one continuous walk up, across the deck, and back down');
-      assert.equal(p.height,0,'opposite ramp returns to ground without a drop');
-      assert.equal(p.jumpStartedAt,undefined);
-      } else if(map.composition==='district') {
-        assert.ok(deck.width*deck.height/(map.width*map.height)>=0.14);
-        assert.equal(deck.x,12);assert.ok(deck.y===12||deck.y+deck.height===map.height-12);
-        assert.equal(map.upperBotSpawns.length,3);
-        assert.ok(map.terrain.filter(s=>s.bottom===deck.top&&s.kind!=='rail').length>=6);
-      }
+      assert.equal(map.botSpawns.length,30,'later waves have unique slots across generated rooms');
+      assert.ok(new Set(map.botSpawns.map(p=>p.zone)).size>=Math.min(2,map.zones.length),
+        'bots occupy multiple architectural zones, including compact plans');
+      const propCount=map.terrain.filter(s=>['generator','cover','pipe','conveyor','pillar','turbine','storageRack',
+        'reactorCore','consoleBank','ventStack'].includes(s.kind)).length;
+      assert.ok(propCount>=7,'generated rooms are furnished rather than left as open boxes');propCounts.add(propCount);
+      topologies.add(map.topology.signature);degreeSequences.add(map.topology.degreeSequence.join(','));
     }
     for(const w of walls.slice(9)) {
       for(const x of [650,1070])if(w.x<x&&w.x+w.width>x)crossedAisles.add(`x${x}`);
@@ -375,7 +409,7 @@ for(const generate of [generateScatterFloor,generatePveFloor])test(`${generate.n
     for(const ramp of map.terrain.filter(s=>s.kind==='ramp')) {
       const vertical=ramp.axis==='y',length=vertical?ramp.height:ramp.width;
       const point=t=>({x:ramp.x+(vertical?ramp.width/2:t*length),y:ramp.y+(vertical?t*length:ramp.height/2)});
-      const p={...point(ramp.reverse?1.04:-0.04),alive:true,height:0};
+      const p={...point(ramp.reverse?1.04:-0.04),alive:true,height:ramp.bottom||0};
       for(let k=0;k<=108;k++) {
         const t=(ramp.reverse?1.04:-0.04)+(ramp.reverse?-1:1)*k/100,next=point(t);
         assert.ok(maps.moveOnTerrain(p,next.x,next.y,map,solids,1000+k),`climb seed ${seed}`);
@@ -387,14 +421,21 @@ for(const generate of [generateScatterFloor,generatePveFloor])test(`${generate.n
   assert.equal(signatures.size,100);
   if(generate===generateScatterFloor)assert.equal(crossedAisles.size,4,'old bay aisles are no longer reserved');
   else {
-    assert.equal(themes.size,3,'all landmark variants generated');
-    assert.ok(deckAreas.size>=6,'parameterised wings, bridges, overlooks and districts');
-    assert.deepEqual([...deckHeights].sort(),[2.8,3.2,3.8]);
-    assert.equal(upperSpawns.size,2,'some floors have an upstairs squad, others keep bots downstairs');
-    assert.ok(pocketCounts.size>=3,'enclosure count varies instead of repeating a room graph');
-    assert.ok(landmarkPositions.size>=8,'landmark is not locked to a central hall');
+    assert.equal(themes.size,4,'all architectural themes generated');
+    assert.ok(deckAreas.size>=80,'raised rooms and catwalks emerge at strongly varied scales');
+    assert.ok(deckHeights.size>=60,'raised-room and catwalk elevations vary continuously');
+    assert.deepEqual([...upperSpawns].sort(),[false,true],'some floors stay grounded while others station enemies upstairs');
+    assert.deepEqual([...zoneCounts].sort(),[2,3,4,5,6,7,8,9],'floor cadence spans intimate halls through room networks');
     assert.equal(rampAxes.size,2,'overlook orientation varies');
-    assert.ok(outlines.size>=10,'outline topology varies, not just corner dimensions');
+    assert.equal(topologies.size,100,'every seed produces a distinct architectural topology');
+    assert.ok(degreeSequences.size>=20,'room graph shapes vary beyond coordinate jitter');
+    assert.ok(propCounts.size>=8,'furnishing density responds to generated room sizes');
+    assert.ok(featureCounts.lantern>=25,'grand lantern halls recur without becoming a template');
+    assert.ok(featureCounts.multiTier>=7,'some floors escalate through multiple vertical levels');
+    assert.ok(featureCounts.wallCatwalk>=30,'wall-side catwalks appear occasionally');
+    assert.ok(featureCounts.motif>=55&&featureCounts.fullHeightWalls>=200,'interior architecture is dense and vertically varied');
+    assert.deepEqual([...motifKinds].sort(),['bays','chicane','spine'],'all wall grammars appear across the seed sweep');
+    assert.ok(featureCounts.flat>=10&&featureCounts.loops>=50,'flat/vertical and linear/looped plans both occur');
   }
   assert.deepEqual(generate(42,2),generate(42,2));
 });
@@ -432,9 +473,10 @@ test('lift doors close before motion; eased travel stops before new doors open',
 });
 
 test('ceilings stop upward shots and jumping heads, including the elevator cabin',()=>{
-  const {map}=generatePveFloor(4);
-  const p={id:'p',x:250,y:400,alive:true,height:0};
-  assert.equal(combat.traceShot(p,0,[],[],()=>true,1.2,map).hit,'ceiling');
+  const {map}=generatePveFloor(4),p={id:'p',...map.botSpawns.find(point=>point.height===0),alive:true};
+  const roofHit=combat.traceShot(p,0,[],[],()=>true,1.2,map);
+  assert.ok(['ceiling','wall'].includes(roofHit.hit));
+  assert.ok(roofHit.endHeight<=map.ceiling);
   const cabin={...p,...floorSpawn(map,false,0),ceilingHeight:map.elevator.ceiling};
   const hit=combat.traceShot(cabin,0,[],[],()=>true,1.2,map);
   assert.ok(Math.abs(hit.endHeight-map.elevator.ceiling)<1e-8);

@@ -19,17 +19,85 @@ export function createTerrainModel(s) {
       (a.x+b.x)/2,(a.y+b.y)/2,(a.z+b.z)/2);
     mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),direction.normalize());return mesh;
   };
-  if(s.kind==='lift') {
-    const piston=box(w-0.12,1,d-0.12,w/2,0.5,d/2,dark);
-    const deck=box(w,0.16,d,w/2,-0.08,d/2,trim);
+  if(s.kind==='grandLantern') {
+    const iron=material('#2d3437',0.82),brass=material('#b7833f',0.72),rim=material('#e4b45f',0.58);
+    const glow=new THREE.MeshStandardMaterial({color:'#ffd58a',emissive:'#ff9f32',emissiveIntensity:2.3,
+      roughness:.28,metalness:.08,transparent:true,opacity:.82});
+    const cx=w/2,cz=d/2,r=Math.min(w,d)*.31,bodyBottom=.22,bodyTop=Math.min(h-.75,2.15),bodyMid=(bodyBottom+bodyTop)/2;
+    // A ceiling-suspended landmark rather than another floor prop: long chain,
+    // broad canopy, luminous core and a readable iron cage from across a hall.
+    beam([cx,h,cz],[cx,bodyTop+.34,cz],.08,iron,10,.055);
+    for(const y of [h-.18,h-.42])add(new THREE.TorusGeometry(.24,.055,7,18),y===h-.18?brass:iron,cx,y,cz).rotation.x=Math.PI/2;
+    add(new THREE.CylinderGeometry(r*.28,r*.44,.28,12),brass,cx,bodyTop+.2,cz);
+    add(new THREE.CylinderGeometry(r*.62,r*.78,bodyTop-bodyBottom,16),glow,cx,bodyMid,cz);
+    for(const y of [bodyBottom,bodyBottom+(bodyTop-bodyBottom)*.5,bodyTop])
+      add(new THREE.TorusGeometry(r,.075,7,24),y===bodyBottom||y===bodyTop?rim:brass,cx,y,cz).rotation.x=Math.PI/2;
+    for(let i=0;i<10;i++){
+      const a=i*Math.PI/5,x=cx+Math.cos(a)*r,z=cz+Math.sin(a)*r;
+      beam([x,bodyBottom,z],[x,bodyTop,z],.055,iron,7,.038);
+      beam([x,bodyTop,z],[cx,bodyTop+.22,cz],.045,brass,7,.025);
+    }
+    add(new THREE.CylinderGeometry(r*.75,r,.24,16),iron,cx,bodyBottom-.08,cz);
+    const halo=add(new THREE.TorusGeometry(r*.72,.035,6,32),glow,cx,bodyMid,cz);halo.rotation.x=Math.PI/2;
+  } else if(s.kind==='ceilingPanel') {
+    const frame=material('#3b4d51',0.72),panel=material('#74878a',0.48),light=material(s.accent||'#d9b978',0.34);
+    box(w,h,d,w/2,h/2,d/2,frame);
+    const alongX=w>=d,count=Math.max(2,Math.min(8,Math.floor((alongX?w:d)/2.5)));
+    for(let i=0;i<count;i++){
+      const t=(i+.5)/count;
+      box(alongX?0.08:w-.18,0.035,alongX?d-.18:0.08,
+        alongX?w*t:w/2,-.025,alongX?d/2:d*t,i%3===1?light:panel);
+    }
+  } else if(s.kind==='lift') {
+    const temple=s.style==='temple';
+    const liftCore=temple?material('#4b5147',0.38):dark;
+    const liftDeck=temple?material('#918e70',0.18):trim;
+    const liftRib=temple?material('#b28b47',0.62):stone;
+    const piston=box(w-0.12,1,d-0.12,w/2,0.5,d/2,liftCore);
+    const deck=box(w,0.16,d,w/2,-0.08,d/2,liftDeck);
     const ribs=[];
-    for(let i=1;i<=12;i++)ribs.push(box(w-0.08,0.035,d-0.08,w/2,0,d/2,i%3===0?trim:stone));
-    for(let x=0.3;x<w;x+=0.5)box(0.18,0.015,d-0.2,x,0.012,d/2,dark).userData.onDeck=true;
+    for(let i=1;i<=12;i++)ribs.push(box(w-0.08,0.035,d-0.08,w/2,0,d/2,i%3===0?liftDeck:liftRib));
+    for(let x=0.3;x<w;x+=0.5)box(0.18,0.015,d-0.2,x,0.012,d/2,liftCore).userData.onDeck=true;
+    if(temple) {
+      // Bronze corner locks and a carved centre tile make this feel like an
+      // ancient counterweighted platform rather than imported factory gear.
+      for(const [x,z] of [[.14,.14],[w-.14,.14],[.14,d-.14],[w-.14,d-.14]])
+        add(new THREE.CylinderGeometry(.075,.09,.08,8),liftRib,x,.02,z);
+      const seal=add(new THREE.TorusGeometry(Math.min(w,d)*.2,.035,6,16),liftRib,w/2,.025,d/2);
+      seal.rotation.x=Math.PI/2;seal.userData.onDeck=true;
+    }
     // Ribbed telescoping safety skirt encloses the moving mechanism.
     group.userData={piston,deck,ribs};
     poseCargoLift(group,s.top);
   } else if(s.kind==='rail') {
     const base=(x,z)=>s.axis?(s.bottom||0)+s.rise*(s.reverse?1-(s.axis==='y'?z/d:x/w):(s.axis==='y'?z/d:x/w)):(s.liftId?0:s.bottom||0);
+    if(s.style==='temple') {
+      const alongX=w>d,length=alongX?w:d;
+      const parapet=material(s.liftId?'#7f6841':'#737866',s.liftId ? .58 : .04);
+      const edge=material(s.liftId?'#c19a50':'#a19b79',s.liftId ? .72 : .03);
+      if(s.liftId) {
+        // Slender bronze rails travel with the lift and leave the landing side
+        // open; their visible footprint matches the forgiving rail collider.
+        const count=Math.max(2,Math.ceil(length/1.25));
+        for(let i=0;i<=count;i++) {
+          const t=i/count,x=alongX?length*t:w/2,z=alongX?d/2:length*t;
+          box(.075,.92,.075,x,base(x,z)+.46,z,parapet);
+        }
+        for(const y of [.18,.82])box(alongX?length:.075,.075,alongX?.075:length,
+          w/2,base(w/2,d/2)+y,d/2,edge);
+      } else {
+        // Low crenellated stonework gives the firing deck real cover while
+        // retaining gaps between authored rail segments as shooting ports.
+        box(alongX?length:.18,.42,alongX?.18:length,w/2,base(w/2,d/2)+.21,d/2,parapet);
+        const merlons=Math.max(1,Math.floor(length/.72));
+        for(let i=0;i<merlons;i++) {
+          const t=(i+.5)/merlons,x=alongX?length*t:w/2,z=alongX?d/2:length*t;
+          box(alongX?Math.min(.38,length/merlons*.62):.22,.56,
+            alongX?.22:Math.min(.38,length/merlons*.62),x,base(x,z)+.7,z,edge);
+        }
+      }
+      return group;
+    }
     if(s.style==='industrial') {
       const alongX=w>d,length=alongX?w:d;
       for(let i=0,n=Math.max(1,Math.ceil(length/1.5));i<=n;i++) {
@@ -175,6 +243,42 @@ export function createTerrainModel(s) {
       box(0.28,h-0.28,0.28,x,(h-0.28)/2,z,dark);
     box(w*0.56,0.025,d*0.13,w*0.58,h+0.012,d*0.13,moss);
     box(w*0.22,0.028,d*0.18,w*0.16,h+0.014,d*0.76,moss);
+  } else if(s.kind==='templeStep') {
+    const drum=material('#777b67',0.025),cut=material('#a09a78',0.02),moss=material('#567646',0.01);
+    const radius=Math.min(w,d)*.43;
+    // Broad broken column drums: visibly climbable, flat on top, and confined
+    // to the circular collider so their corners never catch the player.
+    add(new THREE.CylinderGeometry(radius*1.04,radius*1.1,Math.min(.16,h),12),cut,w/2,Math.min(.08,h/2),d/2);
+    add(new THREE.CylinderGeometry(radius*.91,radius,h-Math.min(.22,h*.3),12),drum,
+      w/2,Math.min(.14,h*.2)+(h-Math.min(.22,h*.3))/2,d/2);
+    add(new THREE.CylinderGeometry(radius*1.02,radius*.92,Math.min(.14,h*.24),12),cut,
+      w/2,h-Math.min(.07,h*.12),d/2);
+    const growth=add(new THREE.CircleGeometry(radius*.48,12),moss,w*.58,h+.006,d*.46);
+    growth.rotation.x=-Math.PI/2;
+  } else if(s.kind==='templeTowerDeck') {
+    const core=material('#505a4d',0.035),slab=material('#888970',0.02),moss=material('#557445',0.01);
+    box(w,Math.max(.12,h-.07),d,w/2,Math.max(.12,h-.07)/2,d/2,core);
+    box(w-.05,.085,d-.05,w/2,h-.043,d/2,slab);
+    const alongX=w>=d,length=alongX?w:d;
+    for(let at=.45;at<length-.2;at+=.85)box(alongX?.13:w-.12,.22,alongX?d-.12:.13,
+      alongX?at:w/2,-.08,alongX?d/2:at,core);
+    box(alongX?w*.38:w*.22,.024,alongX?d*.2:d*.38,
+      alongX?w*.68:w*.25,h+.012,alongX?d*.25:d*.66,moss);
+  } else if(s.kind==='templeTowerPillar') {
+    const baseStone=material('#596255',0.025),shaft=material('#747866',0.025),carved=material('#989477',0.02);
+    const moss=material('#4e7041',0.01),radius=Math.min(w,d)*.38;
+    box(w,.32,d,w/2,.16,d/2,baseStone);
+    // Stacked, subtly tapered courses keep the tall supports monumental while
+    // their collision remains one predictable square footprint.
+    const courses=Math.max(4,Math.ceil(h/1.25));
+    for(let i=0;i<courses;i++) {
+      const bottom=.28+(h-.58)*i/courses,top=.28+(h-.58)*(i+1)/courses;
+      const inset=.04+(i%3)*.018;
+      box(w-inset*2,top-bottom-.025,d-inset*2,w/2,(bottom+top)/2,d/2,i%3===1?shaft:baseStone,.035);
+    }
+    add(new THREE.CylinderGeometry(radius*1.02,radius*.88,.18,8),carved,w/2,h-.25,d/2);
+    box(w,.24,d,w/2,h-.12,d/2,carved);
+    box(w*.62,.035,d*.42,w*.58,h+.012,d*.45,moss);
   } else if(s.kind==='templeTree') {
     const bark=material('#59452f',0.02),barkLight=material('#796143',0.01);
     const moss=material('#557642',0.01),leaves=material('#315f3c',0.01),sunLeaves=material('#5d8748',0.01);
@@ -227,10 +331,20 @@ export function createTerrainModel(s) {
     bowl.scale.y=.45;box(w*.28,.025,d*.16,w*.7,h+.025,d*.3,moss);
   } else if(s.kind==='templePool') {
     const water=new THREE.MeshPhysicalMaterial({color:'#4b8f84',transparent:true,opacity:.74,roughness:.16,
-      metalness:.05,transmission:.08,clearcoat:.7,clearcoatRoughness:.18});
+      metalness:.05,transmission:.08,clearcoat:.7,clearcoatRoughness:.18,depthWrite:false});
     const bed=material('#526e62',0.02),edge=material('#7f856f',0.02);
-    box(w,Math.max(.018,h),d,w/2,Math.max(.009,h/2),d/2,bed);
-    box(w-.12,.018,d-.12,w/2,.075,d/2,water);
+    // The old bed ended exactly at world Y=0, sharing the grass plane and
+    // flashing like a turquoise carpet. Give bed, water and rim three explicit
+    // depth layers, all clear of the arena floor and one another.
+    const bedMesh=box(w-.22,.022,d-.22,w/2,.058,d/2,bed);bedMesh.name='temple-pool-bed';
+    const waterMesh=box(w-.25,.016,d-.25,w/2,.091,d/2,water);waterMesh.name='temple-pool-water';
+    const rimY=.0875,rimHeight=.075,rim=.12;
+    for(const z of [rim/2,d-rim/2]) {
+      const piece=box(w,rimHeight,rim,w/2,rimY,z,edge);piece.name='temple-pool-rim';
+    }
+    for(const x of [rim/2,w-rim/2]) {
+      const piece=box(rim,rimHeight,Math.max(.08,d-rim*2),x,rimY,d/2,edge);piece.name='temple-pool-rim';
+    }
     for(let x=.35;x<w;x+=1.3)for(let z=.3;z<d;z+=1.1)
       add(new THREE.CylinderGeometry(.08+(x%1)*.035,.08+(x%1)*.035,.018,8),edge,x,.098,z);
   } else if(s.kind==='waterfall') {
@@ -256,6 +370,75 @@ export function createTerrainModel(s) {
         const l=add(new THREE.SphereGeometry(.10,6,4),leaf,x+(i%2?.11:-.11),h-drop*f,z);
         l.scale.set(1,.32,.6);l.rotation.z=i%2?.55:-.55;
       }
+    }
+  } else if(s.kind==='turbine') {
+    const shell=material('#52656a',0.78),steel=material('#91a0a1',0.84),black=material('#263238',0.7);
+    const hot=material(s.accent||'#f0a35a',0.32);hot.emissive.set(s.accent||'#f0a35a');hot.emissiveIntensity=1.45;
+    const cx=w/2,cz=d/2,r=Math.min(w,d)*.29,length=w*.72;
+    // A supported horizontal rotor fills the hall like real plant machinery;
+    // every visible part stays inside the circular authored collider.
+    for(const x of [w*.18,w*.82]) {
+      box(.34,h*.62,.48,x,h*.31,cz,black);
+      box(.52,.18,.68,x,.09,cz,steel);
+    }
+    const rotor=add(new THREE.CylinderGeometry(r,r,length,20),shell,cx,h*.56,cz);rotor.rotation.z=Math.PI/2;
+    for(const x of [w*.24,w*.38,w*.62,w*.76]) {
+      const ring=add(new THREE.TorusGeometry(r+.035,.075,7,22),x===w*.38||x===w*.62?hot:steel,x,h*.56,cz);
+      ring.rotation.y=Math.PI/2;
+    }
+    const hub=add(new THREE.CylinderGeometry(r*.42,r*.42,w*.12,16),hot,cx,h*.56,cz);hub.rotation.z=Math.PI/2;
+    for(let i=0;i<8;i++) {
+      const a=i*Math.PI/4;
+      beam([cx,h*.56,cz],[cx,h*.56+Math.cos(a)*r*.78,cz+Math.sin(a)*r*.78],.045,black,6,.025);
+    }
+  } else if(s.kind==='storageRack') {
+    const frame=material('#4d5d62',0.78),shelf=material(s.accent||'#78bed0',0.62);
+    const crate=material('#927553',0.08),crateDark=material('#645344',0.12);
+    for(const x of [.13,w-.13])for(const z of [.10,d-.10])box(.16,h,.16,x,h/2,z,frame);
+    const levels=3;
+    for(let i=0;i<=levels;i++) {
+      const y=.08+(h-.16)*i/levels;
+      box(w,.09,d,w/2,y,d/2,i===levels?shelf:frame);
+      if(i<levels)for(let slot=0;slot<3;slot++) {
+        const bw=w/3-.13,bh=(h-.25)/levels*.58;
+        box(bw,bh,d*.68,(slot+.5)*w/3,y+.10+bh/2,d/2,(slot+i)%3===0?crateDark:crate,.035);
+        box(bw*.72,.025,d*.70,(slot+.5)*w/3,y+.10+bh*.72,d/2,shelf,.008);
+      }
+    }
+  } else if(s.kind==='reactorCore') {
+    const base=material('#33464b',0.82),shell=material('#718488',0.78),rib=material('#9cafaf',0.86);
+    const energy=material(s.accent||'#65e6bd',0.22);energy.emissive.set(s.accent||'#65e6bd');energy.emissiveIntensity=2.1;
+    const cx=w/2,cz=d/2,r=Math.min(w,d)*.34;
+    add(new THREE.CylinderGeometry(r*1.22,r*1.32,.28,24),base,cx,.14,cz);
+    add(new THREE.CylinderGeometry(r*.63,r*.78,h-.54,20),energy,cx,h/2,cz);
+    for(const y of [.52,h*.34,h*.64,h-.34]) {
+      add(new THREE.TorusGeometry(r*.92,.10,7,28),y===h*.34||y===h*.64?energy:rib,cx,y,cz).rotation.x=Math.PI/2;
+    }
+    for(let i=0;i<8;i++) {
+      const a=i*Math.PI/4,x=cx+Math.cos(a)*r,z=cz+Math.sin(a)*r;
+      beam([x,.24,z],[x,h-.30,z],.09,shell,8,.055);
+      beam([x,h-.30,z],[cx+Math.cos(a)*r*.64,h-.10,cz+Math.sin(a)*r*.64],.07,rib,8,.045);
+    }
+    add(new THREE.CylinderGeometry(r*.76,r*.98,.30,24),shell,cx,h-.15,cz);
+  } else if(s.kind==='consoleBank') {
+    const body=material('#3b4d52',0.72),edge=material(s.accent||'#7fd5d6',0.65);
+    const screen=material('#7de2d8',0.18);screen.emissive.set(s.accent||'#50bdb6');screen.emissiveIntensity=1.25;
+    box(w,h*.62,d,w/2,h*.31,d/2,body);
+    const top=box(w*.94,.14,d*.82,w/2,h*.68,d*.48,edge);top.rotation.x=-.18;
+    const display=box(w*.74,.035,d*.42,w/2,h*.73,d*.40,screen,.012);display.rotation.x=-.18;
+    for(let i=0;i<4;i++)box(w*.11,.025,d*.10,w*(.25+i*.16),h*.77,d*.66,i%2?screen:edge,.006);
+    box(w*.92,.08,.10,w/2,h-.04,d*.13,edge,.018);
+  } else if(s.kind==='ventStack') {
+    const base=material('#35464b',0.82),shell=material('#687b80',0.8),edge=material(s.accent||'#e18b68',0.68);
+    const cx=w/2,cz=d/2,r=Math.min(w,d)*.36;
+    add(new THREE.CylinderGeometry(r*1.12,r*1.18,.24,18),base,cx,.12,cz);
+    add(new THREE.CylinderGeometry(r*.92,r,h-.42,18),shell,cx,(h-.42)/2+.24,cz);
+    for(const y of [.58,h*.52,h-.42])add(new THREE.TorusGeometry(r*.96,.07,6,20),edge,cx,y,cz).rotation.x=Math.PI/2;
+    add(new THREE.CylinderGeometry(r*.88,r*.88,.16,18),base,cx,h-.18,cz);
+    add(new THREE.CylinderGeometry(r*.62,r*.72,.08,18),edge,cx,h-.04,cz);
+    for(let i=0;i<8;i++) {
+      const a=i*Math.PI/4;
+      beam([cx,h-.08,cz],[cx+Math.cos(a)*r*.72,h-.08,cz+Math.sin(a)*r*.72],.045,edge,6,.018);
     }
   } else if(s.kind==='catwalk') {
     const steel=material('#38484c',0.65),grate=material(s.accent||'#d99149',0.55);
@@ -314,7 +497,7 @@ export function createTerrainModel(s) {
     }
     for(const side of [0.12,(alongX?d:w)-0.12])
       box(alongX?w-0.1:0.16,0.26,alongX?0.16:d-0.1,
-        alongX?w/2:side,h-0.18,alongX?side:d/2,trim);
+        alongX?w/2:side,h-0.13,alongX?side:d/2,trim);
   } else if(s.kind==='crane') {
     const crane=material(s.accent||'#e9a34e',0.72),black=material('#30383a',0.8);
     box(w,h,d,w/2,h/2,d/2,crane);

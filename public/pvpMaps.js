@@ -277,7 +277,7 @@
     },
     temple:{
       id:'temple',name:'Overgrown Temple',
-      description:'A layered jungle sanctuary with a processional forecourt, raised ruins, and a tunnel ring beneath them.',
+      description:'A layered jungle sanctuary with jumpable ruins, a lift-served watchtower, and tunnels beneath the upper court.',
       width:1300,height:1050,ceiling:12,roof:false,scale:0.84,style:'temple',accent:'#8eae5b',
       palette:{sky:'#92b9a7',wall:'#626b55',panel:'#889078',cap:'#a8a783',glow:'#789f4b',groundStyle:'grass',
         floorLow:'#263f27',floorHigh:'#66834b',reflection:'#465c49',reflectionGlow:'#78a965',
@@ -350,6 +350,41 @@
         terrain('templePillar',697,690,58,58,4.8,{collisionShape:'circle',collisionRadius:24}),
         terrain('templeAltar',595,525,110,60,4.25,{bottom:3.02}),
 
+        // Broken column drums make the forecourt itself vertically playable.
+        // Every top is below the 1.25 m jump apex, with broad circular landing
+        // surfaces instead of the old tall boxes that only acted as blockers.
+        terrain('templeStep',360,680,64,64,.55,{collisionShape:'circle',collisionRadius:29}),
+        terrain('templeStep',430,640,70,70,.82,{collisionShape:'circle',collisionRadius:32}),
+        terrain('templeStep',405,830,64,64,1.1,{collisionShape:'circle',collisionRadius:29}),
+        terrain('templeStep',876,680,64,64,.55,{collisionShape:'circle',collisionRadius:29}),
+        terrain('templeStep',800,640,64,64,.82,{collisionShape:'circle',collisionRadius:29}),
+        terrain('templeStep',831,830,64,64,1.1,{collisionShape:'circle',collisionRadius:29}),
+
+        // A tall open watchtower occupies a real side precinct. Four masonry
+        // piers support a ring-shaped firing deck while preserving a completely
+        // clear shaft for the lift through its centre.
+        terrain('templeTowerPillar',70,850,30,30,6.9),
+        terrain('templeTowerPillar',230,850,30,30,6.9),
+        terrain('templeTowerPillar',70,990,30,30,6.9),
+        terrain('templeTowerPillar',230,990,30,30,6.9),
+        terrain('templeTowerDeck',70,850,190,50,7.2,{bottom:6.92,walkable:true,liftServed:'temple-watch-lift'}),
+        terrain('templeTowerDeck',70,900,55,80,7.2,{bottom:6.92,walkable:true,liftServed:'temple-watch-lift'}),
+        terrain('templeTowerDeck',205,900,55,80,7.2,{bottom:6.92,walkable:true,liftServed:'temple-watch-lift'}),
+        terrain('templeTowerDeck',125,980,80,40,7.2,{bottom:6.92,walkable:true,liftServed:'temple-watch-lift'}),
+        terrain('lift',125,900,80,80,0,{id:'temple-watch-lift',maxTop:7.2,style:'temple',phaseOffset:3500}),
+        // Three moving rails make the lift safe without closing its southern
+        // landing edge. The top parapet is broken into firing apertures.
+        terrain('rail',125,893,80,7,1,{style:'temple',liftId:'temple-watch-lift'}),
+        terrain('rail',118,900,7,80,1,{style:'temple',liftId:'temple-watch-lift'}),
+        terrain('rail',205,900,7,80,1,{style:'temple',liftId:'temple-watch-lift'}),
+        terrain('rail',70,843,60,7,8.2,{style:'temple',bottom:7.2}),
+        terrain('rail',200,843,60,7,8.2,{style:'temple',bottom:7.2}),
+        terrain('rail',63,850,7,60,8.2,{style:'temple',bottom:7.2}),
+        terrain('rail',63,950,7,70,8.2,{style:'temple',bottom:7.2}),
+        terrain('rail',260,850,7,60,8.2,{style:'temple',bottom:7.2}),
+        terrain('rail',260,950,7,70,8.2,{style:'temple',bottom:7.2}),
+        terrain('rail',125,1020,80,7,8.2,{style:'temple',bottom:7.2}),
+
         // Upper masonry follows the sanctuary footprint and gives the skyline
         // a recognizable stepped-temple silhouette.
         terrain('ruinWall',304,204,135,22,6.2,{bottom:3.02}),
@@ -370,7 +405,7 @@
           terrain('ruinWall',592,596,116,20,4.25,{bottom:3.02})],
       ],
       spawns:[
-        [70,90],[650,90,3],[1230,90],[80,710],[1220,710],[90,980],[650,960],[1210,980],
+        [70,90],[650,90,3],[1230,90],[80,710],[1220,710],[165,995,7.2],[650,960],[1210,980],
         [360,260,3],[470,540,3],[830,260,3],[930,540,3],
       ],
     },

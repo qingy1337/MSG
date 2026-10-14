@@ -451,14 +451,14 @@ function createGameServer(io) {
       damage = WEAPON_DAMAGE[shooter.weapon];
     }
     if (shooter?.weapon === 'miniGun') {
-      // Stronger close/medium range; retain the existing long-range curve.
-      // Up to 50: 4 HP; 150–275: 2 HP; 450: 0.4 HP.
+      // Keep the close/medium punch, then taper across the long-range band.
+      // Up to 50: 4 HP; 150–350: 2 HP; 500: 1.25 HP; 650: 0.5 HP.
       const distance = Math.hypot(target.x - shooter.x, target.y - shooter.y);
       damage = distance <= 150
         ? damage - Math.max(0, distance - 50) * ((damage - 2) / 100)
-        : distance <= 275 ? 2
-        : distance <= 450 ? 2 - (distance - 275) * (1.6 / 175)
-        : Math.max(0.15, 0.4 - (distance - 450) * 0.002);
+        : distance <= 350 ? 2
+        : distance <= 650 ? 2 - (distance - 350) * (1.5 / 300)
+        : Math.max(0.15, 0.5 - (distance - 650) * 0.00175);
     }
     if (shooter?.isBot) damage *= BOT_COMBAT.damageScale;
     if (shooter?.botType==='dread') damage=DREAD_COMBAT.damage;

@@ -14,7 +14,7 @@ test('room ambient brightness is seeded, bounded, spatial, and leaves direct lig
   for(let seed=0;seed<20;seed++) {
     const {map}=maps.createPveMap(seed*7919),plan=planAmbientZones(map);
     assert.deepEqual(plan,planAmbientZones(map));
-    assert.ok(plan.zones.length>=4&&plan.zones.length<=12);
+    assert.ok(plan.zones.length>=2&&plan.zones.length<=9);
     for(const value of [plan.baseline,...plan.zones.map(z=>z.brightness)]) {
       assert.ok(value>=0.5&&value<=1);samples.push(value);
     }
@@ -39,13 +39,13 @@ test('room ambient brightness is seeded, bounded, spatial, and leaves direct lig
 });
 
 test('PvE lighting follows architecture with a fixed budget and clear ceiling fixtures',()=>{
-  const kinds=new Set();
+  const kinds=new Set();let lanterns=0;
   for(let seed=0;seed<40;seed++) {
     const {map,walls}=maps.createPveMap(seed*7919),plan=planAreaLighting(map,walls);
     assert.deepEqual(plan,planAreaLighting(map,walls),'deterministic lighting');
-    assert.ok(plan.length>=3&&plan.length<=6);
-    assert.equal(plan.filter(p=>p.kind==='workspace').length,map.terrain.some(s=>s.walkable)?1:0);
-    assert.equal(plan.filter(p=>p.kind==='stairs').length,map.terrain.some(s=>s.stairs)?2:0);
+    assert.ok(plan.length>=2&&plan.length<=6);
+    const roles=new Set(map.zones.map(z=>z.role));
+    assert.ok(plan.every(light=>roles.has(light.kind)),'every light belongs to a generated architectural zone');
     for(const p of plan) {
       kinds.add(p.kind);
       assert.ok(p.sourceHeight>p.height+2.2&&p.sourceHeight<map.ceiling);
@@ -56,14 +56,23 @@ test('PvE lighting follows architecture with a fixed budget and clear ceiling fi
     assert.equal(lights.length,plan.length);
     assert.ok(lights.filter(light=>light.castShadow).length<=1,'only the main workspace light renders an extra shadow pass');
     for(const light of lights) {
-      assert.equal(light.castShadow,plan[lights.indexOf(light)].kind==='workspace');
+      assert.equal(light.castShadow,!!plan[lights.indexOf(light)].castsShadow);
       assert.ok(light.shadow.mapSize.x<=512);
       assert.ok(group.children.includes(light.target));
       assert.ok(light.position.y>light.target.position.y);
     }
     group.traverse(o=>{o.geometry?.dispose();o.material?.dispose();o.shadow?.dispose();});
+    const lantern=map.terrain.find(s=>s.kind==='grandLantern');
+    if(lantern) {
+      lanterns++;
+      assert.ok(plan.some(area=>area.fixture==='lantern'&&area.kind===map.zones.find(z=>z.id===lantern.zone).role));
+      const model=createTerrainModel(lantern),bounds=new THREE.Box3().setFromObject(model);
+      assert.ok(Number.isFinite(bounds.min.x)&&bounds.max.y>bounds.min.y+2,'lantern is a substantial rendered landmark');
+      model.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});
+    }
   }
-  assert.deepEqual([...kinds].sort(),['entrance','passage','stairs','workspace']);
+  assert.ok(lanterns>=8,'lantern halls recur across seeds without appearing on every floor');
+  for(const role of ['machine-hall','warehouse','reactor','processing','control','maintenance'])assert.ok(kinds.has(role));
   assert.deepEqual(planAreaLighting(maps.createPvpMap(731).map),[],'PvP lighting stays unchanged');
 });
 
@@ -72,7 +81,7 @@ const fixture=seed=>{
   for(let i=1;!layout.map.terrain.some(s=>s.kind==='lift');i++)layout=maps.createPveMap(seed+i*7919);
   const {map,walls}=layout;
   map.platformEpoch=100000;
-  const lift=map.terrain.find(s=>s.kind==='lift'),deck=map.terrain.find(s=>s.walkable);
+  const lift=map.terrain.find(s=>s.kind==='lift'),deck=map.terrain.find(s=>s.walkable&&s.liftServed===lift.id);
   const center={x:lift.x+lift.width/2,y:lift.y+lift.height/2};
   const dx=center.x<deck.x?1:center.x>deck.x+deck.width?-1:0;
   const dy=center.y<deck.y?1:center.y>deck.y+deck.height?-1:0,len=Math.hypot(dx,dy);
@@ -105,7 +114,7 @@ test('all orientations allow boarding, riding, walking off, and returning by sta
     maps.updateCargoLifts(map,[p],112000);
     assert.equal(p.height,deck.top,'walking off detaches from descending platform');
     assert.equal(p.platformId,null);
-    const stair=map.terrain.find(s=>s.stairs),vertical=stair.axis==='y';
+    const stair=map.terrain.find(s=>s.stairs&&s.connector),vertical=stair.axis==='y';
     const high=stair.reverse?0:1,low=1-high;
     const point=t=>({x:stair.x+(vertical?stair.width/2:t*stair.width),y:stair.y+(vertical?t*stair.height:stair.height/2)});
     Object.assign(p,point(high),{height:deck.top,jumpStartedAt:null});
@@ -190,6 +199,35 @@ test('round terrain slides along a true tangent instead of jagged axis steps',()
   assert.ok(Math.abs(distance-(tree.collisionRadius+16-.09))<.015,'the slide remains on the smooth circular boundary');
 });
 
+test('rectangular props glide around body-radius corners without weakening flat faces',()=>{
+  const prop={kind:'generator',x:100,y:100,width:80,height:80,top:2};
+  const map={width:400,height:400,ceiling:10,terrain:[prop]};
+  const corner={x:80,y:84,height:0};
+  assert.ok(maps.moveOnTerrain(corner,90,88,map,[prop],0));
+  assert.ok(corner.x>80&&corner.y>84,'diagonal input advances tangentially instead of sticking');
+  assert.ok(Math.abs(Math.hypot(corner.x-100,corner.y-100)-(16-.09))<.015);
+  const face={x:84,y:140,height:0};
+  assert.equal(maps.moveOnTerrain(face,90,140,map,[prop],0),false,'a direct move through the flat face stays blocked');
+  assert.deepEqual({x:face.x,y:face.y},{x:84,y:140});
+});
+
+test('lower room ceilings are enclosed soffits instead of exposed floating slabs',()=>{
+  let floor;
+  for(let seed=0;seed<20&&!floor;seed++){
+    const candidate=maps.createPveMap(seed*7919);
+    if(candidate.map.terrain.some(s=>s.kind==='ceilingPanel'))floor=candidate;
+  }
+  assert.ok(floor);
+  const panels=floor.map.terrain.filter(s=>s.kind==='ceilingPanel');
+  assert.ok(panels.length);
+  for(const panel of panels){
+    assert.equal(panel.top,floor.map.ceiling,'soffit fills upward to the shared roof');
+    assert.ok(panel.bottom<panel.top-.28);
+    const model=createTerrainModel(panel),bounds=new THREE.Box3().setFromObject(model);
+    assert.ok(bounds.max.y-bounds.min.y>=panel.top-panel.bottom-.01,'visible fascia encloses the full ceiling step');
+  }
+});
+
 test('stairs have real riser hits; elevated guards collide only at their actual height',()=>{
   const stairs={kind:'ramp',stairs:true,steps:15,axis:'x',x:0,y:0,width:180,height:100,top:3};
   assert.equal(combat.rayBox(-10,50,1,0,stairs,0.5),34);
@@ -247,7 +285,7 @@ test('rendered cargo platform surface follows collision height throughout a cycl
 });
 
 test('server carries stationary humans without accepting a client-supplied height',t=>{
-  t.mock.method(Math,'random',()=>7919/0x100000000); // A district with a cargo lift.
+  t.mock.method(Math,'random',()=>2*7919/0x100000000); // A vertical shaft with a cargo lift.
   let tick,connect,now=100000;
   t.mock.method(global,'setInterval',fn=>{tick=fn;return 0;});t.mock.method(Date,'now',()=>now);
   const handlers={},io={on(_,fn){connect=fn;},emit(){},socketsLeave(){},to(){return this;}};
@@ -263,14 +301,15 @@ test('server carries stationary humans without accepting a client-supplied heigh
 });
 
 test('bots navigate onto the permanent stairs to engage an elevated player',t=>{
-  t.mock.method(Math,'random',()=>7919/0x100000000); // A district with permanent stairs.
+  t.mock.method(Math,'random',()=>2*7919/0x100000000); // A raised district with permanent stairs.
   let tick,connect,now=100000;
   t.mock.method(global,'setInterval',fn=>{tick=fn;return 0;});t.mock.method(Date,'now',()=>now);
   const handlers={},io={on(_,fn){connect=fn;},emit(){},socketsLeave(){},to(){return this;}};
   const game=server.createGameServer(io);connect({id:'p0',on(name,fn){handlers[name]=fn;}});
   game.waitingPlayers.push({id:'p0',name:'Upstairs',weapon:'pistol'});handlers.startGame({enableBots:true});
   try {
-    const stair=game.gameMap.terrain.find(s=>s.stairs),deck=game.gameMap.terrain.find(s=>s.walkable);
+    const stair=game.gameMap.terrain.find(s=>s.stairs&&s.connector);
+    const deck=game.gameMap.terrain.find(s=>s.walkable&&s.liftServed);
     const p=game.activePlayers.find(p=>!p.isBot),bots=game.activePlayers.filter(p=>p.isBot),b=bots[0];
     bots.slice(1).forEach(p=>p.alive=false);
     Object.assign(p,{x:deck.x+deck.width/2,y:deck.y+deck.height/2,height:deck.top});

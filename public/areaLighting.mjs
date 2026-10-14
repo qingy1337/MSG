@@ -4,12 +4,32 @@ import * as THREE from 'three';
 export function planAreaLighting(map,walls=[]) {
   if(map.mode!=='pve'||!map.ceiling)return [];
   const lights=[],ceiling=map.ceiling-0.32;
-  const add=(kind,x,y,height,color,intensity,radius)=>{
+  const add=(kind,x,y,height,color,intensity,radius,sourceHeight=ceiling)=>{
     if(map.cutouts?.some(c=>x>=c.x&&x<=c.x+c.width&&y>=c.y&&y<=c.y+c.height))return;
     // Don't put a fixture inside a ceiling-height partition. Include housing clearance.
-    if(walls.some(s=>(s.top||3.1)>ceiling-0.05&&x+40>s.x&&x-40<s.x+s.width&&y+10>s.y&&y-10<s.y+s.height))return;
-    lights.push({kind,x,y,height,sourceHeight:ceiling,color,intensity,radius});
+    if(walls.some(s=>(s.top||3.1)>sourceHeight-0.05&&x+40>s.x&&x-40<s.x+s.width&&y+10>s.y&&y-10<s.y+s.height))return;
+    const area={kind,x,y,height,sourceHeight,color,intensity,radius};lights.push(area);return area;
   };
+  if(map.zones?.length) {
+    const colors={cool:'#c5e7ff',warm:'#ffd19a',clean:'#e7fff8',green:'#a6ffd1',amber:'#ffc378',
+      reactor:'#78ffd0',red:'#ff957c',shaft:'#ffb07d',neutral:'#d8e8e8'};
+    const priorities=['hall','pit','warehouse','lower','upper','bypass','control','shaft','service','arrival','exit','dispatch'];
+    const ordered=[...map.zones].sort((a,b)=>priorities.indexOf(a.id)-priorities.indexOf(b.id));
+    for(const z of ordered) {
+      if(lights.length>=6)break;
+      const localCeiling=Math.min(ceiling,(z.ceiling||map.ceiling)-.18);
+      if(localCeiling<=z.elevation+2.25)continue;
+      const lantern=map.terrain?.find(s=>s.kind==='grandLantern'&&s.zone===z.id);
+      const area=add(z.role,lantern?lantern.x+lantern.width/2:z.x+z.width/2,
+        lantern?lantern.y+lantern.height/2:z.y+z.height/2,z.elevation,
+        lantern?'#ffc66d':colors[z.lighting]||colors.neutral,lantern?118:z.id==='hall'||z.id==='pit'?105:78,
+        lantern?Math.max(9,Math.min(15,Math.max(z.width,z.height)*.03)):Math.max(5,Math.min(12,Math.max(z.width,z.height)*.027)),
+        lantern?Math.min(localCeiling,lantern.bottom+.45):localCeiling);
+      if(area&&lantern)area.fixture='lantern';
+    }
+    if(lights[0])lights[0].castsShadow=true;
+    return lights;
+  }
   const deck=map.terrain.find(s=>s.walkable);
   if(deck)add('workspace',deck.x+deck.width/2,deck.y+deck.height/2,deck.top,
     '#fff0d3',95,Math.max(deck.width,deck.height)*0.035);
@@ -38,16 +58,17 @@ export function createAreaLighting(plan,world) {
     // The floor shader already occludes every light pool against walls. Keep a
     // single architectural shadow caster for characters rather than rendering
     // the room into as many as six extra shadow maps.
-    light.castShadow=area.kind==='workspace';
+    light.castShadow=area.castsShadow??area.kind==='workspace';
     light.shadow.mapSize.set(512,512);
     light.shadow.normalBias=0.035;light.shadow.bias=-0.0001;
     light.shadow.camera.near=0.1;
     group.add(light,light.target);
-    const housing=new THREE.Mesh(new THREE.BoxGeometry(area.kind==='workspace'?3.8:1.5,0.14,0.65),
+    if(area.fixture==='lantern')continue;
+    const housing=new THREE.Mesh(new THREE.BoxGeometry(area.castsShadow||area.kind==='workspace'?3.8:1.5,0.14,0.65),
       new THREE.MeshStandardMaterial({color:'#34444b',roughness:0.65,metalness:0.4}));
     housing.position.copy(light.position);housing.position.y+=0.08;
     group.add(housing);
-    const diffuser=new THREE.Mesh(new THREE.BoxGeometry(area.kind==='workspace'?3.5:1.3,0.035,0.5),
+    const diffuser=new THREE.Mesh(new THREE.BoxGeometry(area.castsShadow||area.kind==='workspace'?3.5:1.3,0.035,0.5),
       new THREE.MeshBasicMaterial({color:area.color}));
     diffuser.position.copy(light.position);diffuser.position.y-=0.01;group.add(diffuser);
   }

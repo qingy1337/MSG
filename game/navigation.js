@@ -1,4 +1,4 @@
-const {groundHeight,canOccupy,moveOnTerrain}=require('../public/arenaMap');
+const {groundHeight,canOccupy,moveOnTerrain,rampStepAllowance}=require('../public/arenaMap');
 const DIRECTIONS=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]];
 
 class Heap {
@@ -28,7 +28,8 @@ class NavigationGraph {
     for(let id=0;id<n;id++){
       const p=this.point(id),upper=groundHeight(p.x,p.y,this.surfaces),height=id<this.cells?upper:0;this.heights[id]=height;
       if(id>=this.cells&&upper===0)continue;
-      const allowance=this.surfaces.some(s=>s.kind==='ramp'&&p.x>=s.x&&p.x<=s.x+s.width&&p.y>=s.y&&p.y<=s.y+s.height)?0.28:0.001;
+      const ramps=this.surfaces.filter(s=>s.kind==='ramp'&&p.x>=s.x&&p.x<=s.x+s.width&&p.y>=s.y&&p.y<=s.y+s.height);
+      const allowance=ramps.length?ramps.reduce((value,s)=>Math.max(value,rampStepAllowance(s,this.radius)),.28):0.001;
       this.open[id]=p.x>=this.radius&&p.y>=this.radius&&p.x<=map.width-this.radius&&p.y<=map.height-this.radius&&
         height+this.bodyHeight<=map.ceiling&&canOccupy(p.x,p.y,height,this.near(p,p),this.radius,allowance,this.bodyHeight)?1:0;
     }

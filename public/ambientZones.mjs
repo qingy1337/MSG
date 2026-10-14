@@ -5,9 +5,9 @@ export function planAmbientZones(map) {
   let state=(map.seed^0x5a17b9d3)>>>0;
   const brightness=()=>{state=(Math.imul(state,1664525)+1013904223)>>>0;return 0.5+state/4294967296*0.5;};
   const baseline=brightness();
-  const areas=[...(map.pockets||[]),...map.terrain.filter(s=>s.walkable||s.stairs),map.elevator].filter(Boolean);
+  const areas=map.zones?.length?map.zones:[...(map.pockets||[]),...map.terrain.filter(s=>s.walkable||s.stairs),map.elevator].filter(Boolean);
   return {baseline,zones:areas.slice(0,12).map(s=>({x:s.x+s.width/2,y:s.y+s.height/2,
-    width:s.width,height:s.height,brightness:brightness()}))};
+    width:s.width,height:s.height,brightness:brightness(),role:s.role}))};
 }
 
 export const ambientZoneGLSL=`

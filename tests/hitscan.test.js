@@ -173,7 +173,7 @@ test('pistol is a permanent secondary and server-authoritative E swaps preserve 
   } finally {game.close();}
 });
 
-test('minigun buffs close/medium damage, preserves long-range falloff, and ignores client range', () => {
+test('minigun buffs close/medium damage, eases into long-range falloff, and ignores client range', () => {
   let connection;
   const io = { on: (_, fn) => { connection = fn; }, emit() {}, to() { return this; } };
   const game = createGameServer(io), handlers = {};
@@ -182,7 +182,7 @@ test('minigun buffs close/medium damage, preserves long-range falloff, and ignor
     game.gameInProgress.status = true;
     const attacker = { ...shooter, weapon: 'miniGun' }, victim = { ...target };
     game.activePlayers.push(attacker, victim);
-    for (const [distance, damage] of [[40, 4], [50, 4], [100, 3], [150, 2], [200, 2], [275, 2], [362.5, 1.2], [450, 0.4], [550, 0.2], [575, 0.15], [650, 0.15]]) {
+    for (const [distance, damage] of [[40, 4], [50, 4], [100, 3], [150, 2], [275, 2], [350, 2], [400, 1.75], [500, 1.25], [600, 0.75], [650, 0.5], [750, 0.325], [800, 0.2375]]) {
       victim.x = attacker.x + distance; victim.health = 100; attacker.lastShotAt = 0;
       handlers.shoot({ angle: 0, distance: 0, damage: 999, x: victim.x });
       assert.ok(Math.abs(victim.health - (100 - damage)) < 1e-9, `range ${distance}`);

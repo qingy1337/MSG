@@ -199,8 +199,11 @@ test('PvE floors retain the expanded arena and non-overlapping landmarks', () =>
   assert.ok(map.width*map.height>=4*900*600);
   assert.ok(map.terrain.length>0);
   assert.ok(map.ceiling>6);
-  for (const w of walls) for (const s of map.terrain)
-    assert.ok(!(w.x<s.x+s.width && w.x+w.width>s.x && w.y<s.y+s.height && w.y+w.height>s.y));
+  for (const w of walls) for (const s of map.terrain) {
+    const footprint=w.x<s.x+s.width&&w.x+w.width>s.x&&w.y<s.y+s.height&&w.y+w.height>s.y;
+    const vertical=(w.bottom||0)<s.top-1e-8&&(s.bottom||0)<w.top-1e-8;
+    assert.ok(!(footprint&&vertical),'landmarks may cross wall footprints only when vertically separated');
+  }
 });
 
 test('PvP compacts the original scatter terrain independently of PvE rooms',()=>{
@@ -210,7 +213,8 @@ test('PvP compacts the original scatter terrain independently of PvE rooms',()=>
   assert.notDeepEqual(pvp.map.terrain,pve.map.terrain);
   assert.equal(pvp.map.rooms,undefined);
   assert.ok(pve.map.pockets.length>=2);
-  assert.equal(pvp.map.ceiling,pve.map.ceiling);
+  assert.equal(pvp.map.ceiling,original.map.ceiling);
+  assert.ok(pve.map.ceiling>pvp.map.ceiling,'PvE grammars can use taller architectural volumes');
   assert.equal(pvp.map.elevator,undefined);
   assert.equal(pvp.map.floor,undefined);
   assert.deepEqual(pvp,maps.createPvpMap(731,'maze'));
@@ -347,6 +351,9 @@ test('unaware squads mill near spawn instead of chasing unseen humans across the
   const {game,events}=fixture(1);
   try {
     const human=game.activePlayers.find(p=>!p.isBot);
+    const e=game.gameMap.arrivalElevator;
+    Object.assign(human,{x:e.x+80,y:e.y+110,height:0});
+    game.gameWalls.push({x:204,y:0,width:20,height:game.gameMap.height,top:game.gameMap.ceiling});
     for(let i=0;i<600;i++) {human.health=100;now+=50;tick();}
     assert.equal(events.some(e=>e.name==='shotFired'),false);
     assert.ok(game.activePlayers.filter(p=>p.isBot).every(b=>Math.hypot(b.x-b.botState.home.x,b.y-b.botState.home.y)<220),'unaware bots stay near their own patrol area, including elevated spawns');
@@ -478,6 +485,21 @@ test('authored PvP machinery, catwalks and lifts render finite geometry',()=>{
   }
 });
 
+test('Temple pools keep bed, water, and rim on separate depth layers',()=>{
+  const pool=maps.createPvpMap(0,'temple').map.terrain.find(s=>s.kind==='templePool');
+  const model=createTerrainModel(pool),bed=model.getObjectByName('temple-pool-bed');
+  const water=model.getObjectByName('temple-pool-water');
+  const rims=model.children.filter(child=>child.name==='temple-pool-rim');
+  assert.ok(bed&&water);assert.equal(rims.length,4);
+  model.updateMatrixWorld(true);
+  const bedBounds=new THREE.Box3().setFromObject(bed),waterBounds=new THREE.Box3().setFromObject(water);
+  const floorInModel=-(pool.bottom||0);
+  assert.ok(bedBounds.min.y>floorInModel+.01,'pool bed is visibly clear of the grass plane');
+  assert.ok(waterBounds.min.y>bedBounds.max.y+.01,'water cannot fight with the pool bed');
+  assert.equal(water.material.depthWrite,false,'transparent water does not corrupt later depth sorting');
+  model.traverse(m=>{m.geometry?.dispose();m.material?.dispose();});
+});
+
 test('Overgrown Temple replaces generic wall boxes with one finite bespoke environment',()=>{
   const {map,walls}=maps.createPvpMap(0,'temple'),model=createTempleEnvironment(map,walls);
   assert.equal(model.name,'overgrown-temple-environment');
@@ -499,7 +521,7 @@ test('Overgrown Temple replaces generic wall boxes with one finite bespoke envir
 
 test('all PvE themes render finite terrain',()=>{
   const themes=new Set();
-  for(let seed=0;seed<30&&themes.size<3;seed++) {
+  for(let seed=0;seed<40&&themes.size<4;seed++) {
     const {map}=createPveMap(seed*7919);
     if(themes.has(map.landmark.theme))continue;
     themes.add(map.landmark.theme);
@@ -510,5 +532,5 @@ test('all PvE themes render finite terrain',()=>{
       model.traverse(m=>{m.geometry?.dispose();m.material?.dispose();});
     }
   }
-  assert.equal(themes.size,3);
+  assert.deepEqual([...themes].sort(),['freight','processing','reactor','turbine']);
 });

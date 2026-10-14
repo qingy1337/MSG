@@ -16,6 +16,11 @@ function walkingHeight(s, x, y) {
   return surfaceHeight(s.stairs ? {...s,stairs:false} : s,x,y);
 }
 
+function rampStepAllowance(s,radius=16) {
+  const length=s.axis==='y'?s.height:s.width;
+  return Math.max(.28,Math.abs(s.top-(s.bottom||0))/length*(radius+4)+.02);
+}
+
 function bottomHeight(s,x,y) {
   if(s.kind==='rail'&&s.axis) {
     const t=s.axis==='y'?(y-s.y)/s.height:(x-s.x)/s.width;
@@ -57,14 +62,26 @@ function horizontalClearance(s,x,y) {
   return -Math.min(x-minX,maxX-x,y-minY,maxY-y);
 }
 
-// Push a point to the smooth surface of a round obstacle. Axis-separated
-// collision alone makes circles feel like many tiny box corners; projecting
-// to the tangent lets the same deterministic client/server movement glide.
+// Push a point to the smooth surface of an obstacle. The player body is round,
+// so even a rectangular prop has a rounded Minkowski corner at body radius.
+// Projecting onto that real contact surface prevents both movement axes from
+// being cancelled at a corner, which otherwise makes props feel sticky.
 function projectRoundedCollision(s,x,y,radius) {
   const shape=s.collisionShape||(
     s.kind==='furnace'||s.kind==='tank'?'circle':s.kind==='pipe'?'capsule':null
   );
-  if(shape!=='circle'&&shape!=='capsule')return null;
+  if(shape!=='circle'&&shape!=='capsule') {
+    const closestX=Math.max(s.x,Math.min(x,s.x+s.width));
+    const closestY=Math.max(s.y,Math.min(y,s.y+s.height));
+    let dx=x-closestX,dy=y-closestY,distance=Math.hypot(dx,dy);
+    const safe=radius-0.09;
+    if(distance>=safe)return null;
+    // Straight faces already slide correctly through axis-separated input and
+    // the escape rule below. Only resolve true corners here; pushing a player
+    // away from a flat face would create an unnatural outward snap.
+    if(Math.abs(dx)<1e-6||Math.abs(dy)<1e-6)return null;
+    return {x:closestX+dx/distance*safe,y:closestY+dy/distance*safe};
+  }
   const objectRadius=s.collisionRadius??Math.min(s.width,s.height)*(
     s.kind==='furnace'?0.4:shape==='capsule'?0.36:0.42);
   let cx=s.x+s.width/2,cy=s.y+s.height/2;
@@ -128,6 +145,7 @@ function updateCargoLifts(map,players,now) {
 function groundHeight(x, y, solids) {
   let height = 0;
   for (const s of solids) {
+    if(s.kind==='ceilingPanel')continue;
     if (horizontalClearance(s,x,y)<=0)
       height = Math.max(height, walkingHeight(s, x, y));
   }
@@ -143,6 +161,7 @@ function canOccupy(x, y, footHeight, solids, radius = 16, stepAllowance = 0.001,
 function supportHeight(x, y, footHeight, solids, allowance = 0.001) {
   let floor=0;
   for(const s of solids) {
+    if(s.kind==='ceilingPanel')continue;
     if(horizontalClearance(s,x,y)>=15.9)continue;
     const height=walkingHeight(s,x,y);
     if(height<=footHeight+allowance)floor=Math.max(floor,height);
@@ -168,13 +187,17 @@ function moveOnTerrain(player, x, y, map, solids, now) {
     const grounded = player.jumpStartedAt == null;
     const foot=player.height || 0;
     // Only slopes get a stepping tolerance, never the vertical face of a box.
-    const onRamp=grounded && nearby.some(s=>s.kind==='ramp' &&
+    const activeRamps=grounded?nearby.filter(s=>s.kind==='ramp' &&
       ((player.x>=s.x&&player.x<=s.x+s.width&&player.y>=s.y&&player.y<=s.y+s.height) ||
        (nx>=s.x&&nx<=s.x+s.width&&ny>=s.y&&ny<=s.y+s.height)) &&
-      Math.abs(walkingHeight(s,player.x,player.y)-foot)<0.29);
-    const allowance=onRamp?0.28:0.001;
-    // Resolve round props along their real tangent before the general solid
-    // test. This removes the jagged staircase motion around trunks and tanks.
+      Math.abs(walkingHeight(s,player.x,player.y)-foot)<0.43):[];
+    const onRamp=activeRamps.length>0;
+    // At the upper seam the player's leading edge touches the deck before
+    // their centre reaches the final tread. Scale that legal step by the
+    // staircase slope and body radius so tall generated stairs never snag.
+    const allowance=onRamp?activeRamps.reduce((value,s)=>Math.max(value,rampStepAllowance(s,radius)),.28):0.001;
+    // Resolve round props and rectangular corners along their real tangent
+    // before the general solid test. This removes jagged, sticky corner motion.
     for(const s of nearby) {
       if(!overlapsSolid(s,nx,ny,foot,radius,allowance,player.bodyHeight||2.2))continue;
       const projected=projectRoundedCollision(s,nx,ny,radius);
@@ -271,4 +294,4 @@ function regeneratePlayers(players, seconds) {
 }
 
 if (typeof module !== 'undefined' && module.exports)
-  module.exports = { DEFAULT_MAP, surfaceHeight, bottomHeight, horizontalClearance, cargoLiftSample, updateCargoLifts, groundHeight, supportHeight, canOccupy, moveOnTerrain, advanceKnockback, createPveMap, createPvpMap, regeneratePlayers };
+  module.exports = { DEFAULT_MAP, surfaceHeight, bottomHeight, rampStepAllowance, horizontalClearance, cargoLiftSample, updateCargoLifts, groundHeight, supportHeight, canOccupy, moveOnTerrain, advanceKnockback, createPveMap, createPvpMap, regeneratePlayers };

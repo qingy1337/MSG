@@ -11,13 +11,13 @@ function raisedTerrainConnected(map,walls) {
   const e=map.arrivalElevator||map.elevator;
   const start={x:e.x+80,y:e.y+110,height:0};
   for(const deck of decks) {
-    let target=null;
-    for(let y=deck.y+24;y<deck.y+deck.height-20&&!target;y+=24)
-      for(let x=deck.x+24;x<deck.x+deck.width-20&&!target;x+=24) {
+    let reachable=false;
+    for(let y=deck.y+24;y<deck.y+deck.height-20&&!reachable;y+=24)
+      for(let x=deck.x+24;x<deck.x+deck.width-20&&!reachable;x+=24) {
         const id=graph.nearest({x,y,height:deck.top});
-        if(id>=0&&Math.abs(graph.heights[id]-deck.top)<0.01)target=graph.point(id);
+        if(id>=0&&Math.abs(graph.heights[id]-deck.top)<0.01&&graph.find(start,graph.point(id)).length)reachable=true;
       }
-    if(!target||!graph.find(start,target).length)return false;
+    if(!reachable)return false;
   }
   for(const spawn of map.upperBotSpawns||[])if(!graph.find(start,spawn).length)return false;
   return true;
