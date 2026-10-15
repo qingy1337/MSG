@@ -177,7 +177,10 @@ function moveOnTerrain(player, x, y, map, solids, now) {
   // Broad-phase once for the whole short movement segment. Generated floors
   // contain dozens of distant solids; collision/support/headroom only need
   // geometry within the player's footprint along this segment.
-  const radius=player.botType==='ogre'?30:16;
+  // Ordinary characters intentionally keep the slimmer movement capsule even
+  // though their more forgiving hitscan body is wider. Only the two genuinely
+  // large enemy silhouettes need a larger terrain collider.
+  const radius=player.botType==='ogre'?30:player.botType==='guardian'?28:16;
   const minX=Math.min(player.x,x)-radius,maxX=Math.max(player.x,x)+radius;
   const minY=Math.min(player.y,y)-radius,maxY=Math.max(player.y,y)+radius;
   const nearby=solids.filter(s=>s.x<=maxX&&s.x+s.width>=minX&&s.y<=maxY&&s.y+s.height>=minY);
@@ -185,7 +188,7 @@ function moveOnTerrain(player, x, y, map, solids, now) {
   for (let i = 0; i < steps; i++) {
     let nx = player.x + dx / steps, ny = player.y + dy / steps;
     const grounded = player.jumpStartedAt == null;
-    const foot=player.height || 0;
+    const foot=player.height || 0,collisionFoot=foot+(player.hoverOffset||0);
     // Only slopes get a stepping tolerance, never the vertical face of a box.
     const activeRamps=grounded?nearby.filter(s=>s.kind==='ramp' &&
       ((player.x>=s.x&&player.x<=s.x+s.width&&player.y>=s.y&&player.y<=s.y+s.height) ||
@@ -199,20 +202,20 @@ function moveOnTerrain(player, x, y, map, solids, now) {
     // Resolve round props and rectangular corners along their real tangent
     // before the general solid test. This removes jagged, sticky corner motion.
     for(const s of nearby) {
-      if(!overlapsSolid(s,nx,ny,foot,radius,allowance,player.bodyHeight||2.2))continue;
+      if(!overlapsSolid(s,nx,ny,collisionFoot,radius,allowance,player.bodyHeight||2.2))continue;
       const projected=projectRoundedCollision(s,nx,ny,radius);
       if(projected){nx=projected.x;ny=projected.y;}
     }
     const floor = supportHeight(nx,ny,foot,nearby,allowance);
-    if (player.botType==='ogre' && Math.max(foot,floor)+player.bodyHeight>(map.ceiling||Infinity)) return false;
-    const collisionFoot=grounded&&onRamp?Math.max(foot,floor):foot;
-    if (!canOccupy(nx, ny, collisionFoot, nearby,radius,allowance,player.bodyHeight||2.2)) {
+    if ((player.botType==='ogre'||player.botType==='guardian') && Math.max(collisionFoot,floor+(player.hoverOffset||0))+player.bodyHeight>(map.ceiling||Infinity)) return false;
+    const testFoot=(grounded&&onRamp?Math.max(foot,floor):foot)+(player.hoverOffset||0);
+    if (!canOccupy(nx, ny, testFoot, nearby,radius,allowance,player.bodyHeight||2.2)) {
       // Dynamic lift seams can occasionally leave a player a fraction inside a
       // rail. Permit tangential or outward movement, while still rejecting any
       // move that enters a new solid or increases the existing penetration.
       const escaping=nearby.every(s=>{
-        if(!overlapsSolid(s,nx,ny,collisionFoot,radius,allowance,player.bodyHeight||2.2))return true;
-        if(!overlapsSolid(s,player.x,player.y,foot,radius,allowance,player.bodyHeight||2.2))return false;
+        if(!overlapsSolid(s,nx,ny,testFoot,radius,allowance,player.bodyHeight||2.2))return true;
+        if(!overlapsSolid(s,player.x,player.y,collisionFoot,radius,allowance,player.bodyHeight||2.2))return false;
         return horizontalClearance(s,nx,ny)>=horizontalClearance(s,player.x,player.y)-1e-6;
       });
       if(!escaping)return false;

@@ -14,6 +14,7 @@ import {createTempleEnvironment} from './templeEnvironment.mjs';
 import { createElevatorModel, poseElevator, elevatorDisplay } from './elevator.mjs';
 import { updateCharacterMotion } from './characterMotion.mjs';
 import { createOgreModel, poseOgre } from './ogre.mjs';
+import {createGuardianModel,poseGuardian,createGuardianProjectile,createGuardianExplosion,poseGuardianExplosion} from './guardian.mjs';
 import {MAX_CORPSES,MAX_REMAINS,createCorpse,poseCorpse,createDeathRemains,poseDeathRemains,createGrenadePickup} from './deathEffects.mjs';
 import { FrameBudget } from './frameBudget.mjs';
 import { planAreaLighting, createAreaLighting } from './areaLighting.mjs';
@@ -219,6 +220,7 @@ export class Arena3D {
     this.stage = new THREE.Group(); this.scene.add(this.stage);
     this.characters = new Map(); this.effects = [];
     this.grenades=new Map();
+    this.guardianProjectiles=new Map();
     this.corpses=[];this.remains=[];this.pickups=new Map();this.deadIds=new Set();this.deathShake=0;
     this.raycaster = new THREE.Raycaster();
     this.raycaster.layers.set(1);
@@ -273,6 +275,7 @@ export class Arena3D {
     this.arrivalModel?.userData.display?.texture.dispose();
     this.clearObject(this.stage); this.characters.clear(); this.effects = [];
     this.grenades.clear();
+    this.guardianProjectiles.clear();
     this.corpses=[];this.remains=[];this.pickups.clear();this.deadIds.clear();this.deathShake=0;
     this.clearObject(this.viewWeapon); this.viewWeaponKey = null; this.weaponRecoil = 0;this.weaponSwitchTimes.clear();
     this.viewMuzzleFlash = null;
@@ -535,16 +538,21 @@ export class Arena3D {
       this.clearObject(group);ogreModel=createOgreModel();group.add(ogreModel.group);
       legs.splice(0,legs.length,...ogreModel.legs);arms.splice(0,arms.length,...ogreModel.arms);
     }
+    let guardianModel=null;
+    if(player.botType==='guardian') {
+      this.clearObject(group);guardianModel=createGuardianModel();group.add(guardianModel.group);
+      legs.length=0;arms.length=0;
+    }
     // A character can contain dozens of cosmetic meshes. Only the largest
     // silhouette pieces need to render into shadow maps.
-    limitShadowCasters(group,player.botType==='ogre'?10:8);
+    limitShadowCasters(group,player.botType==='ogre'?10:player.botType==='guardian'?6:8);
     const label = document.createElement('div'); label.className = 'character-health';
     const name = document.createElement('span'); name.textContent = player.name;
     const value = document.createElement('strong');
     const bar = document.createElement('i'); const fill = document.createElement('b'); bar.append(fill);
     label.append(name, value, bar); this.labels.append(label); this.stage.add(group);
     if(this.mapConfig.mode==='pve')applyAmbientZones(group,this.zoneUniforms);
-    const record = { group, legs, arms, weapon, ogreModel, dread, dreadCore, dreadTelegraph, label, value, fill, x: player.x, y: player.y, phase: 0, recoil: 0,
+    const record = { group, legs, arms, weapon, ogreModel, guardianModel, dread, dreadCore, dreadTelegraph, label, value, fill, x: player.x, y: player.y, phase: 0, recoil: 0,
       weaponKey:player.weapon,weaponSwitchAt:this.weaponSwitchTimes?.get(player.id)??-Infinity,
       weaponSkinKey:skin?.key,muzzleBaseX:0.27,muzzleBarrelOffset:length*0.062,
       health: player.health ?? player.maxHealth ?? 101, damageFlash: 0, flashMaterials: this.captureFlashMaterials(group) };
@@ -553,7 +561,7 @@ export class Arena3D {
     if(dread)record.muzzleFlash.position.set(.27,1.37,-1.72);
     if (player.weapon === 'miniGun'&&skin?.key!=='miniGun_midas') record.muzzleFlash.position.x += length * 0.125;
     record.muzzleBaseX=record.muzzleFlash.position.x;
-    (ogreModel?group:weapon).add(record.muzzleFlash);
+    (ogreModel||guardianModel?group:weapon).add(record.muzzleFlash);
     this.characters.set(player.id, record); return record;
   }
 
@@ -703,6 +711,29 @@ export class Arena3D {
     }
   }
 
+  setGuardianProjectiles(states,serverNow=Date.now(),replace=true) {
+    const ids=new Set(states.map(state=>state.id));
+    for(const [id,item] of this.guardianProjectiles)if(replace&&!ids.has(id)) {
+      this.stage.remove(item.model.group);this.clearObject(item.model.group);this.guardianProjectiles.delete(id);
+    }
+    for(const state of states) {
+      let item=this.guardianProjectiles.get(state.id);
+      if(!item) {
+        const model=createGuardianProjectile();model.group.position.copy(world(state.x,state.y,state.height));
+        this.stage.add(model.group);item={model,target:model.group.position.clone(),phase:0};this.guardianProjectiles.set(state.id,item);
+      }
+      item.target.copy(world(state.x,state.y,state.height));
+      item.deadline=performance.now()+Math.max(0,(state.expiresAt??serverNow)-serverNow);
+    }
+  }
+
+  guardianExplosion(state) {
+    const item=this.guardianProjectiles.get(state.id);
+    if(item){this.stage.remove(item.model.group);this.clearObject(item.model.group);this.guardianProjectiles.delete(state.id);}
+    const group=createGuardianExplosion();group.position.copy(world(state.x,state.y,state.height));this.stage.add(group);
+    this.effects.push({group,time:.65,duration:.65,guardianExplosion:true});
+  }
+
   grenadeExplosion(state) {
     const item=this.grenades.get(state.id);
     if(item){this.stage.remove(item.group);this.clearObject(item.group);this.grenades.delete(state.id);}
@@ -836,10 +867,12 @@ export class Arena3D {
       const motion=updateCharacterMotion(c,player,dt);
       c.legs.forEach((leg,i)=>{leg.rotation.x=motion.stride*(i?-1:1)*(c.ogreModel?0.7:1);});
       c.arms.forEach((arm,i)=>{arm.rotation.x=motion.stride*(i?1:-1)*(c.ogreModel?0.35:0.12);});
-      const elevation=(player.height || 0)+(!player.isBot?(this.liftRise || 0):0);
+      const physicalBase=(player.height||0)+(player.hoverOffset||0)+(!player.isBot?(this.liftRise||0):0);
+      const elevation=physicalBase+(c.guardianModel?(player.bodyHeight||2.6)/2:0);
       c.group.position.copy(world(c.x,c.y,elevation+motion.bob));c.group.rotation.y=-c.angle-Math.PI/2;
       c.group.rotation.z=motion.sway;
       if(c.ogreModel)poseOgre(c.ogreModel,player.ogreAttack,world);
+      if(c.guardianModel)poseGuardian(c.guardianModel,player.guardianAttack,this.renderTime+Number(player.id.replace(/\D/g,''))*.37);
       if(c.dreadTelegraph) {
         const attack=player.dreadAttack,target=attack&&players.find(p=>p.id===attack.targetId&&p.alive);
         c.dreadTelegraph.visible=!!target&&attack.phase==='charge';
@@ -860,9 +893,9 @@ export class Arena3D {
       const remoteSwap=Math.max(0,Math.min(1,(this.renderTime-c.weaponSwitchAt)/WEAPON_SWAP_SECONDS));
       c.weapon.position.y=-0.22*Math.sin(Math.PI*remoteSwap);
       c.weapon.rotation.x=0.25*Math.sin(Math.PI*remoteSwap);
-      const anchor = world(c.x,c.y,(player.bodyHeight||2.2)+0.2+elevation+motion.bob);
+      const anchor = world(c.x,c.y,(player.bodyHeight||2.2)+0.2+physicalBase+motion.bob);
       const p = anchor.clone().project(this.camera);
-      const direction = world(player.x, player.y, 1.5 + elevation).sub(this.camera.position);
+      const direction = world(player.x, player.y, physicalBase+(player.bodyHeight||2.2)*.5).sub(this.camera.position);
       const inView=c.group.visible&&p.z>=-1&&p.z<=1&&Math.abs(p.x)<=1&&Math.abs(p.y)<=1;
       if(inView&&this.renderTime>=(c.nextLabelCheck||0)){
         this.raycaster.set(this.camera.position, direction.clone().normalize());
@@ -875,13 +908,14 @@ export class Arena3D {
       c.label.style.left = `${(p.x * 0.5 + 0.5) * 100}%`; c.label.style.top = `${(-p.y * 0.5 + 0.5) * 100}%`;
       const health = Math.max(0, player.health ?? player.maxHealth ?? 101), percent=100*health/(player.maxHealth||101);
       c.value.textContent = Math.ceil(health); c.fill.style.width = `${Math.min(100,percent)}%`;
-      c.fill.style.background = player.botType==='dread'?'#ef3048':percent < 30 ? '#ff7878' : percent < 60 ? '#ffd48b' : '#7bf0c4';
+      c.fill.style.background = player.botType==='guardian'?'#a950ef':player.botType==='dread'?'#ef3048':percent < 30 ? '#ff7878' : percent < 60 ? '#ffd48b' : '#7bf0c4';
     }
     this.updateDeathEffects(dt);
     for (let i = this.effects.length - 1; i >= 0; i--) {
       const fx = this.effects[i]; fx.time -= dt;
       if (fx.time <= 0) { this.stage.remove(fx.group); this.clearObject(fx.group); this.effects.splice(i, 1); }
       else if(fx.explosion)poseGrenadeExplosion(fx.group,fx.duration-fx.time,this.camera.quaternion);
+      else if(fx.guardianExplosion)poseGuardianExplosion(fx.group,fx.duration-fx.time);
       else fx.group.children.forEach(child => {
         child.material.opacity = fx.time / (fx.duration||.11);
       });
@@ -890,6 +924,11 @@ export class Arena3D {
       poseGrenadeFuse(item.body.material,item.fuseDeadline-performance.now());
       item.group.position.lerp(item.target,1-Math.exp(-35*dt));
       if(item.moving){item.group.rotation.x+=dt*7;item.group.rotation.z+=dt*4;}
+    }
+    for(const item of this.guardianProjectiles.values()) {
+      item.model.group.position.lerp(item.target,1-Math.exp(-30*dt));item.phase+=dt;
+      item.model.group.rotation.x+=dt*5;item.model.group.rotation.y+=dt*8;
+      const pulse=1+Math.sin(item.phase*18)*.12;item.model.halo.scale.setScalar(pulse);
     }
     this.drawMinimap(local); this.renderer.render(this.scene, this.camera);
     if (local?.alive) {

@@ -47,7 +47,12 @@ function chooseIntent(bot, target, report, now, random=Math.random) {
   state.home??={x:bot.x,y:bot.y};
   if(!state.wanderGoal || now>=state.wanderUntil) {
     const angle=random()*Math.PI*2,radius=50+random()*130;
-    state.wanderGoal={x:state.home.x+Math.cos(angle)*radius,y:state.home.y+Math.sin(angle)*radius};
+    const bounds=state.homeBounds;
+    const x=state.home.x+Math.cos(angle)*radius,y=state.home.y+Math.sin(angle)*radius;
+    state.wanderGoal=bounds?{
+      x:Math.max(bounds.minX,Math.min(bounds.maxX,x)),
+      y:Math.max(bounds.minY,Math.min(bounds.maxY,y)),
+    }:{x,y};
     state.wanderUntil=now+3500+random()*3000;
     state.pauseUntil=now+400+random()*1000;
   }

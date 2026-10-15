@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import {createMinigunSpoolHud,READY_FLASH_MS} from '../public/minigunSpoolHud.mjs';
 import * as THREE from 'three';
 import skins from '../public/skins.js';
 import { createHeavyWeapon,heavyWeaponMuzzleDepth,heavyWeaponViewScale,heavyWeaponViewYOffset,heavyWeaponViewZ } from '../public/heavyWeapons.mjs';
@@ -232,4 +233,24 @@ test('premium weapon flashes can override the randomized fire color',()=>{
   triggerMuzzleFlash(flash,()=>0.7,'#ce70ff');
   assert.equal(flash.children[0].material.color.getHexString(),'ce70ff');
   dispose(flash);
+});
+
+test('minigun spool HUD fills beneath the crosshair, flashes ready, then clears',()=>{
+  const makeElement=()=>({
+    hidden:false,style:{},attributes:{},classes:new Set(),
+    setAttribute(name,value){this.attributes[name]=value;},
+    classList:{toggle(){}},
+  });
+  const track=makeElement(),fill=makeElement();
+  track.classList={toggle(name,on){on?track.classes.add(name):track.classes.delete(name);}};
+  const update=createMinigunSpoolHud({getElementById:id=>id==='minigun-spool-track'?track:fill});
+  update(null,200);
+  assert.equal(track.hidden,true);assert.equal(fill.style.width,'0%');
+  update(100,200);
+  assert.equal(track.hidden,false);assert.equal(fill.style.width,'50%');
+  assert.equal(track.attributes['aria-valuenow'],'50');assert.equal(track.classes.has('ready'),false);
+  update(200,200);
+  assert.equal(fill.style.width,'100%');assert.equal(track.classes.has('ready'),true);
+  update(200+READY_FLASH_MS+1,200);
+  assert.equal(track.hidden,true);
 });

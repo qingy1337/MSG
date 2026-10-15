@@ -2,10 +2,14 @@ import { Arena3D } from './arena3d.js';
 import { SnapshotMotion } from './snapshotMotion.mjs';
 import { InputPrediction } from './inputPrediction.mjs';
 import {createGrenadeHud} from './grenadeHud.mjs';
+import {createMinigunSpoolHud} from './minigunSpoolHud.mjs';
 const updateGrenadeHud=createGrenadeHud(document);
+const updateMinigunSpool=createMinigunSpoolHud(document);
 const inputPrediction=new InputPrediction();
 let jumpRequested=false;
 let grenadeChargeAt=null;
+let minigunSpinAt=null,minigunReleasedAt=-Infinity;
+function resetMinigunSpool(){minigunSpinAt=null;minigunReleasedAt=-Infinity;updateMinigunSpool();}
 function cancelGrenade(){if(grenadeChargeAt!=null)socket.emit('grenadeCancel');grenadeChargeAt=null;updateGrenadeHud(localPlayer?.grenades??0);}
 let lastProbeAt=-Infinity,lastMetricsAt=0,probeId=0,networkRtt=null,serverTickMs=null;
 const snapshotMotion=new SnapshotMotion();
@@ -35,6 +39,7 @@ function updateArenaLabel(map) {
 }
 function releaseMouse() {
   cancelGrenade();
+  resetMinigunSpool();
   firing = false; keys.clear();jumpRequested=false;
   if (locked()) document.exitPointerLock();
 }
@@ -114,6 +119,8 @@ function gameLoop(now) {
   arena.animateElevator(floorState, Date.now()+floorClockOffset);
   arena.render(snapshotMotion.sample(players,socket.id,now), socket.id, dt, pitch);
   updateGrenadeHud(localPlayer?.grenades??0,grenadeChargeAt==null||!localPlayer?.alive?null:performance.now()-grenadeChargeAt);
+  updateMinigunSpool(firing&&localPlayer?.alive&&localPlayer.weapon==='miniGun'&&minigunSpinAt!=null?
+    performance.now()-minigunSpinAt:null,WEAPONS.miniGun.spinUpMs);
   const shotgunStatus=document.getElementById('weapon-status');
   shotgunStatus.hidden=!localPlayer?.alive;
   if(!shotgunStatus.hidden) {
@@ -145,7 +152,7 @@ window.addEventListener('keydown', e => {
   const key = e.key.toLowerCase();
   if(key==='e'&&locked()) {
     e.preventDefault();
-    if(!e.repeat&&localPlayer?.alive&&localPlayer.primaryWeapon){firing=false;socket.emit('switchWeapon');}
+    if(!e.repeat&&localPlayer?.alive&&localPlayer.primaryWeapon){firing=false;resetMinigunSpool();socket.emit('switchWeapon');}
     return;
   }
   if(key==='q'&&locked()) {
@@ -170,7 +177,7 @@ window.addEventListener('keyup', e => {
   }
 });
 window.addEventListener('blur', releaseMouse);
-document.addEventListener('visibilitychange', () => { if (document.hidden) { cancelGrenade();keys.clear(); firing = false; } });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { cancelGrenade();resetMinigunSpool();keys.clear(); firing = false; } });
 document.addEventListener('mousemove', e => {
   if (!locked() || !gameActive || !localPlayer?.alive) return;
   localPlayer.angle += e.movementX * MOVEMENT.mouseSensitivity;
@@ -179,6 +186,7 @@ document.addEventListener('mousemove', e => {
 });
 document.addEventListener('pointerlockchange', () => {
   cancelGrenade();
+  if(!locked())resetMinigunSpool();
   firing = false; keys.clear();
   lookPrompt.hidden = locked() || !gameActive || !localPlayer?.alive;
 });
@@ -192,9 +200,15 @@ canvas.addEventListener('pointerdown', e => {
     request?.catch(() => { lookPrompt.textContent = 'Mouse capture unavailable · Click to retry'; });
     return;
   }
-  firing = true; attemptFire();
+  const now=performance.now();
+  if(localPlayer.weapon==='miniGun'&&
+    (minigunSpinAt==null||now-minigunReleasedAt>WEAPONS.miniGun.triggerReleaseMs))minigunSpinAt=now;
+  firing = true; attemptFire(now);
 });
-window.addEventListener('pointerup', () => { firing = false; });
+window.addEventListener('pointerup', () => {
+  if(firing&&localPlayer?.weapon==='miniGun')minigunReleasedAt=performance.now();
+  firing = false;
+});
 document.getElementById('raytracing-toggle').addEventListener('change', e => {
   if (arena?.floor) arena.floor.uniforms.reflections.value = e.target.checked;
 });
@@ -211,6 +225,7 @@ socket.on('gameState', (updated,meta) => {
   if(meta?.sequence&&meta.sequence<=lastSnapshotSequence)return;
   if(meta?.sequence)lastSnapshotSequence=meta.sequence;
   if(arena&&gameActive)arena.setGrenades(meta?.grenades||[],meta?.serverNow);
+  if(arena&&gameActive)arena.setGuardianProjectiles(meta?.guardianProjectiles||[],meta?.serverNow);
   if(arena&&gameActive)arena.setPickups(meta?.pickups||[]);
   // High-frequency frames contain only changing fields. Identity, cosmetics,
   // teams and body configuration came from the reliable floor-start packet.
@@ -232,16 +247,18 @@ socket.on('weaponSwitched',data=>{
   const player=players.find(p=>p.id===data?.id);
   if(!player)return;
   Object.assign(player,{weapon:data.weapon,weaponSkinKey:data.weaponSkinKey,weaponSwapUntil:data.weaponSwapUntil});
-  if(player===localPlayer)firing=false;
+  if(player===localPlayer){firing=false;resetMinigunSpool();}
   if(arena&&gameActive)arena.weaponSwitched(data.id);
 });
 socket.on('grenadeExploded',data=>{if(arena&&gameActive)arena.grenadeExplosion(data);});
 socket.on('grenadeThrown',data=>{if(arena&&gameActive)arena.setGrenades([data],data.serverNow,false);});
+socket.on('guardianProjectile',data=>{if(arena&&gameActive)arena.setGuardianProjectiles([data],data.serverNow,false);});
+socket.on('guardianExplosion',data=>{if(arena&&gameActive)arena.guardianExplosion(data);});
 function applyFloorState(state) {
   cancelGrenade();
   floorState=state;floorClockOffset=state.serverNow-Date.now();
   clearTimeout(messageTimer);
-  if(riding()){firing=false;dirty=false;jumpRequested=false;inputPrediction.reset(state.serverNow);}
+  if(riding()){firing=false;resetMinigunSpool();dirty=false;jumpRequested=false;inputPrediction.reset(state.serverNow);}
   updateExitDoor(gameMap,state,Date.now()+floorClockOffset);
   gameMessage.textContent=state.phase==='ready'?'Floor clear · Exit elevator unlocked (E on minimap)':
     state.phase==='riding'?`Ascending to floor ${state.floor+1}…`:
@@ -255,7 +272,7 @@ socket.on('floorStarting',data=>{
   updateArenaLabel(gameMap);
   localPlayer=players.find(p=>p.id===socket.id);
   if(localPlayer&&wasAlive&&Number.isFinite(angle))localPlayer.angle=angle+Math.PI;
-  if(localPlayer?.alive&&!wasAlive){pitch=0;firing=false;keys.clear();}
+  if(localPlayer?.alive&&!wasAlive){pitch=0;firing=false;resetMinigunSpool();keys.clear();}
   arena.build(walls,gameMap);
   snapshotMotion.clear();
   inputPrediction.reset(data.state.serverNow);jumpRequested=false;

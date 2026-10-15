@@ -106,7 +106,7 @@ function playerHitDistance(shooter,player,dx,dy,height,slope) {
   const exit = -b + Math.sqrt(discriminant);
   if (exit < 0) return Infinity;
   // Intersect the horizontal cylinder interval with the character's height.
-  const bottom = player.height || 0;
+  const bottom = (player.height || 0)+(player.hoverOffset||0);
   const top = bottom + (player.bodyHeight || 2.2);
   if (Math.abs(slope) < 1e-9) return height < bottom || height > top ? Infinity : Math.max(0,entry);
   const vertical = [(bottom - height) / slope, (top - height) / slope].sort((a, b) => a - b);

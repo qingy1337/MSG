@@ -14,7 +14,7 @@ export function createCorpse(character,death) {
   // Let the gun tumble beside the body; a rigid attached barrel would prop
   // a prone corpse implausibly high above the floor.
   let droppedWeapon=null;
-  if(!character.ogreModel) {
+  if(!character.ogreModel&&!character.guardianModel) {
     droppedWeapon=new THREE.Group();group.add(droppedWeapon);droppedWeapon.add(character.weapon);
     character.weapon.position.set(-.27,-1.34,.7);
     character.weapon.rotation.set(0,0,0);

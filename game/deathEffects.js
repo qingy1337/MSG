@@ -5,7 +5,8 @@ const {supportHeight}=require('../public/arenaMap');
 function deathDescriptor(target,source,kind,map,walls,random=Math.random) {
   const angle=source?Math.atan2(target.y-source.y,target.x-source.x):(target.angle||0);
   const dx=Math.cos(angle),dy=Math.sin(angle),solids=[...walls,...map.terrain];
-  const height=target.height||0,ogre=target.botType==='ogre';
+  const guardian=target.botType==='guardian';
+  const height=(target.height||0)+(target.hoverOffset||0)+(guardian?(target.bodyHeight||2.6)/2:0),ogre=target.botType==='ogre';
   let distance=ogre?8:kind==='grenade'?65:kind==='shotgun'?34:10;
   const radius=ogre?35:24;
   for(const solid of solids)distance=Math.min(distance,Math.max(0,rayBox(target.x,target.y,dx,dy,

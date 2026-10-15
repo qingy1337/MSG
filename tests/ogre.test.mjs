@@ -19,7 +19,7 @@ test('difficulty rises gently, then floor 21 starts a bounded ten-enemy elite ph
   assert.deepEqual(floorDifficulty(20),{count:23,health:156,speed:1.3,ogres:4});
   assert.deepEqual(floorDifficulty(21),{count:10,health:220,speed:1.3,ogres:4});
   assert.deepEqual(floorDifficulty(37),{count:10,health:300,speed:1.3,ogres:4});
-  assert.deepEqual(floorDifficulty(1000),{count:10,health:300,speed:1.3,ogres:4});
+  assert.deepEqual(floorDifficulty(1000),{count:13,health:300,speed:1.3,ogres:4,guardians:3});
 });
 test('Dread carbine telegraphs, fires three spaced shots, recovers and cancels behind cover',()=>{
   const bot={id:'dread',botType:'dread',botState:{}},target={id:'human'};
@@ -53,6 +53,7 @@ test('floor 21 server fields ten enemies and applies the Dread carbine as a 27-d
     const dread=bots.find(p=>p.botType==='dread');
     assert.equal(bots.length,10);assert.equal(bots.filter(p=>p.botType==='ogre').length,4);
     assert.equal(bots.filter(p=>p.botType==='dread').length,6);
+    handlers.shoot({angle:Math.PI}); // Explicitly begin this focused combat scenario.
     bots.filter(p=>p!==dread).forEach(p=>p.alive=false);
     game.gameWalls.length=0;game.gameMap.terrain.length=0;
     Object.assign(human,{x:350,y:300,height:0,health:101,maxHealth:101});
@@ -204,6 +205,7 @@ test('server applies slam knockback and rejects stale client positions during th
   const game=server.createGameServer(io);connect({id:'p0',on(name,fn){handlers[name]=fn;}});
   game.waitingPlayers.push({id:'p0',name:'Player',weapon:'pistol'});handlers.startGame({enableBots:true});
   try {
+    handlers.shoot({angle:Math.PI}); // Explicitly begin this focused combat scenario.
     game.gameWalls.length=0;game.gameMap.terrain.length=0;
     const player=game.activePlayers.find(p=>!p.isBot),bots=game.activePlayers.filter(p=>p.isBot);
     bots.slice(1).forEach(p=>p.alive=false);

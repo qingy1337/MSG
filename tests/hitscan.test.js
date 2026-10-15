@@ -104,6 +104,8 @@ test('server owns damage, origins, cooldowns, and invalid input rejection', () =
     assert.equal(game.activePlayers[1].health, 89.5);
     game.activePlayers[0].lastShotAt = 0;
     game.activePlayers[0].weapon = 'miniGun';
+    game.activePlayers[0].miniGunSpinStartedAt=Date.now()-WEAPONS.miniGun.spinUpMs;
+    game.activePlayers[0].miniGunLastAttemptAt=Date.now();
     handlers.shoot({ angle: 0 });
     assert.equal(game.activePlayers[1].health, 87.5);
     game.activePlayers[0].weapon = 'pistol';
@@ -184,6 +186,8 @@ test('minigun buffs close/medium damage, eases into long-range falloff, and igno
     game.activePlayers.push(attacker, victim);
     for (const [distance, damage] of [[40, 4], [50, 4], [100, 3], [150, 2], [275, 2], [350, 2], [400, 1.75], [500, 1.25], [600, 0.75], [650, 0.5], [750, 0.325], [800, 0.2375]]) {
       victim.x = attacker.x + distance; victim.health = 100; attacker.lastShotAt = 0;
+      attacker.miniGunSpinStartedAt=Date.now()-WEAPONS.miniGun.spinUpMs;
+      attacker.miniGunLastAttemptAt=Date.now();
       handlers.shoot({ angle: 0, distance: 0, damage: 999, x: victim.x });
       assert.ok(Math.abs(victim.health - (100 - damage)) < 1e-9, `range ${distance}`);
     }
@@ -191,6 +195,35 @@ test('minigun buffs close/medium damage, eases into long-range falloff, and igno
     handlers.shoot({ angle: 0 });
     assert.equal(victim.health, 89.5, 'other weapons retain their damage');
   } finally { game.close(); }
+});
+
+test('human miniguns must spin up and obey their nerfed server cadence',t=>{
+  let connection,now=100000;
+  t.mock.method(global,'setInterval',()=>0);t.mock.method(Date,'now',()=>now);
+  const handlers={},events=[];
+  const io={on:(_,fn)=>{connection=fn;},emit:(name,data)=>events.push({name,data}),to(){return this;}};
+  const game=createGameServer(io);
+  try {
+    connection({id:'s',on:(name,fn)=>{handlers[name]=fn;}});
+    game.gameInProgress.status=true;
+    const attacker={...shooter,weapon:'miniGun'},victim={...target,health:101};
+    game.activePlayers.push(attacker,victim);
+    handlers.shoot({angle:0});
+    assert.equal(victim.health,101,'the trigger press begins spin-up without firing');
+    now+=100;handlers.shoot({angle:0});
+    assert.equal(victim.health,101);
+    now+=WEAPONS.miniGun.spinUpMs-101;handlers.shoot({angle:0});
+    assert.equal(victim.health,101);
+    now+=1;handlers.shoot({angle:0});
+    assert.equal(victim.health,99,'the first round fires when spin-up completes at medium range');
+    now+=WEAPONS.miniGun.cooldownMs-1;handlers.shoot({angle:0});
+    assert.equal(victim.health,99,'server rejects rounds above the capped rate');
+    now+=1;handlers.shoot({angle:0});
+    assert.equal(victim.health,97);
+    now+=WEAPONS.miniGun.triggerReleaseMs+1;handlers.shoot({angle:0});
+    assert.equal(victim.health,97,'releasing long enough requires a fresh spin-up');
+    assert.equal(events.filter(event=>event.name==='shotFired').length,2);
+  } finally {game.close();}
 });
 
 test('slimmer movement collider fits a 34-unit gap but still rejects wall overlap', () => {

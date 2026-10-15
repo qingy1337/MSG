@@ -11,6 +11,7 @@ const {playerSnapshot,playerFrame}=require('./snapshots');
 const {applyMovementInput}=require('../public/inputMovement');
 const { BOT_COMBAT, readyToShoot, recordShot } = require("./botCombat");
 const { DREAD_COMBAT, tickDreadCarbine, recordDreadShot } = require('./dreadCombat');
+const {tickGuardianBurst,launchGuardianProjectile,stepGuardianProjectile,guardianBlastDamage}=require('./guardianCombat');
 const { perceive, chooseIntent, angleDelta, alertNearbyBots } = require('./botAwareness');
 const { recordEnemyHit, currentEnemyFear, fearRetreatGoal, enemyCanAttack } = require('./enemyReactions');
 const { MOVEMENT, advanceJump, startJump } = require("../public/movement");
@@ -74,6 +75,7 @@ function createGameServer(io) {
     (channel.volatile||channel).emit('gameState',activePlayers.map(playerFrame),{
       serverNow:Date.now(),sequence:++snapshotSequence,
       grenades:grenades.map(({id,x,y,height,vx,vy,vz,expiresAt})=>({id,x,y,height,vx,vy,vz,expiresAt})),
+      guardianProjectiles:guardianProjectiles.map(({id,x,y,height,vx,vy,vz,expiresAt})=>({id,x,y,height,vx,vy,vz,expiresAt})),
       pickups:pickups.map(({id,kind,x,y,height})=>({id,kind,x,y,height})),
     });
     snapshotDirty=false;
@@ -87,6 +89,7 @@ function createGameServer(io) {
   let gameMap = DEFAULT_MAP;
   let floorState = { phase: 'combat', floor: 1, startedAt: 0 };
   let floorBotCount = 0;
+  let pveEncounterActive = true;
   let recentTerrain=[];
   let lastPvpMapId=null;
   const riding = () => gameMap.mode === 'pve' && ['riding','opening'].includes(floorState.phase);
@@ -95,6 +98,17 @@ function createGameServer(io) {
   let lastRegenAt = 0;
   const squadOrders = new Map();
   const solids = () => [...gameWalls, ...gameMap.terrain];
+  const insideRect=(player,rect,padding=0)=>!!rect&&player.x>=rect.x-padding&&player.x<=rect.x+rect.width+padding&&
+    player.y>=rect.y-padding&&player.y<=rect.y+rect.height+padding;
+  function inArrivalStaging(player) {
+    const arrival=gameMap.zones?.find(zone=>zone.id===gameMap.encounter?.arrivalZoneId||zone.role==='arrival');
+    // Padding joins the cabin doorway to the BSP room, so crossing the small
+    // structural throat cannot prematurely wake the encounter.
+    return insideRect(player,gameMap.arrivalElevator,32)||insideRect(player,arrival,8);
+  }
+  function activatePveEncounter() {
+    if(gameMap.mode==='pve')pveEncounterActive=true;
+  }
   const canDamage = (a, b) => gameMap.mode === 'pve' ? !!a.isBot !== !!b.isBot : !(a.isBot && isBotAllyPlayer(b));
   // Simple server-side bot config (step 0: scripted bots)
   const BOT_CONFIG = {
@@ -114,9 +128,11 @@ function createGameServer(io) {
   // Tracer IDs; hits are applied synchronously, once, by fireHitscan.
   let nextBulletId = 1;
   const grenades=[];
+  const guardianProjectiles=[];
   const pickups=[];
   let nextPickupId=1;
   let nextGrenadeId=1;
+  let nextGuardianProjectileId=1;
   // Existing navigation helpers accept a projectile list. Hitscan leaves it empty.
   const activeBullets = [];
   let gameOverTimeout = null;
@@ -168,6 +184,7 @@ function createGameServer(io) {
       if(!gameInProgress.status||gameOverTimeout||riding()||!p?.alive||!(p.grenades>0)||started==null||
         !data||!Number.isFinite(data.angle)||!Number.isFinite(data.pitch)||Math.abs(data.pitch)>1.35)return;
       const now=Date.now();updateCargoLifts(gameMap,activePlayers,now);advanceJump(p,now);
+      activatePveEncounter();
       p.grenades--;
       const g=throwGrenade(p,data.angle,data.pitch,now-started,now,nextGrenadeId++);
       grenades.push(g);
@@ -249,6 +266,7 @@ function createGameServer(io) {
     if(!enableBots)lastPvpMapId=layout.map.id;
     recentTerrain=enableBots?[layout.map.composition]:[];
     gameMap = layout.map;
+    pveEncounterActive=!enableBots;
     gameMap.platformEpoch=Date.now();
     const walls = layout.walls;
     BOT_CONFIG.canvasWidth = gameMap.width;
@@ -369,6 +387,8 @@ function createGameServer(io) {
     const useSecondary=player.weapon!==SECONDARY_WEAPON_KEY;
     player.weapon=useSecondary?SECONDARY_WEAPON_KEY:player.primaryWeapon;
     player.weaponSkinKey=useSecondary?player.secondaryWeaponSkinKey:player.primaryWeaponSkinKey;
+    player.miniGunSpinStartedAt=null;
+    player.miniGunLastAttemptAt=null;
     player.weaponSwapUntil=now+WEAPON_SWITCH_MS;
     io.emit('weaponSwitched',{id:player.id,weapon:player.weapon,weaponSkinKey:player.weaponSkinKey,
       weaponSwapUntil:player.weaponSwapUntil});
@@ -379,7 +399,15 @@ function createGameServer(io) {
     if (!gameInProgress.status || gameOverTimeout || riding() || !player || !player.alive) return false;
     const now = Date.now();
     if(now<(player.weaponSwapUntil||0))return false;
-    const cooldown = (WEAPONS[player.weapon] || WEAPONS.pistol).cooldownMs;
+    const weaponConfig=WEAPONS[player.weapon] || WEAPONS.pistol;
+    if(player.weapon==='miniGun'&&!player.isBot) {
+      const released=player.miniGunLastAttemptAt==null||
+        now-player.miniGunLastAttemptAt>weaponConfig.triggerReleaseMs;
+      if(released)player.miniGunSpinStartedAt=now;
+      player.miniGunLastAttemptAt=now;
+      if(now-(player.miniGunSpinStartedAt??now)<weaponConfig.spinUpMs)return false;
+    }
+    const cooldown = weaponConfig.cooldownMs;
     if (now - (player.lastShotAt || 0) < cooldown) return false;
     if(player.weapon==='shotgun') {
       if(now<(player.shotgunReloadUntil||0))return false;
@@ -389,6 +417,7 @@ function createGameServer(io) {
       player.shotgunReloadUntil=player.shotgunShotsRemaining===0?now+WEAPONS.shotgun.reloadMs:0;
       queueSnapshot();
     }
+    if(!player.isBot)activatePveEncounter();
     player.lastShotAt = now;
     player.angle = angle;
     updateCargoLifts(gameMap,activePlayers,now);
@@ -530,14 +559,22 @@ function createGameServer(io) {
       io.to("waiting").emit("updateWaitingList", waitingPlayers);
     }
 
-    const activeIndex = activePlayers.findIndex((p) => p.id === socket.id);
-    if (activeIndex !== -1) {
-      activePlayers.splice(activeIndex, 1);
-      io.emit("playerLeft", socket.id);
-      for(let i=activePlayers.length-1;i>=0;i--)if(activePlayers[i].debugCloneOf===socket.id) {
-        io.emit('playerLeft',activePlayers[i].id);activePlayers.splice(i,1);
-      }
-      maybeTriggerGameOver();
+    // Treat a debug owner and every clone derived from that socket as one
+    // lifecycle unit. Scan independently of the owner record so an orphaned
+    // clone can never keep a match alive after a reordered/double disconnect.
+    const departed=[];
+    for(let i=activePlayers.length-1;i>=0;i--) {
+      const player=activePlayers[i];
+      if(player.id!==socket.id&&player.debugCloneOf!==socket.id)continue;
+      departed.push(player.id);activePlayers.splice(i,1);
+    }
+    for(const id of departed)io.emit('playerLeft',id);
+    if(departed.length) {
+      // With nobody left there is no winner or result screen to wait for.
+      // Reset synchronously so the reconnecting owner can start another debug
+      // match, while resetGame deliberately leaves a next lobby untouched.
+      if(gameMap.mode!=='pve'&&activePlayers.length===0)resetGame();
+      else maybeTriggerGameOver();
     }
 
     console.log("Disconnected:", socket.id);
@@ -625,6 +662,7 @@ function createGameServer(io) {
 
   function resetGame(recipients = []) {
     grenades.length=0;
+    guardianProjectiles.length=0;
     pickups.length=0;
     navigation.close();snapshotDirty=false;
     if (gameOverTimeout) {
@@ -635,7 +673,7 @@ function createGameServer(io) {
     gameWalls.length = 0;
     gameInProgress.status = false;
     nextBotId = 1;
-    gameMap = DEFAULT_MAP; squadOrders.clear(); lastRegenAt = 0;
+    gameMap = DEFAULT_MAP; squadOrders.clear(); lastRegenAt = 0;pveEncounterActive=true;
     floorState = {phase:'combat',floor:1,startedAt:0}; floorBotCount = 0;
     // Reset bullet bookkeeping between matches
     clearActiveBullets(activeBullets);
@@ -1472,15 +1510,16 @@ function createGameServer(io) {
       const color =
         colors[(activePlayers.length + i) % colors.length] || "#888888";
       const ogre = gameMap.mode === 'pve' && i >= numBots-difficulty.ogres;
-      const dread = elite && !ogre;
-      const captain = dread && i < 2;
+      const guardian = gameMap.mode === 'pve' && i < (difficulty.guardians||0);
+      const dread = elite && !ogre && !guardian;
+      const captain = dread && i-(difficulty.guardians||0) < 2;
       let spawn = gameMap.mode === 'pve' ? getTeamSpawn(true, i) : getValidSpawnPosition(gameWalls, activePlayers);
       // Expanded waves use validated ground slots, including room for Ogre bodies.
       if(gameMap.mode==='pve') {
-        const radius=ogre?30:20;
+        const radius=ogre?30:guardian?28:20;
         const safe=p=>p.x>radius&&p.x<gameMap.width-radius&&p.y>radius&&p.y<gameMap.height-radius&&
           ![gameMap.arrivalElevator,gameMap.elevator].filter(Boolean).some(e=>p.x>e.x-radius&&p.x<e.x+e.width+radius&&p.y>e.y-radius&&p.y<e.y+e.height+radius)&&
-          (!ogre||!(p.height>0))&&canOccupy(p.x,p.y,p.height||0,solids(),radius,0.001,ogre?3.8:2.2)&&
+          (!ogre||!(p.height>0))&&canOccupy(p.x,p.y,(p.height||0)+(guardian?1.1:0),solids(),radius,0.001,ogre?3.8:guardian?2.6:2.2)&&
           activePlayers.every(other=>Math.hypot(other.x-p.x,other.y-p.y)>(other.bodyRadius||20)+radius+8);
         if(!safe(spawn)) {
           const candidates=[];
@@ -1494,10 +1533,10 @@ function createGameServer(io) {
       }
       const bot = {
         id: botId,
-        name: ogre ? 'OGRE' : captain ? `DREAD CAPTAIN ${i + 1}` : dread ? `DREAD TROOPER ${i + 1}` : `BOT ${i + 1}`,
-        displayName: ogre ? 'OGRE' : captain ? `DREAD CAPTAIN ${i + 1}` : dread ? `DREAD TROOPER ${i + 1}` : `BOT ${i + 1}`,
+        name: ogre ? 'OGRE' : guardian ? `GUARDIAN ${i + 1}` : captain ? `DREAD CAPTAIN ${i + 1}` : dread ? `DREAD TROOPER ${i + 1}` : `BOT ${i + 1}`,
+        displayName: ogre ? 'OGRE' : guardian ? `GUARDIAN ${i + 1}` : captain ? `DREAD CAPTAIN ${i + 1}` : dread ? `DREAD TROOPER ${i + 1}` : `BOT ${i + 1}`,
         accountUsername: null,
-        color: dread ? (captain?'#e6323f':'#991d2b') : gameMap.mode === 'pve' ? '#df8153' : color,
+        color: guardian ? '#7c2fc4' : dread ? (captain?'#e6323f':'#991d2b') : gameMap.mode === 'pve' ? '#df8153' : color,
         weapon: BOT_CONFIG.weaponKey,
         weaponSkinKey:
           DEFAULT_SKIN_BY_WEAPON[BOT_CONFIG.weaponKey] || null,
@@ -1505,18 +1544,24 @@ function createGameServer(io) {
         y: spawn.y,
         angle: 0,
         alive: true,
-        health: ogre ? 360 : gameMap.mode==='pve' ? difficulty.health+(captain?40:0) : BOT_COMBAT.health,
-        maxHealth: ogre ? 360 : gameMap.mode==='pve' ? difficulty.health+(captain?40:0) : BOT_COMBAT.health,
-        botType: ogre ? 'ogre' : dread ? 'dread' : 'soldier',
+        health: ogre ? 360 : guardian ? Math.min(520,420+(gameMap.floor-41)*4) : gameMap.mode==='pve' ? difficulty.health+(captain?40:0) : BOT_COMBAT.health,
+        maxHealth: ogre ? 360 : guardian ? Math.min(520,420+(gameMap.floor-41)*4) : gameMap.mode==='pve' ? difficulty.health+(captain?40:0) : BOT_COMBAT.health,
+        botType: ogre ? 'ogre' : guardian ? 'guardian' : dread ? 'dread' : 'soldier',
         botRank: captain ? 'captain' : undefined,
-        bodyRadius: ogre ? 30 : 20, bodyHeight: ogre ? 3.8 : 2.2,
-        eyeHeight: ogre ? 2.8 : 1.84,
-        moveScale: gameMap.mode==='pve' ? difficulty.speed*(ogre?0.7:1) : 1,
+        bodyRadius: ogre ? 30 : guardian ? 28 : 20, bodyHeight: ogre ? 3.8 : guardian ? 2.6 : 2.2,
+        eyeHeight: ogre ? 2.8 : guardian ? 2.4 : 1.84,
+        hoverOffset: guardian ? 1.1 : undefined,
+        moveScale: gameMap.mode==='pve' ? difficulty.speed*(ogre?0.7:guardian?0.82:1) : 1,
         isBot: true,
         team: 'bots', squad: Math.floor(i / 3), squadSlot: i % 3,
         height: spawn.height || 0, groundHeight: spawn.height || 0,
         botState: {
           lastShotAt: 0,
+          homeBounds: (()=>{
+            const zone=gameMap.zones?.find(value=>value.id===spawn.zone);
+            return zone?{minX:zone.x+36,maxX:zone.x+zone.width-36,
+              minY:zone.y+36,maxY:zone.y+zone.height-36}:undefined;
+          })(),
         },
       };
       activePlayers.push(bot);
@@ -2024,11 +2069,11 @@ function createGameServer(io) {
   function computeSquadAction(bot, bots, now) {
     const humans = activePlayers.filter(p => p.alive && !p.isBot);
     const state = bot.botState;
-    const target=perceive(bot,humans,now,p=>{
+    const target=pveEncounterActive?perceive(bot,humans,now,p=>{
       const distance=Math.hypot(p.x-bot.x,p.y-bot.y);
       const pitch=Math.atan2((p.height||0)+1.4-(bot.height||0)-(bot.eyeHeight||1.84),distance*0.05);
       return traceShot(bot,Math.atan2(p.y-bot.y,p.x-bot.x),gameWalls,[p],()=>true,pitch,gameMap).targetId===p.id;
-    });
+    }):null;
     if(target)squadOrders.set(bot.squad,{...state.lastSeen});
     const fear=currentEnemyFear(bot,now);
     if(bot.botType==='ogre' && (!fear||bot.ogreAttack?.kind==='slam') && tickOgre(bot,target,activePlayers,gameWalls,gameMap,now,
@@ -2039,9 +2084,10 @@ function createGameServer(io) {
     let goal=chooseIntent(bot,target,squadOrders.get(bot.squad),now);
     // Dread squads press closer than ordinary soldiers instead of hovering at
     // the standard rifle distance. Captains lead the push.
-    if(target&&bot.botType==='dread') {
+    if(target&&(bot.botType==='dread'||bot.botType==='guardian')) {
       const distance=Math.hypot(goal.x-target.x,goal.y-target.y),desired=bot.botRank==='captain'?150:175;
-      if(distance>1){goal.x=target.x+(goal.x-target.x)*desired/distance;goal.y=target.y+(goal.y-target.y)*desired/distance;}
+      const range=bot.botType==='guardian'?285:desired;
+      if(distance>1){goal.x=target.x+(goal.x-target.x)*range/distance;goal.y=target.y+(goal.y-target.y)*range/distance;}
     }
     const retreat=fearRetreatGoal(bot,now);
     if(retreat) { goal=retreat; state.mode='retreat'; }
@@ -2100,9 +2146,16 @@ function createGameServer(io) {
       Math.atan2(moveY,moveX):bot.angle+Math.sin(now/800)*0.035;
     const inRange=!!target&&distance<450,aligned=inRange&&Math.abs(angleDelta(yaw,bot.angle))<0.25;
     const canAttack=enemyCanAttack(bot,now);
+    if(bot.botType==='guardian')tickGuardianBurst(bot,target,!!target&&canAttack,aligned,now,(victim,shotIndex)=>{
+      const projectile=launchGuardianProjectile(bot,victim,now,nextGuardianProjectileId++);
+      guardianProjectiles.push(projectile);
+      const {id,x,y,height,vx,vy,vz,expiresAt}=projectile;
+      io.emit('guardianProjectile',{id,x,y,height,vx,vy,vz,expiresAt,serverNow:now,shotIndex});
+      queueSnapshot();
+    });
     const shoot=bot.botType==='dread'?
       tickDreadCarbine(bot,target,inRange&&canAttack,aligned,now):
-      bot.botType!=='ogre'&&readyToShoot(state,target?.id,inRange&&aligned&&canAttack,now);
+      bot.botType!=='ogre'&&bot.botType!=='guardian'&&readyToShoot(state,target?.id,inRange&&aligned&&canAttack,now);
     const speed=retreat?.speed??(state.mode==='idle'?0.52:state.mode==='combat'?0.95:1);
     return { moveX, moveY, speed, aimAngle:facing,shoot };
   }
@@ -2173,7 +2226,7 @@ function createGameServer(io) {
 
     if (typeof action.aimAngle === "number") {
       const difference = Math.atan2(Math.sin(action.aimAngle - bot.angle), Math.cos(action.aimAngle - bot.angle));
-      const turnStep=gameMap.mode==='pve' ? (bot.botType==='ogre'?0.16:0.24) : 0.12;
+      const turnStep=gameMap.mode==='pve' ? (bot.botType==='ogre'?0.16:bot.botType==='guardian'?0.2:0.24) : 0.12;
       bot.angle += Math.max(-turnStep, Math.min(turnStep, difference));
     }
 
@@ -2196,7 +2249,7 @@ function createGameServer(io) {
     if(gameMap.mode!=='pve'||!['combat','ready'].includes(floorState.phase)||!humans.length||
       activePlayers.some(p=>p.isBot&&p.alive)||!humans.every(p=>inElevator(p,gameMap)))return false;
     floorState={phase:'riding',floor:gameMap.floor,startedAt:now};
-    grenades.length=0;pickups.length=0;queueSnapshot();
+    grenades.length=0;guardianProjectiles.length=0;pickups.length=0;queueSnapshot();
     for(const p of activePlayers)p.grenadeChargeAt=null;
     for(const p of humans) {
       p.jumpStartedAt=null;p.height=0;p.groundHeight=0;p.knockback=null;
@@ -2216,6 +2269,7 @@ function createGameServer(io) {
       const next = createPveMap(undefined, gameMap.floor+1,recentTerrain);
       recentTerrain=[...recentTerrain.slice(-1),next.map.composition];
       gameMap = next.map;
+      pveEncounterActive=false;
       // Preserve cabin-local position and view across the hidden half-turn.
       for(const p of humans) {
         p.x=gameMap.arrivalElevator.x+previousExit.width-(p.x-previousExit.x);
@@ -2242,6 +2296,7 @@ function createGameServer(io) {
       squadOrders.clear(); wallLayoutVersion++; invalidateCachedNavGrid();
       navigation.configure(gameMap,gameWalls);
       clearActiveBullets(activeBullets);
+      guardianProjectiles.length=0;
       createBotsForCurrentMatch(floorBotCount);
       floorState = {phase:'opening',floor:gameMap.floor,startedAt:now};
       io.emit('floorStarting',{players:activePlayers.map(playerSnapshot),walls:gameWalls,map:gameMap,
@@ -2261,6 +2316,8 @@ function createGameServer(io) {
       lastRegenAt = jumpNow;
       advanceFloor(jumpNow);
       if (riding()) { publishSnapshot(); return; }
+      if(!pveEncounterActive&&floorState.phase==='combat'&&
+        activePlayers.some(player=>player.alive&&!player.isBot&&!inArrivalStaging(player)))activatePveEncounter();
     }
     let jumping = false;
     updateCargoLifts(gameMap,activePlayers,jumpNow);
@@ -2284,6 +2341,27 @@ function createGameServer(io) {
           if(!target.alive||target.id===g.ownerId||!canDamage(owner||{isBot:false},target))continue;
           const damage=blastDamage(g,target,gameMap,gameWalls);
           if(damage>0)handlePlayerHit({targetId:target.id,shooterId:g.ownerId,kind:'grenade',origin:g},damage);
+        }
+      }
+    }
+    if(guardianProjectiles.length) {
+      queueSnapshot();
+      for(let i=guardianProjectiles.length-1;i>=0;i--) {
+        const projectile=guardianProjectiles[i];
+        if(!stepGuardianProjectile(projectile,jumpNow,gameMap,gameWalls,activePlayers))continue;
+        guardianProjectiles.splice(i,1);
+        io.emit('guardianExplosion',{id:projectile.id,x:projectile.x,y:projectile.y,height:projectile.height});
+        const owner=activePlayers.find(p=>p.id===projectile.ownerId);
+        for(const target of activePlayers) {
+          if(!target.alive||target.isBot)continue;
+          const damage=guardianBlastDamage(projectile,target,gameMap,gameWalls);
+          if(damage<=0)continue;
+          handlePlayerHit({targetId:target.id,shooterId:owner?.id,kind:'guardianBurst',origin:projectile},damage);
+          if(target.alive) {
+            const angle=Math.atan2(target.y-projectile.y,target.x-projectile.x),strength=55+damage*1.4;
+            target.movementEpoch=(target.movementEpoch||0)+1;
+            target.knockback={start:jumpNow,lastAt:jumpNow,duration:180,vx:Math.cos(angle)*strength,vy:Math.sin(angle)*strength};
+          }
         }
       }
     }
@@ -2316,6 +2394,7 @@ function createGameServer(io) {
     gameInProgress,
     get gameMap() { return gameMap; },
     get floorState() { return floorState; },
+    get encounterActive() { return pveEncounterActive; },
     rebuildNavigation() { navigation.configure(gameMap,gameWalls); },
     close() {
       navigation.close();

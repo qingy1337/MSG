@@ -15,7 +15,8 @@ class NavigationService {
       this.worker.unref();this.worker.postMessage(this.floor);
     }
     const id=++this.nextId;this.pending.set(id,{bot:bot.id,complete});this.sent++;
-    this.worker.postMessage({id,version:this.version,start:{x:bot.x,y:bot.y,height:bot.height||0},goal:{x:goal.x,y:goal.y,height:goal.height},ogre:bot.botType==='ogre'});return true;
+    this.worker.postMessage({id,version:this.version,start:{x:bot.x,y:bot.y,height:bot.height||0},goal:{x:goal.x,y:goal.y,height:goal.height},
+      ogre:bot.botType==='ogre'||bot.botType==='guardian'});return true;
   }
   close(){this.pending.clear();if(this.worker){void this.worker.terminate();this.worker=null;}}
 }

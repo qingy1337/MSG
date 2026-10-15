@@ -7,6 +7,8 @@ const ENEMY_REACTIONS = Object.freeze({
     retreatDistance: 190, retreatSpeed: 0.96, attackPause: 0.25 }),
   ogre: Object.freeze({ knockback: 0.18, fearThreshold: 0.18, fearDurationMs: 900,
     retreatDistance: 105, retreatSpeed: 0.72, attackPause: 0.45 }),
+  guardian: Object.freeze({ knockback: 0.24, fearThreshold: 0.24, fearDurationMs: 1050,
+    retreatDistance: 240, retreatSpeed: 1.02, attackPause: 0.3 }),
 });
 
 const HIT_PROFILES = Object.freeze({

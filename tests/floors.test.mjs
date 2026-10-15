@@ -8,6 +8,7 @@ import combat from '../game/hitscan.js';
 import server from '../game/gameServer.js';
 import navigation from '../game/navigation.js';
 import validation from '../game/terrainValidation.js';
+import helpers from '../game/helpers.js';
 import {createElevatorModel,poseElevator} from '../public/elevator.mjs';
 const {generatePveFloor,generateScatterFloor,floorConnected,rectanglesOverlap,floorSpawn,LIFT_TIMING,elevatorSample,inElevator}=floors;
 
@@ -267,6 +268,35 @@ test('authenticated qing can select every PvP map and spawn one matching debug c
   } finally {game.close();}
 });
 
+test('leaving a solo PvP debug match removes its clone and immediately frees the next match',t=>{
+  t.mock.method(global,'setInterval',()=>0);
+  let connect;const handlers=new Map(),events=[];
+  const io={on(_,fn){connect=fn;},emit(name,data){events.push({name,data});},socketsLeave(){},to(){return this;}};
+  const game=server.createGameServer(io);
+  const addSocket=id=>{
+    const registered={};handlers.set(id,registered);
+    connect({id,user:{username:'qing'},join(){},on(name,fn){registered[name]=fn;}});
+    return registered;
+  };
+  try {
+    const first=addSocket('qing-old');
+    game.waitingPlayers.push({id:'qing-old',name:'qing',accountUsername:'qing',weapon:'autoRifle'});
+    first.startGame({enableBots:false,pvpMap:'tower',debugDouble:true});
+    assert.equal(game.activePlayers.length,2);
+    first.disconnect();
+    assert.equal(game.activePlayers.length,0);
+    assert.equal(game.gameInProgress.status,false,'empty debug match resets instead of remaining locked');
+    assert.ok(events.filter(event=>event.name==='playerLeft').some(event=>String(event.data).startsWith('debug-clone:')));
+
+    const second=addSocket('qing-new');
+    game.waitingPlayers.push({id:'qing-new',name:'qing',accountUsername:'qing',weapon:'autoRifle'});
+    second.startGame({enableBots:false,pvpMap:'foundry',debugDouble:true});
+    assert.equal(game.gameInProgress.status,true);
+    assert.equal(game.activePlayers.length,2);
+    assert.ok(game.activePlayers.some(player=>player.debugCloneOf==='qing-new'));
+  } finally {game.close();}
+});
+
 test('BSP architecture, graph topology and opposing elevators vary without recent theme repeats',()=>{
   const shapes=new Set(),styles=new Set(),topologies=new Set(),degrees=new Set(),roomCounts=new Set(),recent=[];
   const features={lantern:0,multiTier:0,wallCatwalk:0,flat:0,loops:0,motif:0,fullHeightWalls:0};
@@ -382,8 +412,19 @@ for(const generate of [generateScatterFloor,generatePveFloor])test(`${generate.n
       zoneCounts.add(map.zones.length);
       if(ramps.length)rampAxes.add(ramps[0].axis);
       assert.equal(map.botSpawns.length,30,'later waves have unique slots across generated rooms');
-      assert.ok(new Set(map.botSpawns.map(p=>p.zone)).size>=Math.min(2,map.zones.length),
-        'bots occupy multiple architectural zones, including compact plans');
+      assert.ok(new Set(map.botSpawns.map(p=>p.zone)).size>=Math.min(2,map.encounter.validSpawnZones),
+        'bots occupy multiple non-arrival architectural zones when the plan permits');
+      assert.ok(map.encounter.validSpawnCount>=30,'the final architecture has enough validated enemy slots');
+      assert.ok(map.botSpawns.every(p=>p.zone!==map.encounter.arrivalZoneId),
+        'the complete arrival room remains enemy-free');
+      const entry=map.encounter.entryPoint,sightSolids=[...walls,...map.terrain.filter(s=>(s.bottom||0)<1.7&&
+        (s.top||0)>1.15&&s.kind!=='ramp'&&s.kind!=='lift')];
+      for(const spawn of map.botSpawns) {
+        assert.ok(Math.hypot(spawn.x-entry.x,spawn.y-entry.y)>=map.encounter.spawnClearance,
+          'enemy slots preserve the entry clearance distance');
+        assert.equal(helpers.lineIntersectsAnyWall(entry.x,entry.y,spawn.x,spawn.y,sightSolids),true,
+          'enemy slots cannot look directly into the arrival elevator throat');
+      }
       const propCount=map.terrain.filter(s=>['generator','cover','pipe','conveyor','pillar','turbine','storageRack',
         'reactorCore','consoleBank','ventStack'].includes(s.kind)).length;
       assert.ok(propCount>=7,'generated rooms are furnished rather than left as open boxes');propCounts.add(propCount);

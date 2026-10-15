@@ -405,6 +405,11 @@ button:disabled,
 #grenade-charge-track { position:absolute;left:calc(50% - 40px);top:50%;transform:translateY(-50%);width:10px;height:48px;background:#10231f;border:1px solid #d3ffea;border-radius:3px;overflow:hidden;opacity:.85;pointer-events:none; }
 #grenade-charge-track[hidden] { display:none; }
 #grenade-charge { position:absolute;bottom:0;left:0;width:100%;height:0;background:#ffca73; }
+#minigun-spool-track { position:absolute;left:50%;top:calc(50% + 22px);transform:translateX(-50%);box-sizing:border-box;width:46px;height:6px;padding:1px;background:#081318d9;border:1px solid #d9e8e599;border-radius:4px;overflow:hidden;pointer-events:none;box-shadow:0 1px 4px #0009; }
+#minigun-spool-track[hidden] { display:none; }
+#minigun-spool-fill { width:0;height:100%;border-radius:2px;background:linear-gradient(90deg,#e4a83f,#ffe49a);box-shadow:0 0 5px #ffc45b99;transition:width .025s linear; }
+#minigun-spool-track.ready { border-color:#fff1bd;box-shadow:0 0 8px #ffd36bcc; }
+#minigun-spool-track.ready #minigun-spool-fill { background:#fff3c7;box-shadow:0 0 8px #ffd36b; }
 #game-info {
     margin-top: 12px;
     display: flex;

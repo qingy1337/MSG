@@ -326,6 +326,38 @@ test('PvE teams, grouped safe spawns, idle awareness, and timed server regenerat
   } finally {game.close();}
 });
 
+test('PvE arrival staging stays dormant until players leave it or attack',t=>{
+  let now=100000;const ticks=[];
+  t.mock.method(global,'setInterval',fn=>{ticks.push(fn);return ticks.length;});
+  t.mock.method(Date,'now',()=>now);
+  const start=()=>{
+    let connect;const handlers={},events=[];
+    const io={on(_,fn){connect=fn;},emit(name,data){events.push({name,data});},socketsLeave(){},to(){return this;}};
+    const game=server.createGameServer(io);connect({id:'p0',on(name,fn){handlers[name]=fn;}});
+    game.waitingPlayers.push({id:'p0',name:'Player',weapon:'pistol'});handlers.startGame({enableBots:true});
+    return {game,handlers,events,tick:ticks.at(-1)};
+  };
+  const staged=start();
+  try {
+    const player=staged.game.activePlayers.find(p=>!p.isBot),bots=staged.game.activePlayers.filter(p=>p.isBot);
+    assert.equal(staged.game.encounterActive,false);
+    for(let i=0;i<8;i++){now+=50;staged.tick();}
+    assert.ok(bots.every(bot=>bot.botState.mode==='idle'&&!bot.botState.lastSeen));
+    assert.equal(staged.events.some(event=>event.name==='shotFired'),false);
+    const arrival=staged.game.gameMap.zones.find(zone=>zone.id===staged.game.gameMap.encounter.arrivalZoneId);
+    Object.assign(player,{x:arrival.x+arrival.width/2,y:arrival.y+arrival.height/2});now+=50;staged.tick();
+    assert.equal(staged.game.encounterActive,false,'the entire arrival room is a staging area');
+    Object.assign(player,{x:arrival.x+arrival.width+20,y:arrival.y+arrival.height/2});now+=50;staged.tick();
+    assert.equal(staged.game.encounterActive,true,'crossing the room boundary begins the encounter');
+  } finally {staged.game.close();}
+  const attacking=start();
+  try {
+    assert.equal(attacking.game.encounterActive,false);
+    attacking.handlers.shoot({angle:0});
+    assert.equal(attacking.game.encounterActive,true,'firing from staging wakes the floor immediately');
+  } finally {attacking.game.close();}
+});
+
 test('server owns PvE elevation and rejects forged heights while accepting ramp travel', () => {
   const {game,handlers}=fixture(1);
   try {
@@ -384,8 +416,10 @@ test('perception requires FOV and sight; hidden positions never overwrite rememb
 test('server bots attack visible players, then investigate cover without tracking or shooting through it',async t=>{
   let tick,now=100000;
   t.mock.method(global,'setInterval',fn=>{tick=fn;return 0;});t.mock.method(Date,'now',()=>now);
-  const {game,events}=fixture(1);
+  const {game,handlers,events}=fixture(1);
   try {
+    handlers.shoot({angle:Math.PI}); // Explicitly begin this focused combat scenario.
+    events.length=0;
     game.gameWalls.length=0;game.gameMap.terrain.length=0;
     game.gameWalls.push({x:450,y:0,width:24,height:440,top:7.5});
     game.rebuildNavigation();

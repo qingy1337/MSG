@@ -38,6 +38,20 @@
   const overlaps=(a,b,gap=0)=>a.x<b.x+b.width+gap&&a.x+a.width+gap>b.x&&a.y<b.y+b.height+gap&&a.y+a.height+gap>b.y;
   const overlaps3d=(a,b,gap=0)=>overlaps(a,b,gap)&&(a.bottom||0)<(b.top||0)-1e-6&&(b.bottom||0)<(a.top||0)-1e-6;
   const quantize=value=>Math.round(value/20)*20;
+  const segmentsIntersect=(x1,y1,x2,y2,x3,y3,x4,y4)=>{
+    const den=(x1-x2)*(y3-y4)-(y1-y2)*(x3-x4);if(Math.abs(den)<1e-9)return false;
+    const t=((x1-x3)*(y3-y4)-(y1-y3)*(x3-x4))/den;
+    const u=-((x1-x2)*(y1-y3)-(y1-y2)*(x1-x3))/den;
+    return t>=0&&t<=1&&u>=0&&u<=1;
+  };
+  const segmentHitsRect=(x0,y0,x1,y1,r)=>{
+    if((x0>=r.x&&x0<=r.x+r.width&&y0>=r.y&&y0<=r.y+r.height)||
+      (x1>=r.x&&x1<=r.x+r.width&&y1>=r.y&&y1<=r.y+r.height))return true;
+    return segmentsIntersect(x0,y0,x1,y1,r.x,r.y,r.x+r.width,r.y)||
+      segmentsIntersect(x0,y0,x1,y1,r.x+r.width,r.y,r.x+r.width,r.y+r.height)||
+      segmentsIntersect(x0,y0,x1,y1,r.x+r.width,r.y+r.height,r.x,r.y+r.height)||
+      segmentsIntersect(x0,y0,x1,y1,r.x,r.y+r.height,r.x,r.y);
+  };
 
   // Same conservative body-width proof used by the authority, kept local so
   // browser and server compile the identical deterministic floor. Optional
@@ -203,9 +217,12 @@
       zone.lighting=zone.role==='arrival'?'cool':zone.role==='exit'?'green':LIGHTING[zone.role]||'neutral';
       zone.coverStyle=zone.role;
     }
+    const entryPoint={x:zones[entry].x+4,y:Math.max(zones[entry].y+28,
+      Math.min(zones[entry].y+zones[entry].height-28,arrivalElevator.y+arrivalElevator.height/2))};
     const map={mode:'pve',width,height,ceiling,floor,seed:seed>>>0,elevator,arrivalElevator,composition,
       botSpawn:{x:width-460,y:height/2},botSpawns:[],terrain:[],zones,pockets:zones,cutouts:[],
       landmark:{theme:composition,name:theme.name,accent:theme.accent},palette:theme.palette,
+      encounter:{arrivalZoneId:zones[entry].id,entryPoint,spawnClearance:420,activation:'leave-arrival-or-attack'},
       features:{multiTier:false,wallCatwalks:0,secondaryWalls:0,fullHeightSecondaryWalls:0,
         architecturalMotifs:[],grandLantern:false}};
     const walls=[{x:0,y:0,width,height:12,top:ceiling},{x:0,y:height-12,width,height:12,top:ceiling},
@@ -510,8 +527,26 @@
           candidates.push({x,y,height:deck.top,zone:deck.zone});
       }
     }
-    const spawnCandidates=[];
-    for(const candidate of candidates)if(spawnCandidates.every(other=>Math.hypot(candidate.x-other.x,candidate.y-other.y)>52))spawnCandidates.push(candidate);
+    const allSpawnCandidates=[];
+    for(const candidate of candidates)if(allSpawnCandidates.every(other=>Math.hypot(candidate.x-other.x,candidate.y-other.y)>52))allSpawnCandidates.push(candidate);
+    // Individually clear dividers can occasionally form a map-wide choke in
+    // combination. Remove the fewest, newest optional walls needed to restore
+    // complete body-width connectivity; structural room walls are immutable.
+    while(!groundConnected(map,walls)){
+      const optional=[];for(let index=walls.length-1;index>=0;index--)if(walls[index].secondary)optional.push(index);
+      if(!optional.length)break;
+      // Prefer the one wall whose removal repairs the plan outright. Falling
+      // back to the newest wall handles the exceptionally rare multi-wall knot.
+      const repair=optional.find(index=>groundConnected(map,walls.filter((_,at)=>at!==index)));
+      walls.splice(repair??optional[0],1);
+    }
+    // The arrival room is an actual staging space, not another random enemy
+    // bucket. Final wall geometry owns this filter so a removable divider can
+    // never accidentally be the only thing hiding a spawn from the elevator.
+    const sightSolids=[...walls,...map.terrain.filter(s=>(s.bottom||0)<1.7&&(s.top||0)>1.15&&s.kind!=='ramp'&&s.kind!=='lift')];
+    const spawnCandidates=allSpawnCandidates.filter(candidate=>candidate.zone!==map.encounter.arrivalZoneId&&
+      Math.hypot(candidate.x-entryPoint.x,candidate.y-entryPoint.y)>=map.encounter.spawnClearance&&
+      sightSolids.some(s=>segmentHitsRect(entryPoint.x,entryPoint.y,candidate.x,candidate.y,s)));
     const grouped=new Map();for(const candidate of spawnCandidates){if(!grouped.has(candidate.zone))grouped.set(candidate.zone,[]);grouped.get(candidate.zone).push(candidate);}
     const squads=[...grouped.values()].map(group=>{
       const remaining=shuffle([...group],random),result=[];
@@ -526,20 +561,11 @@
     for(const candidate of shuffle([...spawnCandidates],random))if(map.botSpawns.length<30&&!used.has(`${candidate.x}:${candidate.y}:${candidate.height}`)){
       map.botSpawns.push(candidate);used.add(`${candidate.x}:${candidate.y}:${candidate.height}`);
     }
-    if(!map.botSpawns.length){const zone=zones[exit]||zones[0];map.botSpawns.push({x:zone.x+zone.width/2,y:zone.y+zone.height/2,height:zone.elevation,zone:zone.id});}
+    if(!map.botSpawns.length)throw new Error('Procedural floor has no safe enemy spawn outside the arrival zone');
+    map.encounter.validSpawnCount=spawnCandidates.length;
+    map.encounter.validSpawnZones=grouped.size;
     map.botSpawn={x:map.botSpawns[0].x,y:map.botSpawns[0].y};
     map.upperBotSpawns=map.botSpawns.filter(point=>point.height>0).slice(0,6);
-    // Individually clear dividers can occasionally form a map-wide choke in
-    // combination. Remove the fewest, newest optional walls needed to restore
-    // complete body-width connectivity; structural room walls are immutable.
-    while(!groundConnected(map,walls)){
-      const optional=[];for(let index=walls.length-1;index>=0;index--)if(walls[index].secondary)optional.push(index);
-      if(!optional.length)break;
-      // Prefer the one wall whose removal repairs the plan outright. Falling
-      // back to the newest wall handles the exceptionally rare multi-wall knot.
-      const repair=optional.find(index=>groundConnected(map,walls.filter((_,at)=>at!==index)));
-      walls.splice(repair??optional[0],1);
-    }
     const survivingSecondary=walls.filter(wall=>wall.secondary);
     map.features.secondaryWalls=survivingSecondary.length;
     map.features.fullHeightSecondaryWalls=survivingSecondary.filter(wall=>{

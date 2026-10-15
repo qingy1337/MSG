@@ -37,7 +37,11 @@ const WEAPONS = {
     weaponLength: 20,
     bulletSpeed: 14,
     bulletRadius: 5,
-    cooldownMs: 10,
+    // Its close-range damage stays heavy, but it must spool before firing and
+    // cannot turn a high-refresh display into a higher fire rate.
+    spinUpMs: 200,
+    triggerReleaseMs: 150,
+    cooldownMs: 16,
     automatic: true,
   },
   sniper: {

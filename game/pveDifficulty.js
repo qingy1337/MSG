@@ -6,10 +6,16 @@ function floorDifficulty(floor, baseCount = 4) {
   // later floors into a network/CPU stress test; individual enemies become
   // tougher instead. Health keeps climbing for a while so progression does
   // not simply stop at the old floor-20 ceiling.
-  if (level > 20) return { count: 10,
-    health: Math.min(300, 220 + (level - 21) * 5),
-    speed: 1.3,
-    ogres: 4 };
+  if (level > 20) {
+    const result={count:10,health:Math.min(300,220+(level-21)*5),speed:1.3,ogres:4};
+    if(level>40) {
+      result.guardians=Math.min(3,1+Math.floor((level-41)/7));
+      // Guardians join the established late-game force; they never consume a
+      // Dread Trooper or Ogre slot.
+      result.count+=result.guardians;
+    }
+    return result;
+  }
   return { count: Math.min(24, baseCount + level - 1),
     health: Math.min(160, 80 + (level - 1) * 4),
     speed: Math.min(1.3, 1 + (level - 1) * 0.025),
