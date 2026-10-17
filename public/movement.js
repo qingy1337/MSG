@@ -17,6 +17,7 @@ function advanceJump(player, now) {
     player.height = floor;
     player.jumpStartedAt = null;
     player.platformId = player.groundPlatformId || null;
+    player.lastMovementAt = now;
   }
   return true;
 }

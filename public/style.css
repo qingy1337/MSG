@@ -344,6 +344,7 @@ button:disabled,
 #health-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 #crosshair { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #e0fff4; font: 24px monospace; line-height: 1; text-shadow: 0 1px 3px #000; pointer-events: none; }
 #crosshair .shotgun-reticle { display: none; }
+#crosshair .sniper-reticle { display:none; }
 #crosshair.shotgun { width: var(--shotgun-reticle-size, 72px); height: var(--shotgun-reticle-size, 72px); text-shadow: none; }
 #crosshair.shotgun .standard-crosshair { display: none; }
 #crosshair.shotgun .shotgun-reticle {
@@ -367,6 +368,15 @@ button:disabled,
     background: #f1fffb;
     box-shadow: 0 0 0 1px #061018cc, 0 0 5px #d7fff4;
 }
+#crosshair.sniper { width:1px;height:1px;text-shadow:none; }
+#crosshair.sniper .standard-crosshair { display:none; }
+#crosshair.sniper .sniper-reticle { display:block;position:absolute;left:0;top:0;color:#e7fff7;filter:drop-shadow(0 1px 2px #000c); }
+#crosshair.sniper .sniper-reticle::after { content:'';position:absolute;left:-2px;top:-2px;width:4px;height:4px;border-radius:50%;background:currentColor; }
+#crosshair.sniper .sniper-reticle i { position:absolute;display:block;background:currentColor;border-radius:2px;transition:left .045s linear,right .045s linear,top .045s linear,bottom .045s linear; }
+#crosshair.sniper .sniper-reticle i:nth-child(1) { width:8px;height:2px;right:var(--sniper-bloom-radius,7px);top:-1px; }
+#crosshair.sniper .sniper-reticle i:nth-child(2) { width:8px;height:2px;left:var(--sniper-bloom-radius,7px);top:-1px; }
+#crosshair.sniper .sniper-reticle i:nth-child(3) { width:2px;height:8px;left:-1px;bottom:var(--sniper-bloom-radius,7px); }
+#crosshair.sniper .sniper-reticle i:nth-child(4) { width:2px;height:8px;left:-1px;top:var(--sniper-bloom-radius,7px); }
 #look-prompt { position: absolute; top: 58%; left: 50%; transform: translateX(-50%); padding: 16px 22px; border: 1px solid #55727e; border-radius: 8px; background: #07131de8; color: #e0fff4; letter-spacing: 2px; text-align: center; pointer-events: none; }
 #look-prompt small { display: block; font-size: 10px; letter-spacing: 0; margin-top: 8px; white-space: nowrap; }
 #local-health { position: absolute; bottom: 55px; left: 22px; color: #c5f7e5; font: 18px monospace; pointer-events: none; }

@@ -52,9 +52,38 @@ const WEAPONS = {
     bulletSpeed: 16,  // faster bullets
     bulletRadius: 10, // ~2x size
     cooldownMs: 1100,
+    bloom: {
+      movingRadians: 0.05,
+      airborneRadians: 0.09,
+      settleMs: 420,
+    },
     automatic: false,
   },
 };
+
+function sniperBloomRadians(player, now) {
+  const bloom=WEAPONS.sniper.bloom;
+  if(!player)return 0;
+  if(player.knockback||player.jumpStartedAt!=null||
+    (player.height||0)>(player.groundHeight||0)+0.05)return bloom.airborneRadians;
+  const elapsed=now-(player.lastMovementAt??-Infinity);
+  return bloom.movingRadians*Math.max(0,Math.min(1,1-elapsed/bloom.settleMs));
+}
+
+function spreadSniperAim(angle,pitch,spread,random=Math.random) {
+  if(!(spread>0))return {angle,pitch};
+  const radius=spread*Math.sqrt(Math.max(0,Math.min(1,random())));
+  const theta=random()*Math.PI*2;
+  return {
+    angle:angle+Math.cos(theta)*radius,
+    pitch:Math.max(-1.35,Math.min(1.35,pitch+Math.sin(theta)*radius)),
+  };
+}
+
+function sniperBloomPixels(spread,height,fovDegrees=68) {
+  const projection=Math.max(1,height)/(2*Math.tan(fovDegrees*Math.PI/360));
+  return 7+Math.tan(Math.max(0,spread))*projection;
+}
 
 // The pistol is always carried as a secondary, so new players choose a primary.
 const DEFAULT_WEAPON_KEY = 'autoRifle';
@@ -63,5 +92,6 @@ const WEAPON_SWITCH_MS = 360;
 
 // Node (server) export
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { WEAPONS, DEFAULT_WEAPON_KEY, SECONDARY_WEAPON_KEY, WEAPON_SWITCH_MS };
+  module.exports = { WEAPONS, DEFAULT_WEAPON_KEY, SECONDARY_WEAPON_KEY, WEAPON_SWITCH_MS,
+    sniperBloomRadians,spreadSniperAim,sniperBloomPixels };
 }

@@ -1,4 +1,5 @@
-const { WEAPONS, DEFAULT_WEAPON_KEY, SECONDARY_WEAPON_KEY, WEAPON_SWITCH_MS } = require("../public/weapons");
+const { WEAPONS, DEFAULT_WEAPON_KEY, SECONDARY_WEAPON_KEY, WEAPON_SWITCH_MS,
+  sniperBloomRadians,spreadSniperAim } = require("../public/weapons");
 const { traceShot, tracePiercingShot } = require("./hitscan");
 const {traceShotgun}=require('./shotgun');
 const {hitsElevatorOverride}=require('./elevatorOverride');
@@ -354,6 +355,7 @@ function createGameServer(io) {
     if (player && player.alive) {
       if(player.usesMovementInputs)return;
       if(player.knockback){player.angle=data.angle;return;}
+      const previousX=player.x,previousY=player.y,moveNow=Date.now();
       const x = Math.max(MOVEMENT.radius, Math.min(gameMap.width - MOVEMENT.radius, data.x));
       const y = Math.max(MOVEMENT.radius, Math.min(gameMap.height - MOVEMENT.radius, data.y));
       if (gameMap.ceiling) {
@@ -365,6 +367,7 @@ function createGameServer(io) {
         player.x = x;
         player.y = y;
       }
+      if(Math.hypot(player.x-previousX,player.y-previousY)>0.01)player.lastMovementAt=moveNow;
       player.angle = data.angle;
 
       queueSnapshot();
@@ -436,8 +439,11 @@ function createGameServer(io) {
       return true;
     }
     const trace=player.weapon==='sniper'?tracePiercingShot:traceShot;
-    const shot = trace(player, angle, gameWalls, activePlayers,
-      target => canDamage(player, target), pitch, gameMap);
+    const bloom=player.weapon==='sniper'&&!player.isBot?sniperBloomRadians(player,now):0;
+    const aim=spreadSniperAim(angle,pitch,bloom);
+    const shot = trace(player, aim.angle, gameWalls, activePlayers,
+      target => canDamage(player, target), aim.pitch, gameMap);
+    if(bloom>0)shot.bloom=bloom;
     shot.bulletId = nextBulletId++;
     io.emit("shotFired", shot);
     for(const targetId of shot.targetIds||(shot.targetId?[shot.targetId]:[]))

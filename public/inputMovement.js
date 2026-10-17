@@ -3,6 +3,7 @@ function applyMovementInput(player,input,map,solids,now,cabin=null) {
   const movement=typeof module!=='undefined'&&module.exports?require('./movement'):{MOVEMENT,advanceJump,startJump};
   const terrain=typeof module!=='undefined'&&module.exports?require('./arenaMap'):{moveOnTerrain,canOccupy};
   if(!player.alive||player.knockback)return;
+  const startX=player.x,startY=player.y;
   if(cabin) {
     // Travel is cabin-local: room terrain underneath the moving elevator must
     // not collide with riders. The closed cabin still confines their bodies.
@@ -11,10 +12,11 @@ function applyMovementInput(player,input,map,solids,now,cabin=null) {
     player.y=Math.max(cabin.y+inset,Math.min(cabin.y+cabin.height-inset,player.y+input.dy/length*movement.MOVEMENT.speed*input.dt));
     player.height=0;player.groundHeight=0;player.jumpStartedAt=null;player.ceilingHeight=cabin.ceiling;
     player.platformId=null;player.groundPlatformId=null;
+    if(Math.hypot(player.x-startX,player.y-startY)>0.01)player.lastMovementAt=now;
     return;
   }
   movement.advanceJump(player,now);
-  if(input.jump&&movement.startJump(player,now))player.jumpInputSeq=input.seq;
+  if(input.jump&&movement.startJump(player,now)){player.jumpInputSeq=input.seq;player.lastMovementAt=now;}
   const length=Math.max(1,Math.hypot(input.dx,input.dy));
   const dx=input.dx/length*movement.MOVEMENT.speed*input.dt,dy=input.dy/length*movement.MOVEMENT.speed*input.dt;
   const steps=Math.max(1,Math.ceil(Math.max(Math.abs(dx),Math.abs(dy))/4));
@@ -29,5 +31,6 @@ function applyMovementInput(player,input,map,solids,now,cabin=null) {
       if(terrain.canOccupy(player.x,y,0,solids,radius))player.y=y;
     }
   }
+  if(Math.hypot(player.x-startX,player.y-startY)>0.01)player.lastMovementAt=now;
 }
 if(typeof module!=='undefined'&&module.exports)module.exports={applyMovementInput};

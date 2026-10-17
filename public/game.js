@@ -117,6 +117,10 @@ function gameLoop(now) {
   updateExitDoor(gameMap,floorState,Date.now()+floorClockOffset);
   update(dt, now);
   arena.animateElevator(floorState, Date.now()+floorClockOffset);
+  const sniperSpread=localPlayer?.alive&&localPlayer.weapon==='sniper'?
+    sniperBloomRadians(localPlayer,inputPrediction.time):0;
+  document.getElementById('crosshair').style.setProperty('--sniper-bloom-radius',
+    `${sniperBloomPixels(sniperSpread,canvas.clientHeight||600).toFixed(2)}px`);
   arena.render(snapshotMotion.sample(players,socket.id,now), socket.id, dt, pitch);
   updateGrenadeHud(localPlayer?.grenades??0,grenadeChargeAt==null||!localPlayer?.alive?null:performance.now()-grenadeChargeAt);
   updateMinigunSpool(firing&&localPlayer?.alive&&localPlayer.weapon==='miniGun'&&minigunSpinAt!=null?

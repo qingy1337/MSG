@@ -4,7 +4,7 @@
     "username": "qing",
     "passwordHash": "120000:527376a4c7facb358546550205746662:8803cf5b1c16b4a2f9a8f8be0478fa4bec09c8104df42842cc397818c661e2ff",
     "currencies": {
-      "Coins": 3095
+      "Coins": 6800
     },
     "skins": {
       "owned": [
@@ -32,7 +32,7 @@
         "autoRifle": "autoRifle_poisonivy",
         "miniGun": "miniGun_midas",
         "sniper": "sniper_calibrated",
-        "shotgun": "shotgun_bubble_trouble"
+        "shotgun": "shotgun_default"
       }
     }
   },
@@ -41,7 +41,7 @@
     "username": "ggg",
     "passwordHash": "120000:6e213f5bc9566e97880dca1ac766b17a:ee762808405c3234c19bd55b0fa3283dac8b6398d850c4223254b980bd8ba576",
     "currencies": {
-      "Coins": 2845
+      "Coins": 400
     },
     "skins": {
       "owned": [
@@ -59,14 +59,15 @@
         "miniGun_poison",
         "shotgun_default",
         "sniper_flatpack",
-        "shotgun_silverline"
+        "shotgun_silverline",
+        "shotgun_bubble_trouble"
       ],
       "equippedByWeapon": {
         "pistol": "pistol_basicBlue",
         "autoRifle": "autoRifle_christmas",
         "miniGun": "miniGun_poison",
         "sniper": "sniper_flatpack",
-        "shotgun": "shotgun_default"
+        "shotgun": "shotgun_bubble_trouble"
       }
     }
   },
@@ -75,7 +76,7 @@
     "username": "yxli",
     "passwordHash": "120000:6e213f5bc9566e97880dca1ac766b17a:ee762808405c3234c19bd55b0fa3283dac8b6398d850c4223254b980bd8ba576",
     "currencies": {
-      "Coins": 3605
+      "Coins": 4000
     },
     "skins": {
       "owned": [
@@ -104,7 +105,7 @@
     "username": "ruo",
     "passwordHash": "120000:9de7999fc787ef76db2c60df93c88dab:c054a9e1c534b36bf85cf050a4892d55008d415533ffef40d3a89c35efd74572",
     "currencies": {
-      "Coins": 2550
+      "Coins": 2835
     },
     "skins": {
       "owned": [

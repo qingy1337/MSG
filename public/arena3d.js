@@ -840,6 +840,7 @@ export class Arena3D {
     const crosshair=document.getElementById('crosshair');
     crosshair.hidden=!local?.alive;
     crosshair.classList.toggle('shotgun',!!local?.alive&&local.weapon==='shotgun');
+    crosshair.classList.toggle('sniper',!!local?.alive&&local.weapon==='sniper');
     const activeIds = new Set(players.map(p => p.id));
     for (const [id, c] of this.characters) if (!activeIds.has(id)) {
       this.stage.remove(c.group); this.clearObject(c.group); c.label.remove(); this.characters.delete(id);

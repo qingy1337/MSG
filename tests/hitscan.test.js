@@ -4,7 +4,8 @@ const { traceShot, tracePiercingShot } = require('../game/hitscan');
 const { createGameServer } = require('../game/gameServer');
 const { BOT_COMBAT, readyToShoot, recordShot } = require('../game/botCombat');
 const { MOVEMENT, startJump, advanceJump } = require('../public/movement');
-const {WEAPONS,DEFAULT_WEAPON_KEY,SECONDARY_WEAPON_KEY,WEAPON_SWITCH_MS}=require('../public/weapons');
+const {WEAPONS,DEFAULT_WEAPON_KEY,SECONDARY_WEAPON_KEY,WEAPON_SWITCH_MS,
+  sniperBloomRadians,spreadSniperAim,sniperBloomPixels}=require('../public/weapons');
 const shooter = { id: 's', x: 100, y: 100, alive: true, health: 100, weapon: 'pistol' };
 const target = { id: 't', x: 250, y: 100, alive: true, health: 100 };
 
@@ -146,6 +147,40 @@ test('sniper pierces ten PvP opponents for 90 damage each and uses its shorter c
     assert.ok(enemies.every(enemy=>enemy.health===10),'cannot fire one millisecond early');
     now+=1;handlers.shoot({angle:0,pitch:0});
     assert.ok(enemies.every(enemy=>enemy.health===0));
+  } finally {game.close();}
+});
+
+test('sniper bloom expands while moving or airborne and settles after stopping',()=>{
+  const now=1000,player={height:0,groundHeight:0,lastMovementAt:now};
+  assert.equal(sniperBloomRadians(player,now),WEAPONS.sniper.bloom.movingRadians);
+  assert.equal(sniperBloomRadians(player,now+WEAPONS.sniper.bloom.settleMs),0);
+  assert.ok(Math.abs(sniperBloomRadians(player,now+WEAPONS.sniper.bloom.settleMs/2)-
+    WEAPONS.sniper.bloom.movingRadians/2)<1e-9);
+  assert.equal(sniperBloomRadians({...player,jumpStartedAt:now},now+1000),WEAPONS.sniper.bloom.airborneRadians);
+  assert.equal(sniperBloomRadians({...player,knockback:{}},now+1000),WEAPONS.sniper.bloom.airborneRadians);
+  const rolls=[1,0],spread=spreadSniperAim(0,0,WEAPONS.sniper.bloom.movingRadians,()=>rolls.shift());
+  assert.equal(spread.angle,WEAPONS.sniper.bloom.movingRadians);assert.equal(spread.pitch,0);
+  assert.ok(sniperBloomPixels(WEAPONS.sniper.bloom.movingRadians,600)>sniperBloomPixels(0,600));
+});
+
+test('server-authoritative sniper bloom can miss while moving but becomes exact after settling',t=>{
+  let connection,now=100000;const rolls=[1,0],events=[],handlers={};
+  t.mock.method(global,'setInterval',()=>0);t.mock.method(Date,'now',()=>now);
+  t.mock.method(Math,'random',()=>rolls.shift()??0);
+  const io={on:(_,fn)=>{connection=fn;},emit:(name,data)=>events.push({name,data}),to(){return this;}};
+  const game=createGameServer(io);connection({id:'s',on:(name,fn)=>{handlers[name]=fn;}});
+  try {
+    game.gameInProgress.status=true;
+    const sniper={...shooter,weapon:'sniper',lastMovementAt:now},victim={...target,x:800,health:101};
+    game.activePlayers.push(sniper,victim);
+    handlers.shoot({angle:0,pitch:0});
+    const movingShot=events.find(event=>event.name==='shotFired').data;
+    assert.equal(movingShot.targetIds.length,0);assert.equal(movingShot.bloom,WEAPONS.sniper.bloom.movingRadians);
+    assert.ok(Math.abs(movingShot.angle-WEAPONS.sniper.bloom.movingRadians)<1e-9);
+    now+=WEAPONS.sniper.cooldownMs;handlers.shoot({angle:0,pitch:0});
+    const settledShot=events.filter(event=>event.name==='shotFired').at(-1).data;
+    assert.deepEqual(settledShot.targetIds,['t']);assert.equal(settledShot.angle,0);
+    assert.equal(victim.health,11);
   } finally {game.close();}
 });
 
