@@ -3,16 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Multiplayer Shooting Game</title>
+    <title>Blocks</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="app-shell">
         <header class="app-header">
             <div class="header-left">
+                <div class="brand-mark" aria-hidden="true">B</div>
                 <div class="brand-copy">
-                    <div class="brand-title">Multiplayer Shooting Game</div>
-                    <div class="brand-subtitle">Fast rounds, tighter corridors.</div>
+                    <div class="brand-title">Blocks</div>
                 </div>
             </div>
             <div class="header-center">
@@ -55,51 +55,147 @@
                 </div>
             </div>
 
-            <!-- Lobby / display name screen -->
-            <div id="login-screen" class="screen">
-                <h1>Lobby</h1>
-                <p class="screen-subtitle">
-                    Choose how you’ll appear in this match. This can be different from your account name.
-                </p>
-                <div class="form-group">
-                    <input type="text" id="name-input" placeholder="Display Name">
-                    <button id="join-btn" class="btn btn-primary">Join lobby</button>
+            <!-- Authenticated command deck -->
+            <div id="home-screen" class="screen command-screen">
+                <div class="command-grid">
+                    <section class="command-main">
+                        <div class="command-intro">
+                            <h1>Welcome back, <span id="home-username">operator</span>.</h1>
+                            <p>Choose a loadout, then launch a fireteam or join one already forming.</p>
+                        </div>
+
+                        <div class="home-overview">
+                            <div class="loadout-panel">
+                                <div class="weapon-showcase">
+                                    <div class="showcase-stage">
+                                        <div class="showcase-glow" aria-hidden="true"></div>
+                                        <canvas id="loadout-weapon-preview" aria-label="Operator holding the equipped primary weapon and pistol"></canvas>
+                                    </div>
+                                    <div class="showcase-details">
+                                        <div class="showcase-copy">
+                                            <div class="weapon-title-line">
+                                                <h2 id="selected-weapon-name">Auto-Rifle</h2>
+                                                <span id="selected-skin-name" class="finish-name">Standard issue</span>
+                                            </div>
+                                            <p id="selected-weapon-description"></p>
+                                        </div>
+                                        <div class="secondary-copy">
+                                            <div class="weapon-title-line"><h3>Pistol</h3><span class="secondary-key">E</span></div>
+                                            <p id="secondary-skin-name">Standard issue</p>
+                                        </div>
+                                        <div class="showcase-actions">
+                                            <button id="change-loadout-btn" class="btn loadout-action">Change loadout</button>
+                                            <button id="open-armory-btn" class="text-button">Open armory</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <section class="career-panel" aria-labelledby="career-title">
+                                <div class="career-heading">
+                                    <h2 id="career-title">Career</h2>
+                                    <span>All-time record</span>
+                                </div>
+                                <div class="career-summary">
+                                    <div class="kill-total"><strong id="total-kills-value">0</strong><span>Eliminations</span></div>
+                                    <div class="mode-record">
+                                        <div class="mode-record-values">
+                                            <span>PvE <strong id="pve-kills-value">0</strong></span>
+                                            <span>PvP <strong id="pvp-kills-value">0</strong></span>
+                                        </div>
+                                        <div class="mode-record-bar" aria-hidden="true">
+                                            <i id="pve-kills-bar"></i><i id="pvp-kills-bar"></i>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="weapon-record-heading"><strong>Weapon record</strong><span>Kills</span></div>
+                                <div id="weapon-kill-list" class="weapon-kill-list"></div>
+                                <div class="grenade-record">
+                                    <span class="grenade-record-icon" aria-hidden="true"></span>
+                                    <div><strong id="grenades-thrown-value">0</strong><span>Grenades thrown</span></div>
+                                </div>
+                            </section>
+                        </div>
+
+                        <div class="play-dock">
+                            <div class="mode-picker" role="group" aria-label="Game mode">
+                                <button class="mode-choice active" data-mode="pvp">
+                                    <strong>PvP</strong><small>Competitive free-for-all</small>
+                                </button>
+                                <button class="mode-choice" data-mode="pve">
+                                    <strong>Endless PvE</strong><small>Co-op floor survival</small>
+                                </button>
+                                <button class="mode-choice unavailable" disabled>
+                                    <strong>Strikes</strong><small>Coming later</small>
+                                </button>
+                            </div>
+                            <button id="play-btn" class="play-button"><i>PLAY</i></button>
+                        </div>
+                    </section>
+
+                    <aside class="fireteam-browser">
+                        <div class="panel-heading">
+                            <div>
+                                <h2>Fireteams</h2>
+                            </div>
+                            <span id="online-lobby-count" class="network-status">0 OPEN</span>
+                        </div>
+                        <div id="lobby-status" class="lobby-status" role="status"></div>
+                        <div class="lobby-group">
+                            <div class="lobby-group-title"><span>PvP</span><i></i></div>
+                            <div id="pvp-lobby-list" class="lobby-list"></div>
+                        </div>
+                        <div class="lobby-group">
+                            <div class="lobby-group-title"><span>Endless PvE</span><i></i></div>
+                            <div id="pve-lobby-list" class="lobby-list"></div>
+                        </div>
+                    </aside>
+                </div>
+
+                <div id="loadout-drawer-layer" class="loadout-drawer-layer hidden">
+                    <button id="loadout-drawer-dismiss" class="loadout-drawer-dismiss" aria-label="Close loadout"></button>
+                    <section class="loadout-drawer" role="dialog" aria-modal="true" aria-labelledby="loadout-drawer-title">
+                        <div class="loadout-drawer-header">
+                            <div>
+                                <h2 id="loadout-drawer-title">Choose your primary</h2>
+                                <p>Your pistol is always equipped as a secondary.</p>
+                            </div>
+                            <button id="close-loadout-btn" class="drawer-close" aria-label="Close loadout">×</button>
+                        </div>
+                        <div id="weapon-options" class="weapon-options loadout-options"></div>
+                        <button id="done-loadout-btn" class="btn btn-primary loadout-done">Done</button>
+                    </section>
                 </div>
             </div>
 
-            <div id="weapon-screen" class="screen hidden">
-                <h1>Choose Your Weapon</h1>
-                <!--<p class="screen-subtitle">Each weapon trades damage, speed, and control. Pick your style.</p>-->
-                <div id="weapon-options" class="weapon-options"></div>
-                <div class="form-group">
-                    <button id="weapon-confirm-btn" class="btn btn-primary">Lock in</button>
-                </div>
-            </div>
-
-            <div id="waiting-screen" class="screen hidden">
-                <h1>Waiting Room</h1>
-                <div class="player-list-container">
-                    <h2>Players</h2>
-                    <ul id="waiting-players"></ul>
-                </div>
-                <button id="start-btn" class="btn btn-accent" disabled>Start Game (Need at least 2 players)</button>
-                <div class="bots-toggle-row">
-                    <label class="bots-toggle-label">
-                        <input type="checkbox" id="enable-bots-toggle">
-                        Co-op PvE · Players versus bot squads
-                    </label>
-                </div>
-                <div id="pve-start-floor-row" class="hidden">
-                    <label for="pve-start-floor">Starting floor</label>
-                    <input id="pve-start-floor" class="auth-input" type="number" min="1" step="1" value="1" aria-label="PvE starting floor">
-                </div>
-                <div id="pvp-debug-row" class="hidden">
-                    <label for="pvp-debug-map">Debug PvP map</label>
-                    <select id="pvp-debug-map" class="auth-input" aria-label="PvP debug map"></select>
-                    <label class="pvp-debug-clone-label">
-                        <input id="pvp-debug-double" type="checkbox" checked>
-                        Spawn stationary qing clone
-                    </label>
+            <div id="lobby-screen" class="screen fireteam-screen hidden">
+                <div class="fireteam-room">
+                    <div class="fireteam-room-header">
+                        <div>
+                            <h1 id="lobby-title">Fireteam</h1>
+                            <p id="lobby-capacity">Assembling squad…</p>
+                        </div>
+                        <button id="leave-lobby-btn" class="btn btn-ghost">Leave fireteam</button>
+                    </div>
+                    <div class="fireteam-roster">
+                        <h2 class="roster-title">Roster</h2>
+                        <ul id="waiting-players"></ul>
+                    </div>
+                    <div id="lobby-leader-note" class="leader-note">Waiting for the fireteam leader to launch.</div>
+                    <div id="lobby-action-status" class="lobby-action-status" role="status"></div>
+                    <button id="start-btn" class="play-button lobby-launch" disabled><i>LAUNCH</i></button>
+                    <div id="pve-start-floor-row" class="debug-options hidden">
+                        <label for="pve-start-floor">Debug starting floor</label>
+                        <input id="pve-start-floor" class="auth-input" type="number" min="1" step="1" value="1" aria-label="PvE starting floor">
+                    </div>
+                    <div id="pvp-debug-row" class="debug-options hidden">
+                        <label for="pvp-debug-map">Debug PvP map</label>
+                        <select id="pvp-debug-map" class="auth-input" aria-label="PvP debug map"></select>
+                        <label class="pvp-debug-clone-label">
+                            <input id="pvp-debug-double" type="checkbox" checked>
+                            Spawn stationary qing clone
+                        </label>
+                    </div>
                 </div>
             </div>
 
@@ -135,19 +231,19 @@
                             <div id="local-health-bar" role="progressbar" aria-label="Your health" aria-valuemin="0" aria-valuemax="101" aria-valuenow="101"><div id="local-health-fill"></div></div>
                         </div>
                         <div class="arena-controls">WASD / MOVE <b>·</b> SPACE / JUMP <b>·</b> E / SWAP <b>·</b> Q / GRENADE <b>·</b> CLICK / FIRE</div>
-                        <label class="render-setting"><input id="raytracing-toggle" type="checkbox" checked> Ray-traced reflections</label>
+                        <label class="render-setting"><input id="raytracing-toggle" type="checkbox"> Ray-traced reflections</label>
                         <div id="render-error" class="hidden" role="alert"></div>
                         <div id="grenade-hud" role="img" aria-label="3 of 3 grenades available">
                             <svg class="grenade-icon available" viewBox="0 0 24 32" aria-hidden="true"><path fill="currentColor" d="M8 9h8l4 7v10l-4 4H8l-4-4V16z"/><path d="M9 9V5h7l5 12M15 5V2h4v4M5 18h14M5 24h14M12 11v17" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M6 18h12M6 24h12M12 12v16" stroke="#122822" stroke-width="1.3"/></svg>
                             <svg class="grenade-icon available" viewBox="0 0 24 32" aria-hidden="true"><path fill="currentColor" d="M8 9h8l4 7v10l-4 4H8l-4-4V16z"/><path d="M9 9V5h7l5 12M15 5V2h4v4M5 18h14M5 24h14M12 11v17" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M6 18h12M6 24h12M12 12v16" stroke="#122822" stroke-width="1.3"/></svg>
                             <svg class="grenade-icon available" viewBox="0 0 24 32" aria-hidden="true"><path fill="currentColor" d="M8 9h8l4 7v10l-4 4H8l-4-4V16z"/><path d="M9 9V5h7l5 12M15 5V2h4v4M5 18h14M5 24h14M12 11v17" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M6 18h12M6 24h12M12 12v16" stroke="#122822" stroke-width="1.3"/></svg>
                         </div>
-                    </div>
-                    <div id="game-info">
-                        <div id="players-alive"></div>
-                        <div id="weapon-status" hidden></div>
-                        <div id="performance-info" aria-label="Performance diagnostics"></div>
-                        <div id="game-message"></div>
+                        <div id="game-info">
+                            <div id="players-alive"></div>
+                            <div id="weapon-status" hidden></div>
+                            <div id="performance-info" aria-label="Performance diagnostics"></div>
+                            <div id="game-message"></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -166,6 +262,7 @@
     <script src="skinRendering.js"></script>
     <script src="waiting.js"></script>
     <script type="importmap">{"imports":{"three":"/vendor/three/three.module.js","three/addons/":"/vendor/three/addons/"}}</script>
+    <script type="module" src="loadoutPreview.mjs"></script>
     <script type="module" src="game.js"></script>
 </body>
 </html>

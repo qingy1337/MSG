@@ -13,8 +13,8 @@ import {createElevatorModel,poseElevator} from '../public/elevator.mjs';
 const {generatePveFloor,generateScatterFloor,floorConnected,rectanglesOverlap,floorSpawn,LIFT_TIMING,elevatorSample,inElevator}=floors;
 
 test('authored PvP maps, variants, spawns and raised routes pass validation',()=>{
-  assert.deepEqual(pvpMaps.PVP_MAP_IDS,['foundry','courtyard','freight','tower','temple','maze']);
-  assert.equal(new Set(pvpMaps.PVP_MAP_IDS.map(id=>pvpMaps.PVP_MAPS[id].name)).size,6);
+  assert.deepEqual(pvpMaps.PVP_MAP_IDS,['foundry','courtyard','freight','tower','temple','orbital','airport','maze']);
+  assert.equal(new Set(pvpMaps.PVP_MAP_IDS.map(id=>pvpMaps.PVP_MAPS[id].name)).size,8);
   for(const id of pvpMaps.PVP_MAP_IDS)for(let variant=0;variant<3;variant++) {
     const layout=maps.createPvpMap(variant,id),again=maps.createPvpMap(variant,id);
     assert.deepEqual(layout,again,`${id} seed ${variant} is deterministic`);
@@ -148,6 +148,84 @@ test('Overgrown Temple is a grassy two-layer sanctuary with reachable decks and 
   assert.ok(maps.canOccupy(player.x,player.y,0,solids));
   for(const point of route.slice(1))assert.ok(maps.moveOnTerrain(player,point.x,point.y,map,solids,0),'tunnel bend is walkable');
   assert.equal(player.ceilingHeight,map.ceiling,'route emerges from the undercroft into the open court');
+});
+
+test('Orbital Station is open to space with two distinct floors, opposite stairs and unrailed bridges',()=>{
+  const {map,walls}=maps.createPvpMap(0,'orbital'),terrain=map.terrain;
+  assert.equal(map.style,'orbital');assert.equal(map.roof,false);
+  assert.equal(map.palette.wall,'#d7dde3');assert.equal(map.palette.floorHigh,'#edf1f4');
+  assert.ok(map.ceiling>=14,'the open station keeps a tall unrestricted sky volume');
+  assert.ok(walls.filter(w=>w.kind==='boundary').every(w=>w.top<1.5),
+    'low perimeter structure leaves the starfield visible instead of forming an outdoor box');
+  const tunnels=terrain.filter(s=>s.kind==='orbitalTunnelRoof');
+  assert.equal(tunnels.length,2);
+  assert.ok(tunnels.every(s=>!s.walkable&&s.bottom>=2.7&&s.top===3),
+    'both tunnels have genuine low ceilings without introducing an accidental third floor');
+  const decks=terrain.filter(s=>s.kind==='orbitalDeck'&&s.walkable);
+  assert.equal(decks.length,7);assert.ok(decks.every(s=>s.top===4.5&&s.bottom===4.22));
+  assert.equal(decks.filter(s=>s.bridge).length,3,'three narrow bridges join distinct upper-floor wings');
+  const stairs=terrain.filter(s=>s.kind==='ramp'&&s.style==='orbital');
+  assert.equal(stairs.length,2);assert.ok(stairs.every(s=>s.axis==='y'&&s.top===4.5));
+  assert.deepEqual(stairs.map(s=>!!s.reverse).sort(),[false,true],
+    'west and east stairs descend in opposing north/south directions');
+  assert.equal(terrain.filter(s=>s.kind==='rail').length,0,'the exposed bridges deliberately have no railings');
+  assert.ok(terrain.filter(s=>s.kind==='orbitalSupport').length>=6,'upper floors have visible structural supports');
+  for(const kind of ['orbitalCore','orbitalAntenna','orbitalPod','orbitalCrate','orbitalSupport'])
+    assert.ok(terrain.some(s=>s.kind===kind),`station includes ${kind}`);
+  const crates=terrain.filter(s=>s.kind==='orbitalCrate'),jumpApex=movement.MOVEMENT.jumpSpeed**2/(2*movement.MOVEMENT.gravity);
+  assert.ok(crates.length>=3&&crates.every(s=>s.jumpable&&s.top<=jumpApex-.3),
+    'every orbital crate leaves a forgiving portion of the jump arc for climbing onto it');
+  const crate=crates[0],jumper={x:crate.x-18,y:crate.y+crate.height/2,height:crate.top+.12,
+    groundHeight:0,jumpStartedAt:1,bodyHeight:2.2};
+  assert.ok(maps.moveOnTerrain(jumper,crate.x+crate.width/2,jumper.y,map,[...walls,...terrain],100),
+    'an ordinary airborne player can cross the crate edge');
+  assert.equal(jumper.groundHeight,crate.top,'the crate top becomes the landing surface');
+
+  // Walk deep into the first tunnel. Collision/headroom must recognize the
+  // overhead shell rather than treating it as decorative rooftop geometry.
+  const tunnel=tunnels[0],solids=[...walls,...terrain];
+  const player={x:tunnel.x+30,y:tunnel.y+tunnel.height/2,height:0,bodyHeight:2.2};
+  assert.ok(maps.canOccupy(player.x,player.y,0,solids));
+  assert.ok(maps.moveOnTerrain(player,tunnel.x+tunnel.width-35,player.y,map,solids,0));
+  assert.equal(player.ceilingHeight,tunnel.bottom);
+
+  const graph=new navigation.NavigationGraph(map,walls);
+  for(const surface of terrain.filter(s=>s.walkable)) {
+    const goal={x:surface.x+surface.width/2,y:surface.y+surface.height/2,height:surface.top};
+    assert.ok(graph.find(map.spawns[0],goal).length,'every upper wing and bridge has a permanent stair route');
+  }
+  assert.ok(map.spawns.some(s=>s.height===0&&tunnels.some(t=>s.x>t.x&&s.x<t.x+t.width&&s.y>t.y&&s.y<t.y+t.height)),
+    'ground spawns can begin inside the tunnels');
+  assert.ok(map.spawns.filter(s=>s.height===4.5).length>=5,'the second floor participates in combat');
+  assert.deepEqual([...new Set(map.spawns.map(s=>s.height))].sort((a,b)=>a-b),[0,4.5],
+    'spawns reinforce the two-floor combat structure');
+});
+
+test('Terminal 7 is a connected airport with distinct public, security, gate, mezzanine and baggage spaces',()=>{
+  const {map,walls}=maps.createPvpMap(0,'airport'),terrain=map.terrain,solids=[...walls,...terrain];
+  assert.equal(map.name,'Terminal 7');assert.equal(map.style,'airport');
+  assert.equal(map.palette.groundStyle,'airport');assert.ok(map.width<=1100&&map.height<=800);
+  for(const kind of ['airportCheckin','airportScanner','airportSeats','airportGateDesk','airportBaggage',
+    'airportLuggageCart','airportFlightBoard','airportKiosk','airportPlanter'])
+    assert.ok(terrain.some(s=>s.kind===kind),`terminal includes ${kind}`);
+  assert.equal(terrain.filter(s=>s.kind==='airportScanner').length,3,'security has three playable screening lanes');
+  assert.ok(terrain.filter(s=>s.kind==='airportBaggage').length>=3,'staff route contains a complete baggage system');
+  assert.ok(walls.filter(s=>s.airportWall==='service').length>=5,'baggage hall has multiple staff entrances');
+  assert.ok(walls.filter(s=>s.airportWall==='glass').length>=4,'security is shaped by glazed partitions');
+  const decks=terrain.filter(s=>s.kind==='airportDeck'&&s.walkable),stairs=terrain.filter(s=>s.kind==='ramp'&&s.style==='airport');
+  assert.equal(decks.length,3);assert.equal(stairs.length,2);
+  assert.ok(decks.every(s=>s.top===3.35&&s.bottom===3.08));
+  const graph=new navigation.NavigationGraph(map,walls);
+  for(const deck of decks) {
+    const goal={x:deck.x+deck.width/2,y:deck.y+deck.height/2,height:deck.top};
+    assert.ok(graph.find(map.spawns[0],goal).length,'both terminal staircases connect to the full mezzanine');
+  }
+  const publicSpawn=map.spawns.find(s=>s.height===0&&s.y<map.height*.7);
+  const baggageSpawn=map.spawns.find(s=>s.height===0&&s.y>map.height*.75);
+  assert.ok(publicSpawn&&baggageSpawn&&graph.find(publicSpawn,baggageSpawn).length,
+    'the public terminal and baggage flank belong to one circulation graph');
+  assert.ok(map.spawns.filter(s=>s.height===3.35).length>=4,'upstairs combat has dedicated spawns');
+  for(const spawn of map.spawns)assert.ok(maps.canOccupy(spawn.x,spawn.y,spawn.height,solids));
 });
 
 test('every PvP map is compact and stays inside the shared sightline budget',()=>{

@@ -3,7 +3,7 @@ export function createGrenadeHud(document) {
   const icons=[...hud.querySelectorAll('.grenade-icon')];
   const track=document.getElementById('grenade-charge-track');
   const fill=document.getElementById('grenade-charge');
-  let previousCount=-1;
+  let previousCount=-1,previousActive=null,previousPercent=-1;
   return (count,chargeMs=null)=>{
     const available=Math.max(0,Math.min(3,Math.floor(count||0)));
     if(available!==previousCount) {
@@ -12,8 +12,9 @@ export function createGrenadeHud(document) {
       previousCount=available;
     }
     const percent=chargeMs==null?0:Math.min(100,Math.max(0,chargeMs/12));
-    track.hidden=chargeMs==null;
-    fill.style.height=`${percent}%`;
-    track.setAttribute('aria-valuenow',String(Math.round(percent)));
+    const active=chargeMs!=null,rounded=Math.round(percent);
+    if(previousActive!==active){previousActive=active;track.hidden=!active;}
+    if(previousPercent!==rounded){previousPercent=rounded;fill.style.height=`${percent}%`;
+      track.setAttribute('aria-valuenow',String(rounded));}
   };
 }

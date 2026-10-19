@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 
 export function muzzleFlashScaleForWeapon(weapon) {
-  return weapon==='shotgun'?1.65:1;
+  if(weapon==='shotgun')return 1.65;
+  if(weapon==='sniper')return 1.5;
+  return 1;
 }
 
 // Reused per gun: no per-round allocation, even at minigun fire rates.
@@ -49,6 +51,7 @@ export function triggerMuzzleFlash(flash, random = Math.random, color = null) {
 }
 
 export function updateMuzzleFlash(flash, dt) {
+  if(!flash.visible&&flash.userData.time<=0)return;
   flash.userData.time = Math.max(0, flash.userData.time - dt);
   flash.visible = flash.userData.time > 0;
   const remaining = flash.userData.time / flash.userData.duration;

@@ -1,15 +1,14 @@
 const socket = io({ autoConnect: false });
 
 // DOM elements - screens
-const loginScreen = document.getElementById("login-screen");
-const weaponScreen = document.getElementById("weapon-screen");
-const waitingScreen = document.getElementById("waiting-screen");
+const homeScreen = document.getElementById("home-screen");
+const lobbyScreen = document.getElementById("lobby-screen");
 const gameScreen = document.getElementById("game-screen");
 const shopScreen = document.getElementById("shop-screen");
 
 // Simple screen state helper so only one main screen shows at a time
 function setActiveScreen(target) {
-  const screens = [loginScreen, weaponScreen, waitingScreen, gameScreen, shopScreen];
+  const screens = [homeScreen, lobbyScreen, gameScreen, shopScreen];
   if (target && target !== shopScreen && screens.includes(target)) {
     lastNonShopScreen = target;
   }
@@ -30,13 +29,23 @@ function setActiveScreen(target) {
       coinsIndicatorEl.classList.remove("coins-indicator-disabled");
     }
   }
+  document.body.classList.toggle('in-game', target === gameScreen);
+  if (target !== homeScreen && loadoutDrawerLayer && !loadoutDrawerLayer.classList.contains('hidden')) {
+    loadoutDrawerLayer.classList.add('hidden');
+    document.body.classList.remove('loadout-open');
+  }
 }
 
+window.returnToHome = function returnToHome() {
+  currentLobby = null;
+  setActiveScreen(homeScreen);
+  if (socket.connected) socket.emit('lobby:list:request');
+};
+
 // DOM elements - lobby
-const nameInput = document.getElementById("name-input");
-const joinBtn = document.getElementById("join-btn");
+const playBtn = document.getElementById("play-btn");
 const startBtn = document.getElementById("start-btn");
-const enableBotsCheckbox = document.getElementById("enable-bots-toggle");
+const leaveLobbyBtn = document.getElementById('leave-lobby-btn');
 const startFloorRow = document.getElementById('pve-start-floor-row');
 const startFloorInput = document.getElementById('pve-start-floor');
 const pvpDebugRow = document.getElementById('pvp-debug-row');
@@ -44,7 +53,34 @@ const pvpDebugMap = document.getElementById('pvp-debug-map');
 const pvpDebugDouble = document.getElementById('pvp-debug-double');
 const waitingPlayersList = document.getElementById("waiting-players");
 const weaponOptionsEl = document.getElementById("weapon-options");
-const weaponConfirmBtn = document.getElementById("weapon-confirm-btn");
+const homeUsernameEl = document.getElementById('home-username');
+const selectedWeaponNameEl = document.getElementById('selected-weapon-name');
+const selectedWeaponDescriptionEl = document.getElementById('selected-weapon-description');
+const selectedSkinNameEl = document.getElementById('selected-skin-name');
+const secondarySkinNameEl = document.getElementById('secondary-skin-name');
+const loadoutPreviewCanvas = document.getElementById('loadout-weapon-preview');
+const changeLoadoutBtn = document.getElementById('change-loadout-btn');
+const loadoutDrawerLayer = document.getElementById('loadout-drawer-layer');
+const loadoutDrawerDismiss = document.getElementById('loadout-drawer-dismiss');
+const closeLoadoutBtn = document.getElementById('close-loadout-btn');
+const doneLoadoutBtn = document.getElementById('done-loadout-btn');
+const pvpLobbyListEl = document.getElementById('pvp-lobby-list');
+const pveLobbyListEl = document.getElementById('pve-lobby-list');
+const onlineLobbyCountEl = document.getElementById('online-lobby-count');
+const lobbyStatusEl = document.getElementById('lobby-status');
+const lobbyTitleEl = document.getElementById('lobby-title');
+const lobbyCapacityEl = document.getElementById('lobby-capacity');
+const lobbyLeaderNoteEl = document.getElementById('lobby-leader-note');
+const lobbyActionStatusEl = document.getElementById('lobby-action-status');
+const openArmoryBtn = document.getElementById('open-armory-btn');
+const modeChoices = Array.from(document.querySelectorAll('.mode-choice[data-mode]'));
+const totalKillsValueEl = document.getElementById('total-kills-value');
+const pveKillsValueEl = document.getElementById('pve-kills-value');
+const pvpKillsValueEl = document.getElementById('pvp-kills-value');
+const pveKillsBarEl = document.getElementById('pve-kills-bar');
+const pvpKillsBarEl = document.getElementById('pvp-kills-bar');
+const grenadesThrownValueEl = document.getElementById('grenades-thrown-value');
+const weaponKillListEl = document.getElementById('weapon-kill-list');
 
 // DOM elements - auth + header
 const authOverlay = document.getElementById("auth-overlay");
@@ -67,13 +103,14 @@ const shopStatusEl = document.getElementById("shop-status");
 const shopContentEl = document.getElementById("shop-content");
 
 // Player data
-let displayName = "";
 let selectedWeaponKey = (typeof DEFAULT_WEAPON_KEY !== 'undefined' ? DEFAULT_WEAPON_KEY : 'autoRifle');
+let selectedMode = 'pvp';
 let currentUser = null;
-let lastNonShopScreen = loginScreen;
+let currentLobby = null;
+let knownLobbies = [];
+let lastNonShopScreen = homeScreen;
 let shopSkins = [];
 let shopSectionCollapseState = {};
-let lastWaitingPlayersCount = 0;
 
 if(pvpDebugMap) {
   const random=document.createElement('option');random.value='';random.textContent='Random map';pvpDebugMap.appendChild(random);
@@ -114,10 +151,13 @@ function setAuthError(message) {
 
 function applyAuthenticatedState(user) {
   currentUser = user;
-  updateStartButtonState();
+  if (typeof user?.loadout?.primaryWeapon === 'string' && WEAPONS[user.loadout.primaryWeapon] && WEAPONS[user.loadout.primaryWeapon].selectable !== false) {
+    selectedWeaponKey = user.loadout.primaryWeapon;
+  }
   if (userUsernameEl) {
     userUsernameEl.textContent = user.username;
   }
+  if (homeUsernameEl) homeUsernameEl.textContent = user.username;
   if (userInfoEl) {
     userInfoEl.classList.remove("hidden");
   }
@@ -135,14 +175,17 @@ function applyAuthenticatedState(user) {
   if (!socket.connected) {
     socket.connect();
   }
+  renderWeaponOptions();
+  renderCareerStats();
+  setActiveScreen(homeScreen);
 }
 
 function applyLoggedOutState() {
   currentUser = null;
-  startFloorInput.value='1';
+  currentLobby = null;
+  if(startFloorInput)startFloorInput.value='1';
   if(pvpDebugMap)pvpDebugMap.value='';
   if(pvpDebugDouble)pvpDebugDouble.checked=true;
-  updateStartButtonState();
   if (userInfoEl) {
     userInfoEl.classList.add("hidden");
   }
@@ -263,26 +306,28 @@ function showRegisterTab() {
 }
 
 // Event listeners
-if (joinBtn) {
-  joinBtn.addEventListener("click", goToWeaponSelection);
-}
+if (playBtn) playBtn.addEventListener('click', createFireteam);
 if (startBtn) {
   startBtn.addEventListener("click", startGame);
-}
-if (enableBotsCheckbox) {
-  enableBotsCheckbox.addEventListener("change", updateStartButtonState);
 }
 if(pvpDebugDouble) {
   pvpDebugDouble.addEventListener('change',updateStartButtonState);
 }
-if (nameInput) {
-  nameInput.addEventListener("keypress", (e) => {
-    if (e.key === "Enter") goToWeaponSelection();
-  });
-}
-if (weaponConfirmBtn) {
-  weaponConfirmBtn.addEventListener("click", joinWaitingRoom);
-}
+if (leaveLobbyBtn) leaveLobbyBtn.addEventListener('click', leaveFireteam);
+if (openArmoryBtn) openArmoryBtn.addEventListener('click', openShop);
+if (changeLoadoutBtn) changeLoadoutBtn.addEventListener('click', openLoadoutDrawer);
+if (loadoutDrawerDismiss) loadoutDrawerDismiss.addEventListener('click', closeLoadoutDrawer);
+if (closeLoadoutBtn) closeLoadoutBtn.addEventListener('click', closeLoadoutDrawer);
+if (doneLoadoutBtn) doneLoadoutBtn.addEventListener('click', closeLoadoutDrawer);
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && loadoutDrawerLayer && !loadoutDrawerLayer.classList.contains('hidden')) {
+    closeLoadoutDrawer();
+  }
+});
+modeChoices.forEach(button => button.addEventListener('click', () => {
+  selectedMode = button.dataset.mode || 'pvp';
+  modeChoices.forEach(choice => choice.classList.toggle('active', choice === button));
+}));
 if (loginForm) {
   loginForm.addEventListener("submit", handleLoginSubmit);
 }
@@ -316,7 +361,7 @@ if (coinsIndicatorEl) {
 
 if (shopBackBtn) {
   shopBackBtn.addEventListener("click", () => {
-    const target = lastNonShopScreen || loginScreen;
+    const target = lastNonShopScreen || homeScreen;
     setActiveScreen(target);
   });
 }
@@ -336,55 +381,209 @@ socket.on("coinsUpdated", (payload) => {
   setCoinsValue(coins);
 });
 
-// Join waiting room
-function goToWeaponSelection() {
-  if (!currentUser) {
-    applyLoggedOutState();
-    return;
+socket.on('statsUpdated', stats => {
+  if (!currentUser || !stats || typeof stats !== 'object') return;
+  currentUser.stats = stats;
+  renderCareerStats();
+});
+
+function setLobbyStatus(message, isError = false) {
+  if (lobbyStatusEl) {
+    lobbyStatusEl.textContent = message || '';
+    lobbyStatusEl.classList.toggle('error', !!message && isError);
   }
-  displayName = nameInput.value.trim();
-  if (!displayName) return;
-  window.cancelPendingGameReturn?.();
-  // Move to weapon selection step
-  setActiveScreen(weaponScreen);
-  renderWeaponOptions();
+  if (lobbyActionStatusEl) {
+    lobbyActionStatusEl.textContent = message || '';
+    lobbyActionStatusEl.classList.toggle('error', !!message && isError);
+  }
 }
 
-// Join waiting room with selected weapon
-function joinWaitingRoom() {
-  if (!currentUser) {
-    applyLoggedOutState();
-    return;
-  }
-  if (!displayName) return;
+function emitLobbyAction(event, payload, onSuccess) {
+  if (!currentUser) return applyLoggedOutState();
+  setLobbyStatus('Contacting network…');
+  socket.timeout(4000).emit(event, payload || {}, (error, result) => {
+    if (error) return setLobbyStatus('The server did not respond. Try again.', true);
+    if (!result?.ok) return setLobbyStatus(result?.error || 'That action could not be completed.', true);
+    setLobbyStatus('');
+    onSuccess?.(result);
+  });
+}
+
+function createFireteam() {
   window.cancelPendingGameReturn?.();
-  if (!selectedWeaponKey || WEAPONS[selectedWeaponKey]?.selectable === false) selectedWeaponKey = 'autoRifle';
-  socket.emit("join", { displayName, weapon: selectedWeaponKey });
-  setActiveScreen(waitingScreen);
+  emitLobbyAction('lobby:create', { mode: selectedMode, weapon: selectedWeaponKey }, result => {
+    currentLobby = result.lobby;
+    renderCurrentLobby();
+    setActiveScreen(lobbyScreen);
+  });
+}
+
+function joinFireteam(lobbyId) {
+  window.cancelPendingGameReturn?.();
+  emitLobbyAction('lobby:join', { lobbyId, weapon: selectedWeaponKey }, result => {
+    currentLobby = result.lobby;
+    renderCurrentLobby();
+    setActiveScreen(lobbyScreen);
+  });
+}
+
+function leaveFireteam() {
+  emitLobbyAction('lobby:leave', {}, () => {
+    currentLobby = null;
+    setActiveScreen(homeScreen);
+    socket.emit('lobby:list:request');
+  });
 }
 
 function renderWeaponOptions() {
-  if (typeof WEAPONS === 'undefined') return;
+  if (typeof WEAPONS === 'undefined' || !weaponOptionsEl) return;
   weaponOptionsEl.innerHTML = "";
   const primaryKeys=Object.keys(WEAPONS).filter(key=>WEAPONS[key].selectable!==false);
   if(!primaryKeys.includes(selectedWeaponKey))selectedWeaponKey=primaryKeys[0]||'autoRifle';
   primaryKeys.forEach((key) => {
     const w = WEAPONS[key];
-    const card = document.createElement('div');
+    const card = document.createElement('button');
+    card.type = 'button';
     card.className = 'weapon-card' + (selectedWeaponKey === key ? ' selected' : '');
     card.setAttribute('data-key', key);
-    card.innerHTML = `
-      <h3>${w.name}</h3>
-      <p>${w.description}</p>
-    `;
+    card.setAttribute('aria-pressed', selectedWeaponKey === key ? 'true' : 'false');
+    const copy = document.createElement('span');
+    copy.className = 'loadout-option-copy';
+    const name = document.createElement('strong');
+    name.className = 'loadout-option-name';
+    name.textContent = w.name;
+    const description = document.createElement('small');
+    description.textContent = w.description || '';
+    copy.append(name, description);
+    const check = document.createElement('i');
+    check.className = 'loadout-option-check';
+    check.setAttribute('aria-hidden', 'true');
+    card.append(copy, check);
     card.addEventListener('click', () => {
       selectedWeaponKey = key;
-      // update selected
-      Array.from(weaponOptionsEl.children).forEach((c) => c.classList.remove('selected'));
+      Array.from(weaponOptionsEl.children).forEach((c) => {
+        c.classList.remove('selected');
+        c.setAttribute('aria-pressed', 'false');
+      });
       card.classList.add('selected');
+      card.setAttribute('aria-pressed', 'true');
+      updateLoadoutSummary();
+      savePrimaryLoadout(selectedWeaponKey);
+      if (currentLobby) emitLobbyAction('lobby:loadout', { weapon: selectedWeaponKey });
     });
     weaponOptionsEl.appendChild(card);
   });
+  updateLoadoutSummary();
+}
+
+function openLoadoutDrawer() {
+  if (!loadoutDrawerLayer) return;
+  loadoutDrawerLayer.classList.remove('hidden');
+  document.body.classList.add('loadout-open');
+  const selected = weaponOptionsEl?.querySelector('.weapon-card.selected');
+  requestAnimationFrame(() => (selected || closeLoadoutBtn)?.focus());
+}
+
+function closeLoadoutDrawer() {
+  if (!loadoutDrawerLayer) return;
+  loadoutDrawerLayer.classList.add('hidden');
+  document.body.classList.remove('loadout-open');
+  changeLoadoutBtn?.focus();
+}
+
+async function savePrimaryLoadout(primaryWeapon) {
+  if (!currentUser) return;
+  if (!currentUser.loadout) currentUser.loadout = {};
+  currentUser.loadout.primaryWeapon = primaryWeapon;
+  try {
+    const res = await fetch('/api/loadout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ primaryWeapon }),
+    });
+    if (!res.ok) throw new Error('Loadout save rejected');
+  } catch (error) {
+    console.error('Failed to save loadout:', error);
+    setLobbyStatus('Loadout selected locally; account sync failed.', true);
+  }
+}
+
+function equippedSkinName(weaponKey) {
+  const equipped = currentUser?.skins?.equippedByWeapon?.[weaponKey];
+  const list = typeof WEAPON_SKINS !== 'undefined' ? (WEAPON_SKINS[weaponKey] || []) : [];
+  return list.find(skin => skin.key === equipped)?.name || 'Standard issue';
+}
+
+function equippedSkinKey(weaponKey) {
+  const list = typeof WEAPON_SKINS !== 'undefined' ? (WEAPON_SKINS[weaponKey] || []) : [];
+  const equipped = currentUser?.skins?.equippedByWeapon?.[weaponKey];
+  if (list.some(skin => skin.key === equipped)) return equipped;
+  return list.find(skin => skin.isDefault)?.key || list[0]?.key || '';
+}
+
+function statCount(value) {
+  return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+}
+
+function renderCareerStats() {
+  const stats = currentUser?.stats || {};
+  const pveKills = statCount(stats.pveKills);
+  const pvpKills = statCount(stats.pvpKills);
+  const totalKills = pveKills + pvpKills;
+  const format = value => new Intl.NumberFormat().format(value);
+  if (totalKillsValueEl) totalKillsValueEl.textContent = format(totalKills);
+  if (pveKillsValueEl) pveKillsValueEl.textContent = format(pveKills);
+  if (pvpKillsValueEl) pvpKillsValueEl.textContent = format(pvpKills);
+  if (grenadesThrownValueEl) grenadesThrownValueEl.textContent = format(statCount(stats.grenadesThrown));
+  const pveShare = totalKills ? pveKills / totalKills * 100 : 0;
+  const pvpShare = totalKills ? pvpKills / totalKills * 100 : 0;
+  if (pveKillsBarEl) pveKillsBarEl.style.width = `${pveShare}%`;
+  if (pvpKillsBarEl) pvpKillsBarEl.style.width = `${pvpShare}%`;
+
+  if (!weaponKillListEl || typeof WEAPONS === 'undefined') return;
+  const weaponKills = stats.weaponKills || {};
+  const keys = ['autoRifle', 'shotgun', 'sniper', 'miniGun', 'pistol'];
+  const peak = Math.max(1, ...keys.map(key => statCount(weaponKills[key])));
+  weaponKillListEl.replaceChildren();
+  for (const key of keys) {
+    const count = statCount(weaponKills[key]);
+    const row = document.createElement('div');
+    row.className = 'weapon-kill-row';
+    if (key === selectedWeaponKey || key === 'pistol') row.classList.add('equipped');
+    const name = document.createElement('span');
+    name.textContent = WEAPONS[key]?.name || key;
+    const track = document.createElement('i');
+    const fill = document.createElement('b');
+    fill.style.width = `${count ? Math.max(4, count / peak * 100) : 0}%`;
+    track.appendChild(fill);
+    const value = document.createElement('strong');
+    value.textContent = format(count);
+    row.setAttribute('aria-label', `${name.textContent}: ${format(count)} kills`);
+    row.append(name, track, value);
+    weaponKillListEl.appendChild(row);
+  }
+}
+
+function updateLoadoutSummary() {
+  const weapon = WEAPONS?.[selectedWeaponKey];
+  if (!weapon) return;
+  if (selectedWeaponNameEl) selectedWeaponNameEl.textContent = weapon.name;
+  if (selectedWeaponDescriptionEl) selectedWeaponDescriptionEl.textContent = weapon.description || '';
+  if (selectedSkinNameEl) selectedSkinNameEl.textContent = equippedSkinName(selectedWeaponKey);
+  if (secondarySkinNameEl) secondarySkinNameEl.textContent = equippedSkinName('pistol');
+  if (loadoutPreviewCanvas) {
+    const skinKey = equippedSkinKey(selectedWeaponKey);
+    const secondarySkinKey = equippedSkinKey('pistol');
+    loadoutPreviewCanvas.dataset.weaponKey = selectedWeaponKey;
+    loadoutPreviewCanvas.dataset.skinKey = skinKey;
+    loadoutPreviewCanvas.dataset.secondarySkinKey = secondarySkinKey;
+    loadoutPreviewCanvas.setAttribute('aria-label', `Operator holding ${weapon.name} with ${equippedSkinName(selectedWeaponKey)} skin and Pistol with ${equippedSkinName('pistol')} skin`);
+    loadoutPreviewCanvas.dispatchEvent(new CustomEvent('loadout-preview:update', {
+      detail: { weaponKey: selectedWeaponKey, skinKey, secondarySkinKey },
+    }));
+  }
+  renderCareerStats();
 }
 
 // --- Shop UI ---
@@ -775,6 +974,7 @@ async function equipSkin(skinKey) {
       if (data.user.currencies && typeof data.user.currencies.Coins === "number") {
         setCoinsValue(data.user.currencies.Coins);
       }
+      updateLoadoutSummary();
     }
     // Refresh shop UI to reflect equipped state
     await openShop();
@@ -787,65 +987,109 @@ async function equipSkin(skinKey) {
 
 // Start game
 function startGame() {
-  const enableBots =
-    enableBotsCheckbox && enableBotsCheckbox.checked;
-  const options={enableBots};
-  if(enableBots&&currentUser?.username==='qing') {
+  if (!currentLobby) return;
+  const options={};
+  if(currentLobby.mode==='pve'&&currentUser?.username==='qing') {
     const floor=Number(startFloorInput.value);
     startFloorInput.setCustomValidity(Number.isSafeInteger(floor)&&floor>=1?'':'Enter a positive whole-number floor.');
     if(!startFloorInput.reportValidity())return;
     options.startFloor=floor;
   }
-  if(!enableBots&&currentUser?.username==='qing') {
+  if(currentLobby.mode==='pvp'&&currentUser?.username==='qing') {
     if(pvpDebugMap?.value)options.pvpMap=pvpDebugMap.value;
     options.debugDouble=!!pvpDebugDouble?.checked;
   }
-  socket.emit("startGame", options);
+  emitLobbyAction('lobby:start', options);
 }
 
 function updateStartButtonState() {
-  startFloorRow.classList.toggle('hidden',currentUser?.username!=='qing'||!enableBotsCheckbox?.checked);
-  pvpDebugRow?.classList.toggle('hidden',currentUser?.username!=='qing'||!!enableBotsCheckbox?.checked);
+  const isOwner = currentLobby?.ownerId === socket.id;
+  const isPve = currentLobby?.mode === 'pve';
+  startFloorRow?.classList.toggle('hidden',currentUser?.username!=='qing'||!isPve||!isOwner);
+  pvpDebugRow?.classList.toggle('hidden',currentUser?.username!=='qing'||isPve||!isOwner);
   if (!startBtn) return;
-  const humanCount = lastWaitingPlayersCount;
-  const botsEnabled =
-    enableBotsCheckbox && enableBotsCheckbox.checked;
-  let canStart = humanCount >= 2;
-  let label = "Start Game";
-
-  if (!canStart && botsEnabled && humanCount >= 1) {
-    canStart = true;
-    label = "Start Game (with bots)";
-  }
-  if(!canStart&&!botsEnabled&&currentUser?.username==='qing'&&pvpDebugDouble?.checked&&humanCount>=1) {
-    canStart=true;
-    label='Start PvP Debug Match';
-  }
-
-  if (canStart) {
-    startBtn.disabled = false;
-    startBtn.textContent = label;
-  } else {
-    startBtn.disabled = true;
-    startBtn.textContent = "Start Game (Need at least 2 players)";
+  const humanCount = currentLobby?.players?.length || 0;
+  const debugReady = !isPve&&currentUser?.username==='qing'&&pvpDebugDouble?.checked&&humanCount>=1;
+  const canStart = isOwner && (isPve ? humanCount >= 1 : humanCount >= 2 || debugReady);
+  startBtn.disabled = !canStart;
+  if (lobbyLeaderNoteEl) {
+    lobbyLeaderNoteEl.textContent = isOwner
+      ? (canStart ? 'You are the fireteam leader. Launch when ready.' : 'Invite another player or wait for someone to join.')
+      : `Waiting for ${currentLobby?.ownerName || 'the leader'} to launch.`;
   }
 }
 
-// Socket event handlers
-socket.on("updateWaitingList", (players) => {
-  // Update waiting players list
-  waitingPlayersList.innerHTML = "";
-
-  players.forEach((player) => {
-    const li = document.createElement("li");
-    li.textContent = player.name;
-    li.style.backgroundColor = player.color;
+function renderCurrentLobby() {
+  if (!currentLobby || !waitingPlayersList) return;
+  lobbyTitleEl.textContent = currentLobby.name;
+  lobbyCapacityEl.textContent = `${currentLobby.players.length} / ${currentLobby.maxPlayers} OPERATIVES`;
+  waitingPlayersList.replaceChildren();
+  currentLobby.players.forEach((player, index) => {
+    const li = document.createElement('li');
+    const identity = document.createElement('div');
+    identity.className = 'roster-identity';
+    identity.innerHTML = `<span>${String(index + 1).padStart(2,'0')}</span><strong></strong>`;
+    identity.querySelector('strong').textContent = player.username;
+    const weapon = document.createElement('small');
+    weapon.textContent = WEAPONS[player.weapon]?.name || 'Auto Rifle';
+    li.append(identity, weapon);
+    if (player.id === currentLobby.ownerId) li.dataset.leader = 'true';
     waitingPlayersList.appendChild(li);
   });
-
-  lastWaitingPlayersCount = Array.isArray(players) ? players.length : 0;
   updateStartButtonState();
+}
+
+function renderLobbyBrowser() {
+  const open = knownLobbies.filter(lobby => lobby.status === 'open');
+  if (onlineLobbyCountEl) onlineLobbyCountEl.textContent = `${open.length} OPEN`;
+  const renderMode = (mode, container) => {
+    if (!container) return;
+    container.replaceChildren();
+    const lobbies = knownLobbies.filter(lobby => lobby.mode === mode);
+    if (!lobbies.length) {
+      const empty = document.createElement('div');
+      empty.className = 'empty-lobbies';
+      empty.innerHTML = `<strong>No fireteams waiting</strong><span>Create one and take point.</span>`;
+      container.appendChild(empty);
+      return;
+    }
+    lobbies.forEach(lobby => {
+      const card = document.createElement('article');
+      card.className = `lobby-card ${lobby.status}`;
+      const copy = document.createElement('div');
+      copy.className = 'lobby-card-copy';
+      const names = lobby.players.map(player => player.username).join(', ');
+      copy.innerHTML = `<strong></strong><span></span><small></small>`;
+      copy.querySelector('strong').textContent = lobby.name;
+      copy.querySelector('span').textContent = names || 'Empty';
+      copy.querySelector('small').textContent = lobby.status === 'active' ? 'MATCH IN PROGRESS' : `${lobby.players.length} / ${lobby.maxPlayers} READY`;
+      const action = document.createElement('button');
+      action.className = 'lobby-join';
+      action.textContent = lobby.status === 'active' ? 'LIVE' : 'JOIN';
+      action.disabled = lobby.status !== 'open' || lobby.players.length >= lobby.maxPlayers;
+      action.addEventListener('click', () => joinFireteam(lobby.id));
+      card.append(copy, action);
+      container.appendChild(card);
+    });
+  };
+  renderMode('pvp', pvpLobbyListEl);
+  renderMode('pve', pveLobbyListEl);
+}
+
+// Socket event handlers
+socket.on('lobby:list', lobbies => {
+  knownLobbies = Array.isArray(lobbies) ? lobbies : [];
+  renderLobbyBrowser();
 });
+
+socket.on('lobby:state', lobby => {
+  if (!lobby || !currentLobby || lobby.id !== currentLobby.id) return;
+  currentLobby = lobby;
+  renderCurrentLobby();
+});
+
+// Backward-compatible engine notification; authoritative lobby state follows it.
+socket.on("updateWaitingList", () => {});
 
 socket.on("gameStarting", (gameData) => {
   setActiveScreen(gameScreen);
@@ -855,9 +1099,7 @@ socket.on("gameStarting", (gameData) => {
 });
 
 socket.on("resetGame", () => {
-  // A player can queue again while the previous result timer is finishing.
-  // That old reset belongs to the game screen, not the new waiting room.
-  if (!waitingScreen.classList.contains("hidden") || !weaponScreen.classList.contains("hidden")) return;
-  setActiveScreen(loginScreen);
-  nameInput.value = "";
+  currentLobby = null;
+  setActiveScreen(homeScreen);
+  socket.emit('lobby:list:request');
 });

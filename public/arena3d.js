@@ -3,14 +3,16 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createMarioPipe } from './marioPipe.mjs';
 import { createAutoRifle } from './autoRifle.mjs';
-import { createPistol } from './pistol.mjs';
-import {createShotgun,poseShotgun,shotgunMuzzleStyle,shotgunPelletColor} from './shotgun.mjs';
+import { createPistol, PISTOL_MODEL_SCALE } from './pistol.mjs';
+import {createShotgun,poseShotgun,triggerShotgunChamber,shotgunMuzzleStyle,shotgunPelletColor} from './shotgun.mjs';
 import {poseGrenadeFuse} from './grenadeFuse.mjs';
 import {createGrenadeExplosion,poseGrenadeExplosion,EXPLOSION_DURATION} from './grenadeExplosion.mjs';
-import { createHeavyWeapon, heavyWeaponMuzzleDepth, heavyWeaponViewScale, heavyWeaponViewYOffset, heavyWeaponViewZ } from './heavyWeapons.mjs';
+import { createHeavyWeapon, heavyWeaponMuzzleDepth, heavyWeaponMuzzleYOffset, heavyWeaponViewScale, heavyWeaponViewYOffset, heavyWeaponViewZ, poseHeavyWeaponSkin, triggerHeavyWeaponSkin } from './heavyWeapons.mjs';
 import { createMuzzleFlash, muzzleFlashScaleForWeapon, triggerMuzzleFlash, updateMuzzleFlash } from './muzzleFlash.mjs';
 import { createTerrainModel, poseCargoLift } from './pveEnvironment.mjs';
 import {createTempleEnvironment} from './templeEnvironment.mjs';
+import {createSpaceEnvironment} from './spaceEnvironment.mjs';
+import {createAirportEnvironment} from './airportEnvironment.mjs';
 import { createElevatorModel, poseElevator, elevatorDisplay } from './elevator.mjs';
 import { updateCharacterMotion } from './characterMotion.mjs';
 import { createOgreModel, poseOgre } from './ogre.mjs';
@@ -20,12 +22,13 @@ import { FrameBudget } from './frameBudget.mjs';
 import { planAreaLighting, createAreaLighting } from './areaLighting.mjs';
 import { planAmbientZones, ambientZoneGLSL, ambientZoneUniforms, applyAmbientZones } from './ambientZones.mjs';
 import {shotgunReticleDiameter} from './shotgunCrosshair.mjs';
+import {areaOccluderIndex,shadowOccluderGrid} from './floorLighting.mjs';
 
 const SCALE = 0.05;
 const WALL_HEIGHT = 3.1;
 const WEAPON_SWAP_SECONDS = 0.36;
 const DAMAGE_FLASH_COLOR = new THREE.Color('#ff3030');
-const world = (x, y, height = 0) => new THREE.Vector3((x - 450) * SCALE, height, (y - 300) * SCALE);
+const world = (x, y, height = 0, target = new THREE.Vector3()) => target.set((x - 450) * SCALE, height, (y - 300) * SCALE);
 
 function roundedGeometry(w,h,d,x,y,z,radius=0.08) {
   const geometry=new RoundedBoxGeometry(w,h,d,2,Math.min(radius,w/3,h/3,d/3));
@@ -82,26 +85,70 @@ function limitShadowCasters(group,limit=8) {
   for(const {object} of candidates.slice(0,limit))object.castShadow=true;
 }
 
+// Keep the cached value and the actual DOM state in agreement. Other actor
+// visibility changes must not be able to leave an occluded label visible just
+// because its cached state already says "hidden".
+export function syncCharacterLabelVisibility(character,hidden) {
+  if(character.labelHidden===hidden&&character.label.hidden===hidden)return false;
+  character.labelHidden=hidden;
+  character.label.hidden=hidden;
+  return true;
+}
+
+// Merge rigid pieces that share a parent and material. Their parent still
+// animates exactly as before, but an Ogre torso made from many armor plates no
+// longer costs one draw call per plate.
+function mergeRigidMeshes(parent,excluded=new Set()) {
+  parent.updateMatrixWorld(true);
+  const batches=new Map();
+  for(const child of [...parent.children]) {
+    if(!child.isMesh||child.children.length||excluded.has(child)||Array.isArray(child.material))continue;
+    const signature=`${child.material.uuid}|${child.geometry.index?1:0}|${Object.keys(child.geometry.attributes).sort().join(',')}`;
+    if(!batches.has(signature))batches.set(signature,{material:child.material,meshes:[]});
+    batches.get(signature).meshes.push(child);
+  }
+  for(const {material,meshes} of batches.values()) {
+    if(meshes.length<2)continue;
+    const geometries=meshes.map(mesh=>{mesh.updateMatrix();const geometry=mesh.geometry.clone();geometry.applyMatrix4(mesh.matrix);return geometry;});
+    const geometry=mergeGeometries(geometries,false);geometries.forEach(item=>item.dispose());
+    if(!geometry)continue;
+    const merged=new THREE.Mesh(geometry,material);
+    merged.castShadow=meshes.some(mesh=>mesh.castShadow);merged.receiveShadow=meshes.some(mesh=>mesh.receiveShadow);
+    for(const mesh of meshes){parent.remove(mesh);mesh.geometry.dispose();}
+    parent.add(merged);
+  }
+}
+
 // One reflection bounce against wall volumes per floor pixel. The reflection
 // proxies preserve collision footprints; bevels and characters are rasterized.
-function floorMaterial(walls, areas = [], pve = false, zoneUniforms, palette = {}) {
+function floorMaterial(walls, areas = [], pve = false, zoneUniforms, palette = {},mapConfig={width:900,height:600}) {
+  const areaOccluders=areaOccluderIndex(walls,areas,SCALE);
+  const areaIndexCount=areaOccluders.indices.length;
+  const shadowGrid=shadowOccluderGrid(walls,mapConfig,SCALE);
   return new THREE.ShaderMaterial({
     uniforms: {
       ...zoneUniforms,
       wallCount: { value: Math.min(64, walls.length) },
       wallMin: { value: Array.from({ length: 64 }, (_, i) => walls[i] ? world(walls[i].x, walls[i].y,walls[i].bottom||0) : new THREE.Vector3()) },
       wallMax: { value: Array.from({ length: 64 }, (_, i) => walls[i] ? world(walls[i].x + walls[i].width, walls[i].y + walls[i].height, walls[i].top ?? WALL_HEIGHT) : new THREE.Vector3()) },
-      reflections: { value: true },
+      reflections: { value: false },
       areaCount: {value:areas.length},
       areaPosition: {value:Array.from({length:6},(_,i)=>areas[i]?world(areas[i].x,areas[i].y,areas[i].sourceHeight):new THREE.Vector3())},
       areaColor: {value:Array.from({length:6},(_,i)=>new THREE.Color(areas[i]?.color||'#000000'))},
       areaRadius: {value:Array.from({length:6},(_,i)=>areas[i]?.radius||1)},
+      areaWallOffset:{value:areaOccluders.offsets},
+      areaWallCount:{value:areaOccluders.counts},
+      areaWallIndices:{value:areaOccluders.indices},
+      shadowWallIndexMap:{value:shadowGrid.texture},
+      shadowGridSize:{value:new THREE.Vector4(shadowGrid.cols,shadowGrid.rows,shadowGrid.slots,shadowGrid.rows*shadowGrid.slots)},
+      shadowMapOrigin:{value:new THREE.Vector2(-450*SCALE,-300*SCALE)},
+      shadowMapInverseSize:{value:new THREE.Vector2(1/(mapConfig.width*SCALE),1/(mapConfig.height*SCALE))},
       ambientFloor: {value:pve?0.83:1},
       floorLow:{value:new THREE.Color(palette.floorLow||'#303f47')},
       floorHigh:{value:new THREE.Color(palette.floorHigh||'#4d6166')},
       reflectionBase:{value:new THREE.Color(palette.reflection||'#526b73')},
       reflectionGlow:{value:new THREE.Color(palette.reflectionGlow||'#2ed9e3')},
-      groundStyle:{value:palette.groundStyle==='grass'?1:0},
+      groundStyle:{value:palette.groundStyle==='grass'?1:palette.groundStyle==='airport'?2:0},
     },
     vertexShader: `varying vec3 point;
       void main() { vec4 p = modelMatrix * vec4(position, 1.0); point = p.xyz;
@@ -112,6 +159,10 @@ function floorMaterial(walls, areas = [], pve = false, zoneUniforms, palette = {
       uniform bool reflections; varying vec3 point;
       uniform int areaCount; uniform vec3 areaPosition[6]; uniform vec3 areaColor[6];
       uniform float areaRadius[6]; uniform float ambientFloor;
+      uniform int areaWallOffset[6]; uniform int areaWallCount[6];
+      uniform int areaWallIndices[${areaIndexCount}];
+      uniform sampler2D shadowWallIndexMap; uniform vec4 shadowGridSize;
+      uniform vec2 shadowMapOrigin; uniform vec2 shadowMapInverseSize;
       uniform vec3 floorLow; uniform vec3 floorHigh; uniform vec3 reflectionBase; uniform vec3 reflectionGlow;
       uniform float groundStyle;
       float traceBox(vec3 o, vec3 d, vec3 lo, vec3 hi) {
@@ -125,7 +176,16 @@ function floorMaterial(walls, areas = [], pve = false, zoneUniforms, palette = {
         vec2 grid = abs(fract(point.xz / 2.5 - 0.5) - 0.5) / max(fwidth(point.xz / 2.5), vec2(0.001));
         float seam = 1.0 - min(min(grid.x,grid.y),1.0);
         vec3 base = mix(floorLow,floorHigh,seam*0.48);
-        if(groundStyle>0.5) {
+        if(groundStyle>1.5) {
+          // Large polished terrazzo tiles with fine aggregate and restrained
+          // grout. This remains a single draw call across the whole terminal.
+          vec2 tile=abs(fract(point.xz/1.55)-.5);
+          float grout=1.-smoothstep(.455,.49,max(tile.x,tile.y));
+          vec2 speckCell=floor(point.xz*22.0);
+          float speck=fract(sin(dot(speckCell,vec2(12.9898,78.233)))*43758.5453);
+          float aggregate=smoothstep(.91,.985,speck)*.12-smoothstep(.03,.09,speck)*.055;
+          base=mix(floorHigh,floorLow,grout*.52)+aggregate;
+        } else if(groundStyle>0.5) {
           // Layered organic frequencies avoid the flat checker/noise look of
           // arena turf while retaining a single inexpensive ground draw call.
           float broad=sin(point.x*.19+sin(point.z*.11)*1.7)*sin(point.z*.16-point.x*.07);
@@ -138,7 +198,12 @@ function floorMaterial(walls, areas = [], pve = false, zoneUniforms, palette = {
         }
         float shadow = 1.0;
         vec3 lightDir = normalize(vec3(-0.5,1.0,-0.35));
-        for (int i=0; i<64; i++) { if(i>=wallCount) break;
+        vec2 shadowCell=clamp(floor((point.xz-shadowMapOrigin)*shadowMapInverseSize*shadowGridSize.xy),vec2(0.0),shadowGridSize.xy-1.0);
+        for (int candidate=0; candidate<${shadowGrid.slots}; candidate++) {
+          vec2 shadowUv=vec2((shadowCell.x+0.5)/shadowGridSize.x,
+            (shadowCell.y+float(candidate)*shadowGridSize.y+0.5)/shadowGridSize.w);
+          int i=int(floor(texture2D(shadowWallIndexMap,shadowUv).r*255.0+0.5))-1;
+          if(i<0)continue;
           if(traceBox(point+vec3(0.0,0.02,0.0), lightDir, wallMin[i],wallMax[i])<1000.0) shadow=0.72;
         }
         base *= shadow * ambientFloor * ambientAt(point.xz);
@@ -147,8 +212,9 @@ function floorMaterial(walls, areas = [], pve = false, zoneUniforms, palette = {
           float pool=1.0-smoothstep(areaRadius[a]*0.2,areaRadius[a],distance(point.xz,areaPosition[a].xz));
           if(pool>0.01) {
             vec3 delta=areaPosition[a]-point;float reach=length(delta);bool blocked=false;
-            for(int i=0;i<64;i++) {if(i>=wallCount)break;
-              if(traceBox(point+vec3(0.,0.03,0.),normalize(delta),wallMin[i],wallMax[i])<reach){blocked=true;break;}
+            for(int j=0;j<64;j++) {if(j>=areaWallCount[a])break;
+              int i=areaWallIndices[areaWallOffset[a]+j];
+              if(traceBox(point+vec3(0.,0.03,0.),delta/reach,wallMin[i],wallMax[i])<reach){blocked=true;break;}
             }
             if(!blocked)base+=areaColor[a]*pool*0.16;
           }
@@ -165,7 +231,7 @@ function floorMaterial(walls, areas = [], pve = false, zoneUniforms, palette = {
             float trim=1.0-smoothstep(0.015,0.09,abs(p.y-${WALL_HEIGHT - 0.32}));
             vec3 reflected=mix(reflectionBase,reflectionGlow,trim);
             float fresnel=0.10+0.32*pow(1.0-max(dot(normalize(cameraPosition-point),vec3(0.,1.,0.)),0.0),3.0);
-            float reflectionAmount=groundStyle>0.5?.12:1.;
+            float reflectionAmount=(groundStyle>0.5&&groundStyle<1.5)?.12:1.;
             base=mix(base,reflected,fresnel*exp(-nearest*0.08)*reflectionAmount);
           }
         }
@@ -211,6 +277,7 @@ export class Arena3D {
     sun.shadow.mapSize.set(1024, 1024);
     Object.assign(sun.shadow.camera, { left: -32, right: 32, top: 28, bottom: -28, near: 1, far: 100 });
     sun.shadow.normalBias = 0.04;
+    sun.shadow.autoUpdate = false;
     this.scene.add(sun);
     this.scene.add(sun.target);
     const rim = new THREE.DirectionalLight(0x48baff, 2);
@@ -219,13 +286,19 @@ export class Arena3D {
     this.scene.add(rim);
     this.stage = new THREE.Group(); this.scene.add(this.stage);
     this.characters = new Map(); this.effects = [];
+    this.tracerPool=[];this.freeTracers=[];
     this.grenades=new Map();
     this.guardianProjectiles=new Map();
     this.corpses=[];this.remains=[];this.pickups=new Map();this.deadIds=new Set();this.deathShake=0;
     this.raycaster = new THREE.Raycaster();
     this.raycaster.layers.set(1);
+    this.temp={cameraLook:new THREE.Vector3(),character:new THREE.Vector3(),anchor:new THREE.Vector3(),
+      projected:new THREE.Vector3(),direction:new THREE.Vector3()};
+    this.activeIds=new Set();
     this.labels = document.getElementById('health-labels');
     this.map = document.getElementById('minimap').getContext('2d');
+    this.ui={healthText:document.getElementById('local-health-text'),healthBar:document.getElementById('local-health-bar'),
+      healthFill:document.getElementById('local-health-fill'),crosshair:document.getElementById('crosshair')};
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(canvas.parentElement);
   }
@@ -253,8 +326,8 @@ export class Arena3D {
     return new THREE.MeshStandardMaterial({ color, metalness, roughness });
   }
 
-  box(parent, w, h, d, x, y, z, material, radius = 0.08) {
-    const mesh = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 2, Math.min(radius, w / 3, h / 3, d / 3)), material);
+  box(parent, w, h, d, x, y, z, material, radius = 0.08, segments = 2) {
+    const mesh = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, segments, Math.min(radius, w / 3, h / 3, d / 3)), material);
     mesh.position.set(x, y, z); mesh.castShadow = true; mesh.receiveShadow = true;
     parent.add(mesh); return mesh;
   }
@@ -273,7 +346,10 @@ export class Arena3D {
   build(walls, map = { width: 900, height: 600, terrain: [] }) {
     this.elevatorModel?.userData.display?.texture.dispose();
     this.arrivalModel?.userData.display?.texture.dispose();
+    this.zoneUniforms?.ambientMap?.value?.dispose();
+    this.floor?.uniforms?.shadowWallIndexMap?.value?.dispose();
     this.clearObject(this.stage); this.characters.clear(); this.effects = [];
+    this.tracerPool=[];this.freeTracers=[];
     this.grenades.clear();
     this.guardianProjectiles.clear();
     this.corpses=[];this.remains=[];this.pickups.clear();this.deadIds.clear();this.deathShake=0;
@@ -285,8 +361,8 @@ export class Arena3D {
     this.minimapCache=null;
     const pve=map.mode==='pve',areas=planAreaLighting(map,walls);
     const palette=map.palette||{};
-    const temple=map.style==='temple';
-    this.zoneUniforms=ambientZoneUniforms(planAmbientZones(map));
+    const temple=map.style==='temple',orbital=map.style==='orbital',airport=map.style==='airport';
+    this.zoneUniforms=ambientZoneUniforms(planAmbientZones(map),map);
     this.scene.background.set(palette.sky||'#9ebbc9');
     this.scene.fog=null;
     this.ambient.color.set(palette.ambient||'#e3f3ff');
@@ -306,7 +382,7 @@ export class Arena3D {
     Object.assign(this.sun.shadow.camera,{left:-extent,right:extent,top:extent,bottom:-extent,far:180});
     this.sun.shadow.camera.updateProjectionMatrix();
     this.reflectionSolids=[...walls,...map.terrain.filter(s => s.kind !== 'ramp' && s.kind !== 'tree' && s.kind !== 'exitDoor')];
-    this.floor = floorMaterial(this.reflectionSolids,areas,pve,this.zoneUniforms,palette);
+    this.floor = floorMaterial(this.reflectionSolids,areas,pve,this.zoneUniforms,palette,map);
     this.viewFootHeight=null;
     this.floor.uniforms.reflections.value = document.getElementById('raytracing-toggle').checked;
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), this.floor);
@@ -317,6 +393,9 @@ export class Arena3D {
     const shadow = new THREE.Mesh(new THREE.PlaneGeometry(width, depth),shadowMaterial);
     shadow.position.copy(center);
     shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.006; shadow.receiveShadow = true; this.stage.add(shadow);
+    if(orbital) {
+      const space=createSpaceEnvironment();space.position.copy(center);this.stage.add(space);
+    }
     const dark = this.material(palette.wall||'#526d79', 0.5);
     const panel = this.material(palette.panel||'#9db5b8', 0.35, 0.32);
     const cap = this.material(palette.cap||'#bdd0cf', 0.5, 0.3);
@@ -328,7 +407,7 @@ export class Arena3D {
     for (const wall of walls) {
       // Temple collision is deliberately invisible; a dedicated architectural
       // model below replaces the shared arena wall language completely.
-      if(wall.kind==='cabin'||temple) continue;
+      if(wall.kind==='cabin'||temple||airport) continue;
       const wallCenter=world(wall.x+wall.width/2,wall.y+wall.height/2);
       const w = wall.width * SCALE, d = wall.height * SCALE;
       const wallHeight=wall.top ?? WALL_HEIGHT;
@@ -386,6 +465,19 @@ export class Arena3D {
         proxy.layers.set(1);this.stage.add(proxy);this.wallOccluders.push(proxy);
       }
     }
+    if(airport) {
+      collectStaticModel(createAirportEnvironment(map,walls),new THREE.Vector3(),terrainBatches);
+      // The visual shell uses glass, wall bays, and service doors while these
+      // invisible boxes keep labels and health bars occluded by authoritative
+      // gameplay geometry.
+      for(const solid of walls) {
+        if(solid.kind==='cabin')continue;
+        const bottom=solid.bottom||0,top=solid.top??WALL_HEIGHT;
+        const proxy=new THREE.Mesh(new THREE.BoxGeometry(solid.width*SCALE,Math.max(.02,top-bottom),solid.height*SCALE),occluderMaterial);
+        proxy.position.copy(world(solid.x+solid.width/2,solid.y+solid.height/2,(top+bottom)/2));
+        proxy.layers.set(1);this.stage.add(proxy);this.wallOccluders.push(proxy);
+      }
+    }
     for (const solid of map.terrain) {
       if(solid.kind==='exitDoor')continue;
       const model = createTerrainModel(solid);
@@ -422,7 +514,9 @@ export class Arena3D {
       }
     }
     this.areaLights=createAreaLighting(areas,world);
-    this.areaLights.traverse(o=>{if(o.isLight)o.userData.roomIntensity=o.intensity;});
+    this.areaLightObjects=[];
+    this.areaLights.traverse(o=>{if(o.isLight){o.userData.roomIntensity=o.intensity;this.areaLightObjects.push(o);
+      if(o.castShadow)o.shadow.autoUpdate=false;}});
     this.stage.add(this.areaLights);
     if(map.elevator) {
       this.elevatorModel=createElevatorModel(map.elevator);
@@ -448,7 +542,10 @@ export class Arena3D {
     // Establish static matrixWorld values once. The renderer handles moving
     // actors; forcing the entire room dirty every frame was redundant.
     this.scene.updateMatrixWorld(true);
+    this.shadowDirty=true;this.sun.shadow.needsUpdate=true;
+    for(const light of this.areaLightObjects)if(light.castShadow)light.shadow.needsUpdate=true;
     this.renderer.shadowMap.needsUpdate=true;
+    this.elevatorCabinFill=null;this.stageRideVisible=null;this.elevatorPose=null;
     this.resize();
   }
 
@@ -460,22 +557,26 @@ export class Arena3D {
     const white = this.material(dread?'#382329':'#d9e4de', dread?0.72:0.4, dread?0.28:0.35);
     const visor = new THREE.MeshStandardMaterial({ color: dread?0x260408:0x122b35, metalness: 0.8, roughness: 0.12,
       emissive:dread?0xff102c:0x185c6a, emissiveIntensity:dread?(captain?2.5:1.7):0.5 });
-    this.box(group, 0.72, 0.65, 0.52, 0, 1.19, 0, armor, 0.17);
-    this.box(group, 0.42, 0.31, 0.10, 0, 1.27, -0.28, white);
-    this.box(group, 0.46, 0.57, 0.25, 0, 1.18, 0.34, undersuit);
-    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.32, 16, 12), white);
+    // Spend the extra bevel geometry on player avatars. PvE soldier crowds
+    // keep the original mesh density so the cosmetic pass does not tax later floors.
+    const smoothBody=!player.isBot;
+    const bodySegments=smoothBody?4:2;
+    this.box(group, 0.72, 0.65, 0.52, 0, 1.19, 0, armor, 0.17, bodySegments);
+    this.box(group, 0.42, 0.31, 0.10, 0, 1.27, -0.28, white, 0.08, bodySegments);
+    this.box(group, 0.46, 0.57, 0.25, 0, 1.18, 0.34, undersuit, 0.08, bodySegments);
+    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.32, smoothBody?24:16, smoothBody?18:12), white);
     helmet.position.y = 1.84; helmet.scale.set(1, 1.08, 0.95); helmet.castShadow = true; group.add(helmet);
-    this.box(group, 0.48, 0.18, 0.16, 0, 1.86, -0.255, visor, 0.07);
+    this.box(group, 0.48, 0.18, 0.16, 0, 1.86, -0.255, visor, 0.07, bodySegments);
     const legs = [], arms=[];
     for (const side of [-1, 1]) {
       const leg = new THREE.Group(); leg.position.set(side * 0.22, 0.88, 0); group.add(leg);
-      this.box(leg, 0.27, 0.64, 0.3, 0, -0.34, 0, undersuit);
-      this.box(leg, 0.29, 0.23, 0.18, 0, -0.36, -0.12, armor);
-      this.box(leg, 0.31, 0.19, 0.44, 0, -0.77, -0.07, white); legs.push(leg);
+      this.box(leg, 0.27, 0.64, 0.3, 0, -0.34, 0, undersuit, 0.08, bodySegments);
+      this.box(leg, 0.29, 0.23, 0.18, 0, -0.36, -0.12, armor, 0.08, bodySegments);
+      this.box(leg, 0.31, 0.19, 0.44, 0, -0.77, -0.07, white, 0.08, bodySegments); legs.push(leg);
       const arm=new THREE.Group();arm.position.set(side*0.47,1.42,0);group.add(arm);arms.push(arm);
-      this.box(arm, 0.25, 0.3, 0.33, 0, 0, 0, armor);
-      this.box(arm, 0.20, 0.22, 0.57, -side*0.04, -0.2, -0.23, undersuit);
-      this.box(arm, 0.18, 0.19, 0.18, -side*0.07, -0.2, -0.51, white);
+      this.box(arm, 0.25, 0.3, 0.33, 0, 0, 0, armor, 0.08, bodySegments);
+      this.box(arm, 0.20, 0.22, 0.57, -side*0.04, -0.2, -0.23, undersuit, 0.08, bodySegments);
+      this.box(arm, 0.18, 0.19, 0.18, -side*0.07, -0.2, -0.51, white, 0.08, bodySegments);
     }
     let dreadCore=null,dreadTelegraph=null;
     if(dread) {
@@ -502,6 +603,7 @@ export class Arena3D {
     const skin = WEAPON_SKINS[player.weapon]?.find(s => s.key === player.weaponSkinKey);
     const marioPipe = player.weapon === 'sniper' && skin?.key === 'sniper_mario';
     const length = ({ pistol: 0.6, autoRifle: 0.95, miniGun: 0.72, sniper: 1.35, shotgun: 1.05 })[player.weapon] || 0.6;
+    const muzzleLength=player.weapon==='pistol'?length*PISTOL_MODEL_SCALE:length;
     if(dread) {
       const gunmetal=this.material('#17191d',.88,.2),redMetal=this.material(captain?'#e02b3a':'#8e1521',.74,.2);
       const energy=new THREE.MeshStandardMaterial({color:0x33070c,emissive:captain?0xff344b:0xe4112c,
@@ -521,14 +623,17 @@ export class Arena3D {
       const rifle = createAutoRifle(skin?.key, length); rifle.position.set(0.27, 1.34, -0.45); weapon.add(rifle);
     } else if (player.weapon === 'pistol') {
       const pistol = createPistol(skin?.key, length); pistol.position.set(0.27, 1.34, -0.45); weapon.add(pistol);
-    } else if (player.weapon === 'miniGun' || ['sniper_calibrated','sniper_flatpack'].includes(skin?.key)) {
+    } else if (player.weapon === 'miniGun' || ['sniper_calibrated','sniper_flatpack','sniper_kintsugi'].includes(skin?.key)) {
       const model = createHeavyWeapon(player.weapon, skin?.key, length); model.position.set(0.27, 1.34, -0.45); weapon.add(model);
     } else {
       const weaponMaterial = this.material(skin?.bulletColor || '#334653', 0.75, 0.22);
       this.box(weapon, 0.24, 0.23, length, 0.27, 1.34, -0.45 - length / 2, weaponMaterial, 0.04);
     }
+    if(dread)mergeRigidMeshes(weapon);
+    else if(player.weapon!=='shotgun')for(const child of [...weapon.children])if(child.isGroup)mergeRigidMeshes(child);
     this.box(weapon, 0.13, 0.23, 0.16, 0.27, 1.18, -0.57, undersuit, 0.02);
-    if (player.weapon === 'sniper' && !marioPipe && !['sniper_calibrated','sniper_flatpack'].includes(skin?.key)) this.box(weapon, 0.16, 0.15, 0.35, 0.27, 1.52, -0.85, visor, 0.05);
+    if (player.weapon === 'sniper' && !marioPipe && !['sniper_calibrated','sniper_flatpack','sniper_kintsugi'].includes(skin?.key)) this.box(weapon, 0.16, 0.15, 0.35, 0.27, 1.52, -0.85, visor, 0.05);
+    mergeRigidMeshes(weapon);
     if (player.id === localId) {
       const ring = new THREE.Mesh(new THREE.RingGeometry(0.86, 0.91, 48), new THREE.MeshBasicMaterial({ color: 0x77ffda, side: THREE.DoubleSide }));
       ring.rotation.x = -Math.PI / 2; ring.position.y = 0.025; group.add(ring);
@@ -537,12 +642,16 @@ export class Arena3D {
     if(player.botType==='ogre') {
       this.clearObject(group);ogreModel=createOgreModel();group.add(ogreModel.group);
       legs.splice(0,legs.length,...ogreModel.legs);arms.splice(0,arms.length,...ogreModel.arms);
+      mergeRigidMeshes(ogreModel.torso,new Set([ogreModel.crystal]));
+      for(const limb of [...ogreModel.legs,...ogreModel.arms])mergeRigidMeshes(limb);
     }
     let guardianModel=null;
     if(player.botType==='guardian') {
       this.clearObject(group);guardianModel=createGuardianModel();group.add(guardianModel.group);
       legs.length=0;arms.length=0;
+      mergeRigidMeshes(guardianModel.armor);
     }
+    if(!ogreModel&&!guardianModel)mergeRigidMeshes(group,new Set([dreadCore]));
     // A character can contain dozens of cosmetic meshes. Only the largest
     // silhouette pieces need to render into shadow maps.
     limitShadowCasters(group,player.botType==='ogre'?10:player.botType==='guardian'?6:8);
@@ -557,7 +666,8 @@ export class Arena3D {
       weaponSkinKey:skin?.key,muzzleBaseX:0.27,muzzleBarrelOffset:length*0.062,
       health: player.health ?? player.maxHealth ?? 101, damageFlash: 0, flashMaterials: this.captureFlashMaterials(group) };
     record.muzzleFlash = createMuzzleFlash(0.1*muzzleFlashScaleForWeapon(player.weapon));
-    record.muzzleFlash.position.set(0.27, 1.34, -0.45 - length * heavyWeaponMuzzleDepth(skin?.key));
+    record.muzzleFlash.position.set(0.27, 1.34 + length * heavyWeaponMuzzleYOffset(skin?.key),
+      -0.45 - muzzleLength * heavyWeaponMuzzleDepth(skin?.key));
     if(dread)record.muzzleFlash.position.set(.27,1.37,-1.72);
     if (player.weapon === 'miniGun'&&skin?.key!=='miniGun_midas') record.muzzleFlash.position.x += length * 0.125;
     record.muzzleBaseX=record.muzzleFlash.position.x;
@@ -586,12 +696,14 @@ export class Arena3D {
   buildViewWeapon(player) {
     const key = `${player.weapon}:${player.weaponSkinKey}`;
     if (this.viewWeaponKey === key) return;
-    this.clearObject(this.viewWeapon); this.viewWeaponKey = key;
+    this.clearObject(this.viewWeapon);delete this.viewWeapon.userData.kintsugiModelCache;
+    delete this.viewWeapon.userData.shotgunPoseParts;this.viewWeaponKey = key;
     const skin = WEAPON_SKINS[player.weapon]?.find(s => s.key === player.weaponSkinKey);
     const marioPipe = player.weapon === 'sniper' && skin?.key === 'sniper_mario';
     const grip = this.material('#182a35', 0.15, 0.65);
     const glove = this.material('#c6d6d5', 0.25, 0.4);
     const length = ({ pistol: 0.36, autoRifle: 0.58, miniGun: 0.5, sniper: 0.8, shotgun: 0.68 })[player.weapon] || 0.36;
+    const muzzleLength=player.weapon==='pistol'?length*PISTOL_MODEL_SCALE:length;
     if(player.weapon==='shotgun') {
       const model=createShotgun(skin?.key,length);model.position.set(0.23,-0.2,-0.32);this.viewWeapon.add(model);
     } else if (marioPipe) {
@@ -600,7 +712,7 @@ export class Arena3D {
       const rifle = createAutoRifle(skin?.key, length); rifle.position.set(0.23, -0.2, -0.32); this.viewWeapon.add(rifle);
     } else if (player.weapon === 'pistol') {
       const pistol = createPistol(skin?.key, length); pistol.position.set(0.23, -0.2, -0.32); this.viewWeapon.add(pistol);
-    } else if (player.weapon === 'miniGun' || ['sniper_calibrated','sniper_flatpack'].includes(skin?.key)) {
+    } else if (player.weapon === 'miniGun' || ['sniper_calibrated','sniper_flatpack','sniper_kintsugi'].includes(skin?.key)) {
       const model = createHeavyWeapon(player.weapon, skin?.key, length);
       model.scale.setScalar(length * heavyWeaponViewScale(skin?.key));
       model.position.set(0.23, -0.2 + heavyWeaponViewYOffset(skin?.key), heavyWeaponViewZ(skin?.key));
@@ -609,6 +721,7 @@ export class Arena3D {
       const metal = this.material(skin?.bulletColor || '#354854', 0.7, 0.25);
       this.box(this.viewWeapon, 0.12, 0.14, length, 0.23, -0.2, -0.32 - length / 2, metal, 0.025);
     }
+    if(player.weapon!=='shotgun')for(const child of [...this.viewWeapon.children])if(child.isGroup)mergeRigidMeshes(child);
     this.box(this.viewWeapon, 0.09, 0.22, 0.13, 0.23, -0.31, -0.43, grip, 0.025);
     this.box(this.viewWeapon, 0.12, 0.14, 0.17, 0.23, -0.31, -0.37, glove, 0.035);
     this.box(this.viewWeapon, 0.14, 0.15, 0.38, 0.23, -0.36, -0.15, grip, 0.045);
@@ -616,10 +729,13 @@ export class Arena3D {
       this.box(this.viewWeapon, 0.13, 0.13, 0.17, 0.16, -0.29, -0.66, glove, 0.035);
       this.box(this.viewWeapon, 0.14, 0.15, 0.43, 0.10, -0.37, -0.39, grip, 0.035);
     }
-    if (player.weapon === 'sniper' && !marioPipe && !['sniper_calibrated','sniper_flatpack'].includes(skin?.key)) this.box(this.viewWeapon, 0.08, 0.08, 0.28, 0.23, -0.09, -0.61, grip, 0.025);
+    if (player.weapon === 'sniper' && !marioPipe && !['sniper_calibrated','sniper_flatpack','sniper_kintsugi'].includes(skin?.key)) this.box(this.viewWeapon, 0.08, 0.08, 0.28, 0.23, -0.09, -0.61, grip, 0.025);
+    mergeRigidMeshes(this.viewWeapon);
     this.viewFlashMaterials = this.captureFlashMaterials(this.viewWeapon);
     this.viewMuzzleFlash = createMuzzleFlash(0.045*muzzleFlashScaleForWeapon(player.weapon));
-    this.viewMuzzleFlash.position.set(0.23, -0.2 + heavyWeaponViewYOffset(skin?.key), -0.32 - length * heavyWeaponMuzzleDepth(skin?.key));
+    this.viewMuzzleFlash.position.set(0.23,
+      -0.2 + heavyWeaponViewYOffset(skin?.key) + length * heavyWeaponMuzzleYOffset(skin?.key),
+      -0.32 - muzzleLength * heavyWeaponMuzzleDepth(skin?.key));
     if (player.weapon === 'miniGun'&&skin?.key!=='miniGun_midas') this.viewMuzzleFlash.position.x += length * 0.125;
     this.viewMuzzleState={weaponSkinKey:skin?.key,muzzleBaseX:this.viewMuzzleFlash.position.x,muzzleBarrelOffset:length*0.062};
     this.viewWeapon.add(this.viewMuzzleFlash);
@@ -628,7 +744,9 @@ export class Arena3D {
   triggerWeaponFlash(flash,state,shot) {
     const style=shotgunMuzzleStyle(state?.weaponSkinKey,shot.shotgunBarrel);
     flash.position.x=(state?.muzzleBaseX??flash.position.x)+(style?.barrel||0)*(state?.muzzleBarrelOffset||0);
-    triggerMuzzleFlash(flash,Math.random,state?.dread?'#ff263f':style?.color);
+    const skinColor=state?.weaponSkinKey==='pistol_pocket_dragon'?'#ff8426':
+      state?.weaponSkinKey==='sniper_kintsugi'?'#ffc857':null;
+    triggerMuzzleFlash(flash,Math.random,state?.dread?'#ff263f':style?.color||skinColor);
   }
 
   weaponSwitched(playerId) {
@@ -745,6 +863,26 @@ export class Arena3D {
     this.stage.add(group);this.effects.push({group,time:EXPLOSION_DURATION,duration:EXPLOSION_DURATION,explosion:true});
   }
 
+  acquireTracer() {
+    let item=this.freeTracers.pop();
+    if(item)return item;
+    const positions=new Float32Array(6);
+    const geometry=new THREE.BufferGeometry();
+    const attribute=new THREE.BufferAttribute(positions,3);attribute.setUsage(THREE.DynamicDrawUsage);
+    geometry.setAttribute('position',attribute);
+    const lineMaterial=new THREE.LineBasicMaterial({transparent:true,opacity:.9});
+    const line=new THREE.Line(geometry,lineMaterial);
+    const sparkMaterial=new THREE.MeshBasicMaterial({transparent:true});
+    const spark=new THREE.Mesh(new THREE.IcosahedronGeometry(.13,0),sparkMaterial);
+    const group=new THREE.Group();group.add(line,spark);group.visible=false;this.stage.add(group);
+    item={group,line,spark};this.tracerPool.push(item);return item;
+  }
+
+  releaseTracer(item) {
+    item.group.visible=false;
+    if(!this.freeTracers.includes(item))this.freeTracers.push(item);
+  }
+
   shot(shot) {
     const character = this.characters.get(shot.playerId);
     const dread=character?.dread;
@@ -753,16 +891,24 @@ export class Arena3D {
     const barrelStyle=shotgunMuzzleStyle(skinKey,shot.shotgunBarrel);
     for(const pellet of shot.pellets||[shot]) {
     const start = world(pellet.x, pellet.y, pellet.height ?? 1.84), end = world(pellet.endX, pellet.endY, pellet.endHeight ?? 1.84);
-    const pelletColor=dread?0xff253d:shotgunPelletColor(skinKey,shot.shotgunBarrel,pellet.hit==='player');
-    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([start, end]), new THREE.LineBasicMaterial({ color: pelletColor, transparent: true, opacity: 0.9 }));
-    const spark = new THREE.Mesh(new THREE.IcosahedronGeometry(0.13, 0), new THREE.MeshBasicMaterial({ color:dread?0xff4053:(barrelStyle?.color||0xffdfaa), transparent: true }));
-    spark.position.copy(end);
-    const group = new THREE.Group(); group.add(line, spark); this.stage.add(group);
-    this.effects.push({ group, time: 0.11 });
+    const pelletColor=dread?0xff253d:skinKey==='sniper_kintsugi'?0xf2b94f:
+      shotgunPelletColor(skinKey,shot.shotgunBarrel,pellet.hit==='player');
+    const tracer=this.acquireTracer(),positions=tracer.line.geometry.attributes.position;
+    positions.setXYZ(0,start.x,start.y,start.z);positions.setXYZ(1,end.x,end.y,end.z);positions.needsUpdate=true;
+    tracer.line.material.color.setHex(pelletColor);tracer.line.material.opacity=.9;
+    tracer.spark.material.color.set(dread?0xff4053:(barrelStyle?.color||0xffdfaa));tracer.spark.material.opacity=1;
+    tracer.spark.position.copy(end);tracer.group.visible=true;
+    this.effects.push({group:tracer.group,time:.11,duration:.11,tracer});
     }
-    if (character) { character.recoil = shot.pellets?0.22:0.13;character.shotAt=this.renderTime;
+    const pistolShot=character?.weaponKey==='pistol'||
+      (shot.playerId===this.localId&&this.viewWeaponKey?.startsWith('pistol:'));
+    if (character) { character.recoil = shot.pellets?0.22:pistolShot?0.18:0.13;character.shotAt=this.renderTime;
+      if(shot.pellets)triggerShotgunChamber(character.weapon,shot.shotgunBarrel,this.renderTime);
+      triggerHeavyWeaponSkin(character.weapon,this.renderTime);
       this.triggerWeaponFlash(character.muzzleFlash,character,shot); }
-    if (shot.playerId === this.localId) { this.weaponRecoil = shot.pellets?0.2:0.1;this.viewShotAt=this.renderTime;
+    if (shot.playerId === this.localId) { this.weaponRecoil = shot.pellets?0.2:pistolShot?0.16:0.1;this.viewShotAt=this.renderTime;
+      if(shot.pellets)triggerShotgunChamber(this.viewWeapon,shot.shotgunBarrel,this.renderTime);
+      triggerHeavyWeaponSkin(this.viewWeapon,this.renderTime);
       this.triggerWeaponFlash(this.viewMuzzleFlash,this.viewMuzzleState,shot); }
   }
 
@@ -774,6 +920,11 @@ export class Arena3D {
     this.liftSway=state.phase==='riding'?0.018*Math.sin(2*Math.PI*rideT)*Math.sin(Math.PI*rideT):0;
     const exitSample=this.arrivalModel ? state.phase==='ready'?
       elevatorSample({phase:'opening',startedAt:state.startedAt},now):state.phase==='riding'?sample:{door:0,rise:0}:sample;
+    const previousPose=this.elevatorPose;
+    if(!previousPose||Math.abs(previousPose.door-sample.door)>1e-4||Math.abs(previousPose.rise-sample.rise)>1e-4||
+      Math.abs(previousPose.exitDoor-exitSample.door)>1e-4||Math.abs(previousPose.exitRise-exitSample.rise)>1e-4){
+      this.elevatorPose={door:sample.door,rise:sample.rise,exitDoor:exitSample.door,exitRise:exitSample.rise};this.shadowDirty=true;
+    }
     poseElevator(this.elevatorModel,exitSample);
     if(this.arrivalModel) {
       poseElevator(this.arrivalModel,state.phase==='opening'?sample:{door:1,rise:0});
@@ -784,17 +935,24 @@ export class Arena3D {
     const cabinFill=['riding','opening'].includes(state.phase)?1-sample.door:0;
     const pve=this.mapConfig.mode==='pve';
     const palette=this.mapConfig.palette||{};
-    this.ambient.intensity=(palette.ambientIntensity??(pve?1.9:3.2))*(1-cabinFill)+3*cabinFill;
-    this.sun.intensity=(palette.sunIntensity??(pve?1.5:3.5))*(1-cabinFill);
-    this.rim.intensity=(palette.rimIntensity??(pve?.65:2))*(1-cabinFill);
-    this.areaLights?.traverse(o=>{if(o.isLight)o.intensity=o.userData.roomIntensity*(1-cabinFill);});
+    if(this.elevatorCabinFill!==cabinFill) {
+      this.elevatorCabinFill=cabinFill;
+      this.ambient.intensity=(palette.ambientIntensity??(pve?1.9:3.2))*(1-cabinFill)+3*cabinFill;
+      this.sun.intensity=(palette.sunIntensity??(pve?1.5:3.5))*(1-cabinFill);
+      this.rim.intensity=(palette.rimIntensity??(pve?.65:2))*(1-cabinFill);
+      for(const light of this.areaLightObjects||[])light.intensity=light.userData.roomIntensity*(1-cabinFill);
+    }
     elevatorDisplay(this.elevatorModel,state.phase==='riding'?`↑ ${state.floor+1}`:state.phase==='ready'?'EXIT':'LOCK');
     // A closed cabin is an intentional loading boundary. Hide the old floor
     // during the ride so its ceiling cannot pass through the passenger cabin.
-    const characterGroups=new Set([...this.characters.values()].map(c=>c.group));
-    for(const child of this.stage.children) {
-      if(child===this.elevatorModel)continue;
-      if(!characterGroups.has(child))child.visible=state.phase!=='riding'||sample.door>0;
+    const stageVisible=state.phase!=='riding'||sample.door>0;
+    if(this.stageRideVisible!==stageVisible) {
+      this.stageRideVisible=stageVisible;
+      const characterGroups=new Set([...this.characters.values()].map(c=>c.group));
+      for(const child of this.stage.children) {
+        if(child===this.elevatorModel)continue;
+        if(!characterGroups.has(child))child.visible=stageVisible;
+      }
     }
   }
 
@@ -802,10 +960,19 @@ export class Arena3D {
     this.renderTime+=dt;this.shadowElapsed+=dt;
     // Ten shadow updates per second remain visually smooth while halving the
     // most expensive multi-pass work.
-    if(this.shadowElapsed>=0.1){this.renderer.shadowMap.needsUpdate=true;this.shadowElapsed%=0.1;}
+    if(this.shadowElapsed>=0.1){
+      if(this.shadowDirty){
+        this.sun.shadow.needsUpdate=true;
+        for(const light of this.areaLightObjects||[])if(light.castShadow)light.shadow.needsUpdate=true;
+        this.renderer.shadowMap.needsUpdate=true;this.shadowDirty=false;
+      }
+      this.shadowElapsed%=0.1;
+    }
     for(const {solid,model} of this.cargoModels||[]) {
+      const previousY=model.position.y;
       if(solid.kind==='lift')poseCargoLift(model,solid.top);
       else model.position.y=solid.bottom;
+      if(Math.abs(model.position.y-previousY)>1e-5)this.shadowDirty=true;
       const index=this.reflectionSolids.indexOf(solid);
       if(index>=0&&index<64){this.floor.uniforms.wallMax.value[index].y=solid.top;this.floor.uniforms.wallMin.value[index].y=solid.bottom||0;}
     }
@@ -819,30 +986,33 @@ export class Arena3D {
       this.viewFootHeight=this.viewedId===viewed.id&&viewed.jumpStartedAt==null&&this.viewFootHeight!=null&&Math.abs(foot-this.viewFootHeight)<0.35?
         this.viewFootHeight+(foot-this.viewFootHeight)*(1-Math.exp(-24*dt)):foot;
       this.viewedId=viewed.id;
-      this.camera.position.copy(world(viewed.x, viewed.y, 1.84 + this.viewFootHeight + (this.liftRise || 0) + (this.liftSway || 0)));
-      this.camera.lookAt(this.camera.position.clone().add(new THREE.Vector3(
-        Math.cos(viewed.angle) * Math.cos(viewPitch), Math.sin(viewPitch), Math.sin(viewed.angle) * Math.cos(viewPitch))));
+      this.camera.position.copy(world(viewed.x, viewed.y, 1.84 + this.viewFootHeight + (this.liftRise || 0) + (this.liftSway || 0),this.temp.cameraLook));
+      this.temp.cameraLook.set(Math.cos(viewed.angle)*Math.cos(viewPitch),Math.sin(viewPitch),Math.sin(viewed.angle)*Math.cos(viewPitch)).add(this.camera.position);
+      this.camera.lookAt(this.temp.cameraLook);
       this.deathShake*=Math.exp(-9*dt);
       this.camera.position.y+=Math.sin(this.renderTime*65)*this.deathShake;
       this.camera.updateMatrixWorld();
     }
     const localMaxHealth=local?.maxHealth??101;
     const localHealth = local?.alive ? Math.max(0, Math.min(localMaxHealth, local.health ?? localMaxHealth)) : 0;
-    document.getElementById('local-health-text').textContent = local?.alive ? `${Math.ceil(localHealth)} / ${localMaxHealth} HP` : `SPECTATING${viewed ? ' / ' + viewed.name : ''}`;
-    const healthBar = document.getElementById('local-health-bar');
-    healthBar.hidden = !local?.alive;
-    healthBar.setAttribute('aria-valuemax',String(localMaxHealth));
-    healthBar.setAttribute('aria-valuenow', String(localHealth));
-    const healthFill = document.getElementById('local-health-fill');
+    const healthText=local?.alive?`${Math.ceil(localHealth)} / ${localMaxHealth} HP`:`SPECTATING${viewed?' / '+viewed.name:''}`;
+    if(this.ui.healthText.textContent!==healthText)this.ui.healthText.textContent=healthText;
+    const healthBar=this.ui.healthBar;
+    if(healthBar.hidden===!!local?.alive)healthBar.hidden=!local?.alive;
+    const maxText=String(localMaxHealth),healthTextValue=String(localHealth);
+    if(healthBar.getAttribute('aria-valuemax')!==maxText)healthBar.setAttribute('aria-valuemax',maxText);
+    if(healthBar.getAttribute('aria-valuenow')!==healthTextValue)healthBar.setAttribute('aria-valuenow',healthTextValue);
+    const healthFill=this.ui.healthFill;
     const localPercent=100*localHealth/localMaxHealth;
-    healthFill.style.width = `${localPercent}%`;
-    healthFill.style.backgroundColor = localPercent < 30 ? '#ff7878' : localPercent < 60 ? '#ffd48b' : '#7bf0c4';
-    const crosshair=document.getElementById('crosshair');
-    crosshair.hidden=!local?.alive;
-    crosshair.classList.toggle('shotgun',!!local?.alive&&local.weapon==='shotgun');
-    crosshair.classList.toggle('sniper',!!local?.alive&&local.weapon==='sniper');
-    const activeIds = new Set(players.map(p => p.id));
-    for (const [id, c] of this.characters) if (!activeIds.has(id)) {
+    const localWidth=`${localPercent}%`,localColor=localPercent<30?'#ff7878':localPercent<60?'#ffd48b':'#7bf0c4';
+    if(this.ui.healthWidth!==localWidth){this.ui.healthWidth=localWidth;healthFill.style.width=localWidth;}
+    if(this.ui.healthColor!==localColor){this.ui.healthColor=localColor;healthFill.style.backgroundColor=localColor;}
+    const crosshair=this.ui.crosshair,crosshairKey=local?.alive?local.weapon:'dead';
+    if(this.crosshairKey!==crosshairKey){this.crosshairKey=crosshairKey;crosshair.hidden=!local?.alive;
+      crosshair.classList.toggle('shotgun',!!local?.alive&&local.weapon==='shotgun');
+      crosshair.classList.toggle('sniper',!!local?.alive&&local.weapon==='sniper');}
+    this.activeIds.clear();for(const player of players)this.activeIds.add(player.id);
+    for (const [id, c] of this.characters) if (!this.activeIds.has(id)) {
       this.stage.remove(c.group); this.clearObject(c.group); c.label.remove(); this.characters.delete(id);
     }
     for (const player of players) {
@@ -858,19 +1028,24 @@ export class Arena3D {
       }
       c=c||this.createCharacter(player, localId);
       const currentHealth = player.health ?? player.maxHealth ?? 101;
+      const previousFlash=c.damageFlash;
       c.damageFlash = currentHealth < c.health ? 0.22 : Math.max(0, c.damageFlash - dt);
       c.health = currentHealth;
-      this.applyDamageFlash(c.flashMaterials, c.damageFlash);
+      if(c.damageFlash>0||previousFlash>0)this.applyDamageFlash(c.flashMaterials,c.damageFlash);
       updateMuzzleFlash(c.muzzleFlash, dt);
       if(player.weapon==='shotgun')poseShotgun(c.weapon,this.renderTime-(c.shotAt??-10),this.renderTime);
-      c.group.visible = !!player.alive && player.id !== viewed?.id; c.label.hidden = !c.group.visible;
+      poseHeavyWeaponSkin(c.weapon,this.renderTime);
+      c.group.visible = !!player.alive && player.id !== viewed?.id;
       if (!player.alive) continue;
       const motion=updateCharacterMotion(c,player,dt);
       c.legs.forEach((leg,i)=>{leg.rotation.x=motion.stride*(i?-1:1)*(c.ogreModel?0.7:1);});
       c.arms.forEach((arm,i)=>{arm.rotation.x=motion.stride*(i?1:-1)*(c.ogreModel?0.35:0.12);});
       const physicalBase=(player.height||0)+(player.hoverOffset||0)+(!player.isBot?(this.liftRise||0):0);
       const elevation=physicalBase+(c.guardianModel?(player.bodyHeight||2.6)/2:0);
-      c.group.position.copy(world(c.x,c.y,elevation+motion.bob));c.group.rotation.y=-c.angle-Math.PI/2;
+      const characterPosition=world(c.x,c.y,elevation+motion.bob,this.temp.character),characterRotation=-c.angle-Math.PI/2;
+      if(c.group.position.distanceToSquared(characterPosition)>1e-7||Math.abs(c.group.rotation.y-characterRotation)>1e-5||
+        c.ogreModel&&player.ogreAttack||c.guardianModel||c.recoil>0)this.shadowDirty=true;
+      c.group.position.copy(characterPosition);c.group.rotation.y=characterRotation;
       c.group.rotation.z=motion.sway;
       if(c.ogreModel)poseOgre(c.ogreModel,player.ogreAttack,world);
       if(c.guardianModel)poseGuardian(c.guardianModel,player.guardianAttack,this.renderTime+Number(player.id.replace(/\D/g,''))*.37);
@@ -894,27 +1069,41 @@ export class Arena3D {
       const remoteSwap=Math.max(0,Math.min(1,(this.renderTime-c.weaponSwitchAt)/WEAPON_SWAP_SECONDS));
       c.weapon.position.y=-0.22*Math.sin(Math.PI*remoteSwap);
       c.weapon.rotation.x=0.25*Math.sin(Math.PI*remoteSwap);
-      const anchor = world(c.x,c.y,(player.bodyHeight||2.2)+0.2+physicalBase+motion.bob);
-      const p = anchor.clone().project(this.camera);
-      const direction = world(player.x, player.y, physicalBase+(player.bodyHeight||2.2)*.5).sub(this.camera.position);
+      const anchor=world(c.x,c.y,(player.bodyHeight||2.2)+0.2+physicalBase+motion.bob,this.temp.anchor);
+      const p=this.temp.projected.copy(anchor).project(this.camera);
+      const direction=world(player.x,player.y,physicalBase+(player.bodyHeight||2.2)*.5,this.temp.direction).sub(this.camera.position);
       const inView=c.group.visible&&p.z>=-1&&p.z<=1&&Math.abs(p.x)<=1&&Math.abs(p.y)<=1;
       if(inView&&this.renderTime>=(c.nextLabelCheck||0)){
-        this.raycaster.set(this.camera.position, direction.clone().normalize());
-        this.raycaster.far=direction.length();
+        const rayDistance=direction.length();
+        this.raycaster.set(this.camera.position,direction.multiplyScalar(1/Math.max(.0001,rayDistance)));
+        this.raycaster.far=rayDistance;
         c.labelOccluded=this.raycaster.intersectObjects(this.wallOccluders,false).length>0;
         c.nextLabelCheck=this.renderTime+0.12+(Number(player.id.replace(/\D/g,''))%4||0)*0.01;
       }
       if(!inView)c.nextLabelCheck=0;
-      c.label.hidden=!inView||c.labelOccluded;
-      c.label.style.left = `${(p.x * 0.5 + 0.5) * 100}%`; c.label.style.top = `${(-p.y * 0.5 + 0.5) * 100}%`;
+      const labelHidden=!inView||c.labelOccluded;
+      syncCharacterLabelVisibility(c,labelHidden);
+      if(!labelHidden) {
+        const labelX=(p.x*.5+.5)*this.canvas.clientWidth,labelY=(-p.y*.5+.5)*this.canvas.clientHeight;
+        if(Math.abs(labelX-(c.labelX??Infinity))>.2||Math.abs(labelY-(c.labelY??Infinity))>.2){
+          c.labelX=labelX;c.labelY=labelY;c.label.style.transform=`translate3d(${labelX}px,${labelY}px,0) translate(-50%,-100%)`;
+        }
+      }
       const health = Math.max(0, player.health ?? player.maxHealth ?? 101), percent=100*health/(player.maxHealth||101);
-      c.value.textContent = Math.ceil(health); c.fill.style.width = `${Math.min(100,percent)}%`;
-      c.fill.style.background = player.botType==='guardian'?'#a950ef':player.botType==='dread'?'#ef3048':percent < 30 ? '#ff7878' : percent < 60 ? '#ffd48b' : '#7bf0c4';
+      const value=String(Math.ceil(health)),width=`${Math.min(100,percent)}%`;
+      const color=player.botType==='guardian'?'#a950ef':player.botType==='dread'?'#ef3048':percent<30?'#ff7878':percent<60?'#ffd48b':'#7bf0c4';
+      if(c.labelValue!==value){c.labelValue=value;c.value.textContent=value;}
+      if(c.fillWidth!==width){c.fillWidth=width;c.fill.style.width=width;}
+      if(c.fillColor!==color){c.fillColor=color;c.fill.style.background=color;}
     }
     this.updateDeathEffects(dt);
     for (let i = this.effects.length - 1; i >= 0; i--) {
       const fx = this.effects[i]; fx.time -= dt;
-      if (fx.time <= 0) { this.stage.remove(fx.group); this.clearObject(fx.group); this.effects.splice(i, 1); }
+      if (fx.time <= 0) {
+        if(fx.tracer)this.releaseTracer(fx.tracer);
+        else {this.stage.remove(fx.group);this.clearObject(fx.group);}
+        this.effects.splice(i, 1);
+      }
       else if(fx.explosion)poseGrenadeExplosion(fx.group,fx.duration-fx.time,this.camera.quaternion);
       else if(fx.guardianExplosion)poseGuardianExplosion(fx.group,fx.duration-fx.time);
       else fx.group.children.forEach(child => {
@@ -936,7 +1125,12 @@ export class Arena3D {
       this.buildViewWeapon(local);
       if(local.weapon==='shotgun')poseShotgun(this.viewWeapon,this.renderTime-(this.viewShotAt??-10),this.renderTime);
       updateMuzzleFlash(this.viewMuzzleFlash, dt);
-      this.applyDamageFlash(this.viewFlashMaterials, this.characters.get(localId)?.damageFlash || 0);
+      const viewFlash=this.characters.get(localId)?.damageFlash||0;
+      if(viewFlash>0||this.viewDamageFlash>0)this.applyDamageFlash(this.viewFlashMaterials,viewFlash);
+      this.viewDamageFlash=viewFlash;
+      // Damage flashing restores every captured material to its base emissive
+      // value, so animated skin lighting must be applied after that reset.
+      poseHeavyWeaponSkin(this.viewWeapon,this.renderTime);
       this.weaponRecoil = Math.max(0, this.weaponRecoil - dt);
       const switchAt=this.weaponSwitchTimes?.get(localId)??-Infinity;
       const swap=Math.max(0,Math.min(1,(this.renderTime-switchAt)/WEAPON_SWAP_SECONDS));

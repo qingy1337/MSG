@@ -8,7 +8,7 @@ const {
 } = require("../lib/userStore");
 const { ALL_SKINS_BY_KEY, WEAPON_SKINS } = require("../lib/skins");
 
-function createShopRoutes({ io, activePlayers }) {
+function createShopRoutes({ io, activePlayers = [], getActivePlayers }) {
   const router = express.Router();
 
   router.get("/skins", (req, res) => {
@@ -138,8 +138,12 @@ function createShopRoutes({ io, activePlayers }) {
     }
     user.skins.equippedByWeapon[weaponKey] = skinKey;
 
-    // If this player is currently active in a match, update their weaponSkinKey.
-    activePlayers.forEach((p) => {
+    // If this player is currently active in a match, update the relevant model.
+    // Multi-match servers provide a live aggregate instead of one global array.
+    const currentPlayers = typeof getActivePlayers === "function"
+      ? getActivePlayers()
+      : activePlayers;
+    currentPlayers.forEach((p) => {
       if (
         p &&
         p.accountUsername === user.username &&
@@ -148,9 +152,6 @@ function createShopRoutes({ io, activePlayers }) {
         p.weaponSkinKey = skinKey;
       }
     });
-    if (activePlayers.length > 0) {
-      io.emit("gameState", activePlayers);
-    }
 
     saveUsers();
     res.json({

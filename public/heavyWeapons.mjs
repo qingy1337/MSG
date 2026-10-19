@@ -1,10 +1,18 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
+export const KINTSUGI_GLOW_DURATION = 1;
+
 export function heavyWeaponViewYOffset(skinKey) {
   // Seat Midas's integrated grip deeper into the first-person hand without
   // changing how the weapon sits on remote character models.
   return skinKey === 'miniGun_midas' ? -0.045 : 0;
+}
+
+export function heavyWeaponMuzzleYOffset(skinKey) {
+  if (skinKey === 'sniper_calibrated') return 0.022;
+  if (skinKey === 'sniper_kintsugi') return 0.01;
+  return 0;
 }
 
 export function heavyWeaponViewScale(skinKey) {
@@ -18,8 +26,35 @@ export function heavyWeaponViewZ(skinKey) {
 export function heavyWeaponMuzzleDepth(skinKey) {
   if (skinKey === 'miniGun_midas') return 1.234;
   if (skinKey === 'sniper_calibrated') return 1.1;
+  if (skinKey === 'sniper_kintsugi') return 1.165;
   if (skinKey === 'sniper_flatpack') return 1.055;
   return 1;
+}
+
+function findKintsugiModel(root) {
+  if (!root) return null;
+  if (root.userData?.kintsugiGold) return root;
+  if(Object.hasOwn(root.userData||{},'kintsugiModelCache'))return root.userData.kintsugiModelCache;
+  let model = null;
+  root.traverse?.(object => { if (!model && object.userData?.kintsugiGold) model = object; });
+  if(root.userData)root.userData.kintsugiModelCache=model;
+  return model;
+}
+
+export function triggerHeavyWeaponSkin(root, now = 0) {
+  const model = findKintsugiModel(root);
+  if (model) model.userData.kintsugiShotAt = now;
+}
+
+export function poseHeavyWeaponSkin(root, now = 0) {
+  const model = findKintsugiModel(root);
+  if (!model) return;
+  const age = Math.max(0, now - (model.userData.kintsugiShotAt ?? -10));
+  const progress = THREE.MathUtils.clamp(age / KINTSUGI_GLOW_DURATION, 0, 1);
+  // Stay brilliant long enough to read during recoil, then ease naturally
+  // back into the restrained molten-gold idle finish over a full second.
+  const pulse = Math.pow(1 - progress, 1.35);
+  model.userData.kintsugiGold.emissiveIntensity = model.userData.kintsugiBaseGlow + pulse * 8.8;
 }
 
 export function createHeavyWeapon(weapon, skinKey, length) {
@@ -39,6 +74,76 @@ export function createHeavyWeapon(weapon, skinKey, length) {
     mesh.rotation.x = Math.PI / 2; return mesh;
   };
   if (weapon === 'sniper') {
+    if (skinKey === 'sniper_kintsugi') {
+      const ceramic = new THREE.MeshPhysicalMaterial({
+        name: 'Kintsugi charcoal ceramic', color: '#18191c', metalness: 0.08, roughness: 0.2,
+        clearcoat: 0.82, clearcoatRoughness: 0.12,
+      });
+      const ceramicEdge = new THREE.MeshPhysicalMaterial({
+        name: 'Kintsugi raised ceramic', color: '#29272b', metalness: 0.12, roughness: 0.24,
+        clearcoat: 0.68, clearcoatRoughness: 0.15,
+      });
+      const dark = mat('#08090b', 0.35);
+      dark.roughness = 0.24;
+      const gold = new THREE.MeshStandardMaterial({
+        name: 'Kintsugi molten gold', color: '#e3ad42', metalness: 0.88, roughness: 0.16,
+        emissive: '#9c5000', emissiveIntensity: 0.24,
+      });
+      const lens = new THREE.MeshPhysicalMaterial({
+        name: 'Kintsugi amber lens', color: '#ffcb55', emissive: '#b75b00', emissiveIntensity: 0.7,
+        metalness: 0.08, roughness: 0.06, transparent: true, opacity: 0.72,
+        clearcoat: 1, clearcoatRoughness: 0.02,
+      });
+      const seam = (points, x, name = 'kintsugi-seam') => {
+        const curve = new THREE.CatmullRomCurve3(points.map(([y, z]) => new THREE.Vector3(x, y, z)));
+        return add(new THREE.TubeGeometry(curve, Math.max(8, points.length * 5), 0.0052, 7, false), gold, 0, 0, 0, name);
+      };
+
+      // A single calm ceramic silhouette, split into fitted panels rather than
+      // a default rifle covered in decoration.
+      box(0.15, 0.145, 0.56, 0, 0.006, -0.34, ceramic, 'kintsugi-receiver');
+      box(0.12, 0.118, 0.59, 0, 0.01, -0.855, ceramic, 'kintsugi-fore-end');
+      box(0.145, 0.13, 0.23, 0, -0.002, 0.045, ceramicEdge, 'kintsugi-stock');
+      box(0.128, 0.018, 0.88, 0, 0.083, -0.52, ceramicEdge, 'kintsugi-ridge');
+      const grip = box(0.105, 0.245, 0.12, 0, -0.16, -0.12, dark, 'kintsugi-grip');
+      grip.rotation.x = -0.16;
+      box(0.109, 0.022, 0.09, 0, -0.275, -0.097, gold, 'kintsugi-grip-cap');
+
+      // Gold joint lines read as repaired ceramic without turning the weapon
+      // into a gold-striped skin.
+      box(0.154, 0.151, 0.014, 0, 0.006, -0.615, gold, 'kintsugi-joint');
+      tube(0.064, 0.026, 0, 0.01, -1.151, gold, 'kintsugi-muzzle-ring');
+      tube(0.049, 0.032, 0, 0.01, -1.17, dark, 'kintsugi-bore');
+      for (const side of [-1, 1]) {
+        const x = side * 0.077;
+        seam([[0.053, -0.1], [0.025, -0.22], [0.052, -0.34], [-0.02, -0.47], [0.012, -0.6]], x);
+        seam([[0.025, -0.22], [-0.026, -0.27], [-0.052, -0.31]], x, 'kintsugi-branch');
+        seam([[-0.02, -0.47], [-0.05, -0.5], [-0.061, -0.56]], x, 'kintsugi-branch');
+        const foreX = side * 0.062;
+        seam([[0.02, -0.63], [-0.018, -0.75], [0.035, -0.86], [-0.025, -0.99], [0.01, -1.13]], foreX);
+        seam([[0.035, -0.86], [0.057, -0.9], [0.058, -0.96]], foreX, 'kintsugi-branch');
+      }
+      const topCrack = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(-0.045, 0.086, -0.21), new THREE.Vector3(0.018, 0.087, -0.31),
+        new THREE.Vector3(-0.028, 0.087, -0.43), new THREE.Vector3(0.038, 0.087, -0.55),
+      ]);
+      add(new THREE.TubeGeometry(topCrack, 20, 0.0048, 7, false), gold, 0, 0, 0, 'kintsugi-top-seam');
+
+      // Compact ceramic optic, visually seated into the upper ridge.
+      box(0.052, 0.045, 0.12, 0, 0.111, -0.2, dark, 'kintsugi-scope-mount');
+      tube(0.044, 0.3, 0, 0.157, -0.24, ceramic, 'kintsugi-scope');
+      tube(0.049, 0.018, 0, 0.157, -0.382, gold, 'kintsugi-scope-ring');
+      tube(0.049, 0.018, 0, 0.157, -0.098, gold, 'kintsugi-scope-ring');
+      tube(0.035, 0.006, 0, 0.157, -0.393, lens, 'kintsugi-scope-lens');
+      box(0.032, 0.018, 0.035, 0, 0.207, -0.24, gold, 'kintsugi-scope-dial');
+
+      group.name = 'kintsugi-sniper';
+      group.userData.muzzleDepth = 1.165;
+      group.userData.kintsugiGold = gold;
+      group.userData.kintsugiBaseGlow = 0.24;
+      group.userData.kintsugiShotAt = -10;
+      return group;
+    }
     if (skinKey === 'sniper_flatpack') {
       const cardboard = mat('#b77f43', 0.02);
       const lightCardboard = mat('#c79b62', 0.01);
@@ -76,30 +181,32 @@ export function createHeavyWeapon(weapon, skinKey, length) {
       group.userData.muzzleDepth = 1.055;
       return group;
     }
-    // Smooth oval receiver, narrowing continuously into the exposed barrel.
+    // The slim barrel shares the receiver's upper line. All of the narrowing
+    // therefore happens underneath instead of pinching inward symmetrically.
+    const barrelY=0.022;
     const profile = [[0, 0], [0.04, 0], [0.052, 0.015], [0.057, 0.05],
       [0.057, 0.2], [0.051, 0.26], [0.041, 0.34], [0.035, 0.42], [0, 0.42]];
     const receiver = add(new THREE.LatheGeometry(profile.map(([r, z]) => new THREE.Vector2(r, z)), 24), black, 0, 0, 0, 'receiver');
     receiver.rotation.x = -Math.PI / 2; receiver.scale.x = 0.88;
-    tube(0.035, 0.74, 0, 0, -0.69, black, 'precision-barrel');
+    tube(0.035, 0.74, 0, barrelY, -0.69, black, 'precision-barrel');
     for (const side of [-1, 1]) {
-      box(0.016, 0.027, 0.68, side * 0.06, 0, -0.64, accent, 'purple-rail');
-      const tip = box(0.016, 0.027, 0.13, side * 0.047, 0, -1.015, accent, 'converging-tip');
+      box(0.016, 0.027, 0.68, side * 0.06, barrelY, -0.64, accent, 'purple-rail');
+      const tip = box(0.016, 0.027, 0.13, side * 0.047, barrelY, -1.015, accent, 'converging-tip');
       tip.rotation.y = -side * 0.2;
       const sweep = new THREE.CatmullRomCurve3([
-        new THREE.Vector3(side * 0.045, 0, -0.08),
-        new THREE.Vector3(side * 0.055, 0, -0.18),
-        new THREE.Vector3(side * 0.06, 0, -0.3),
+        new THREE.Vector3(side * 0.045, 0.008, -0.08),
+        new THREE.Vector3(side * 0.055, 0.017, -0.18),
+        new THREE.Vector3(side * 0.06, barrelY, -0.3),
       ]);
       add(new THREE.TubeGeometry(sweep, 12, 0.009, 6, false), accent, 0, 0, 0, 'receiver-trim');
-      for (let i = 0; i < 4; i++) box(0.006, 0.03, 0.007, side * 0.069, 0, -0.36 - i * 0.06, steel, 'calibration-mark');
+      for (let i = 0; i < 4; i++) box(0.006, 0.03, 0.007, side * 0.069, barrelY, -0.36 - i * 0.06, steel, 'calibration-mark');
     }
     box(0.035, 0.04, 0.12, 0, 0.073, -0.22, black, 'scope-mount');
     tube(0.038, 0.25, 0, 0.12, -0.24, black, 'scope');
     tube(0.042, 0.022, 0, 0.12, -0.36, accent, 'scope-ring');
     tube(0.032, 0.006, 0, 0.12, -0.112, mat('#528ba2', 0.7), 'scope-lens');
     box(0.035, 0.018, 0.035, 0, 0.162, -0.24, steel, 'adjustment-dial');
-    tube(0.045, 0.05, 0, 0, -1.075, steel, 'muzzle');
+    tube(0.045, 0.05, 0, barrelY, -1.075, steel, 'muzzle');
   } else if(midas) {
     const gold = new THREE.MeshPhysicalMaterial({
       name: 'Midas gold', color: '#f1c232', metalness: 0.82, roughness: 0.19,

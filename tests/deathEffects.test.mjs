@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import deaths from '../game/deathEffects.js';
 import server from '../game/gameServer.js';
 import weapons from '../public/weapons.js';
-import {Arena3D} from '../public/arena3d.js';
+import {Arena3D,syncCharacterLabelVisibility} from '../public/arena3d.js';
 import {createCorpse,poseCorpse,createDeathRemains,poseDeathRemains,MAX_CORPSES,MAX_REMAINS} from '../public/deathEffects.mjs';
 
 const map={width:900,height:900,terrain:[]},target={id:'bot',isBot:true,x:300,y:300,height:0,angle:0};
@@ -23,6 +23,15 @@ function renderer(t) {
     corpses:[],remains:[],pickups:new Map(),grenades:new Map(),effects:[],deadIds:new Set(),camera:new THREE.PerspectiveCamera(),renderTime:0,deathShake:0});
   t.after(()=>arena.clearObject(arena.stage));return arena;
 }
+
+test('wall-occluded character labels cannot be revived by a stale DOM write',()=>{
+  const character={labelHidden:true,label:{hidden:false}};
+  assert.equal(syncCharacterLabelVisibility(character,true),true);
+  assert.equal(character.label.hidden,true);
+  assert.equal(syncCharacterLabelVisibility(character,true),false);
+  assert.equal(syncCharacterLabelVisibility(character,false),true);
+  assert.equal(character.label.hidden,false);
+});
 
 test('death force follows the source, stronger weapons throw farther, and walls/upper floors stop placement',()=>{
   const pistol=descriptor(),shotgun=descriptor('shotgun'),blast=descriptor('grenade');
@@ -81,7 +90,8 @@ test('Dread Troopers use red threat armor, an exclusive carbine and a disposable
   const c=arena.createCharacter(player,null);
   assert.equal(c.dread,true);assert.ok(c.group.getObjectByName('dread-core'));
   assert.ok(c.group.getObjectByName('dread-charge-beam'));
-  assert.ok(c.weapon.children.length>=7,'bot-exclusive carbine is visibly modeled');
+  let carbineVertices=0;c.weapon.traverse(object=>{carbineVertices+=object.geometry?.attributes?.position?.count||0;});
+  assert.ok(carbineVertices>=150,'batched bot-exclusive carbine retains its visible geometry');
   assert.ok(c.dreadCore.material.emissive.r>c.dreadCore.material.emissive.b*2,'Dread energy language is red, not Ogre purple');
   c.dreadTelegraph.visible=true;
   const corpse=createCorpse(c,{...descriptor('pistol',player),ground:0,height:0});

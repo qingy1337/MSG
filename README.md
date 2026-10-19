@@ -1,9 +1,16 @@
-# MSG
+# Blocks
 
 ## 3D arena
 
 Run `npm install` and `npm start`, then open `http://localhost:3001`.
-Sign in, choose a weapon, and start with another player or enable bots.
+Sign in to reach the command deck. The authenticated username is also the in-game
+name; there is no separate display-name prompt. The home screen shows the saved
+primary loadout (with the pistol as its fixed secondary), the Armory, PvP and
+Endless PvE launch choices, and live fireteams waiting for either mode.
+Creating a fireteam makes that player its leader. Other players can join from the
+browser, and only the leader can launch. Each fireteam owns an isolated server
+simulation and Socket.IO room, so multiple PvP and PvE matches can run in parallel
+without sharing players, projectiles, floor state, or lifecycle events.
 Click the arena to capture the mouse. Move with WASD / arrow keys relative to your
 view, look with the mouse, and click to fire (hold for automatic weapons).
 Press Escape to release the mouse and access the reflection setting.
@@ -217,7 +224,7 @@ Rendering requires WebGL 2. A custom floor shader traces rays against wall volum
 for one-bounce reflections and hard wall shadows, alongside conventional dynamic
 shadow maps and physically based materials. This is hybrid rendering, not full-scene
 path tracing: characters and fine wall details are not included in reflections.
-The reflections checkbox disables that pass on slower machines. Assets are served
+The reflections checkbox enables that optional pass. Assets are served
 locally, including Three.js; no CDN is needed during play.
 
 Checks: `npm test` runs Node tests for combat, PvE rules, 100 seeded layouts,

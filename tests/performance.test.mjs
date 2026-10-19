@@ -6,6 +6,7 @@ import snapshots from '../game/snapshots.js';
 import server from '../game/gameServer.js';
 import {SnapshotMotion} from '../public/snapshotMotion.mjs';
 import {FrameBudget} from '../public/frameBudget.mjs';
+import {areaOccluderIndex,shadowOccluderGrid} from '../public/floorLighting.mjs';
 const map={width:640,height:480,ceiling:7.5,terrain:[]};
 test('adaptive resolution lowers sustained slow frames, recovers gradually, and stays bounded',()=>{
   const budget=new FrameBudget();assert.equal(budget.scale,1);
@@ -16,6 +17,23 @@ test('adaptive resolution lowers sustained slow frames, recovers gradually, and 
   for(let i=0;i<2400;i++)budget.sample(16.67);
   assert.equal(budget.scale,1.25);
   assert.equal(budget.sample(NaN),false);assert.equal(budget.sample(10000),false);
+});
+test('floor light occlusion excludes other rooms without dropping possible blockers',()=>{
+  const solids=[{x:35,y:90,width:10,height:20},{x:180,y:180,width:20,height:20},
+    {x:95,y:40,width:10,height:20},{x:400,y:0,width:20,height:20}];
+  const index=areaOccluderIndex(solids,[{x:100,y:100,radius:3}],.05);
+  assert.deepEqual([...index.indices],[0,2]);
+  assert.deepEqual([...index.offsets],[0,0,0,0,0,0]);
+  assert.deepEqual([...index.counts],[2,0,0,0,0,0]);
+});
+test('floor sun index only retains walls whose projected shadows touch each cell',()=>{
+  const solids=[{x:80,y:80,width:20,height:20,top:4},{x:500,y:380,width:20,height:20,top:3}];
+  const grid=shadowOccluderGrid(solids,map,.05,64,16,12);
+  try {
+    assert.ok(grid.slots<solids.length+1);
+    for(let index=0;index<solids.length;index++)assert.ok(grid.cells.some(cell=>cell.includes(index)));
+    assert.ok(grid.cells.some(cell=>cell.length===0));
+  } finally {grid.texture.dispose();}
 });
 test('performance probes return server timing and are rate limited',t=>{
   let connect,tick,now=100000;

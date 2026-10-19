@@ -24,6 +24,8 @@ const {
   getUserFromCookieHeader,
   ensureUserCurrencies,
   ensureUserSkins,
+  recordUserKill,
+  recordGrenadeThrown,
   saveUsers,
 } = require("../lib/userStore");
 const { DEFAULT_SKIN_BY_WEAPON } = require("../lib/skins");
@@ -63,7 +65,7 @@ const WEAPON_DAMAGE = {
   miniGun: 4,
 };
 
-function createGameServer(io) {
+function createGameServer(io, options = {}) {
   let lastTickMs=0;
   const navigation=new NavigationService();
   let snapshotDirty=false,snapshotSequence=0;
@@ -98,7 +100,15 @@ function createGameServer(io) {
   function publishFloorState() { io.emit('floorState', { ...floorState, serverNow: Date.now() }); }
   let lastRegenAt = 0;
   const squadOrders = new Map();
-  const solids = () => [...gameWalls, ...gameMap.terrain];
+  let solidsCache=[],solidsWallLength=-1,solidsTerrain=null,solidsTerrainLength=-1;
+  const solids=()=>{
+    const terrain=gameMap.terrain||[];
+    if(solidsWallLength!==gameWalls.length||solidsTerrain!==terrain||solidsTerrainLength!==terrain.length){
+      solidsCache=[...gameWalls,...terrain];solidsWallLength=gameWalls.length;
+      solidsTerrain=terrain;solidsTerrainLength=terrain.length;
+    }
+    return solidsCache;
+  };
   const insideRect=(player,rect,padding=0)=>!!rect&&player.x>=rect.x-padding&&player.x<=rect.x+rect.width+padding&&
     player.y>=rect.y-padding&&player.y<=rect.y+rect.height+padding;
   function inArrivalStaging(player) {
@@ -140,15 +150,19 @@ function createGameServer(io) {
   let cachedNavGrid = null;
   let wallLayoutVersion = 0;
 
-  io.on("connection", (socket) => {
+  function connectSocket(socket, bindOptions) {
     hydrateSocketUser(socket);
     console.log(
       "New connection:",
       socket.id,
       socket.user ? `as ${socket.user.username}` : "(unauthenticated)",
     );
-    registerSocketHandlers(socket);
-  });
+    return registerSocketHandlers(socket, bindOptions);
+  }
+
+  if (options.attachConnections !== false) {
+    io.on("connection", (socket) => connectSocket(socket));
+  }
 
   function hydrateSocketUser(socket) {
     const cookieHeader =
@@ -163,23 +177,32 @@ function createGameServer(io) {
     }
   }
 
-  function registerSocketHandlers(socket) {
+  function registerSocketHandlers(socket, bindOptions = {}) {
+    const bindLobby = bindOptions.lobby !== false;
+    const bindDisconnect = bindOptions.disconnect !== false;
+    const bindings = [];
+    const bind = (name, handler) => {
+      socket.on(name, handler);
+      bindings.push([name, handler]);
+    };
     let lastProbeAt=-Infinity;
-    socket.on('networkProbe',reply=>{
+    bind('networkProbe',reply=>{
       if(typeof reply!=='function'||Date.now()-lastProbeAt<1000)return;
       lastProbeAt=Date.now();reply({tickMs:lastTickMs});
     });
-    socket.on("join", (payload) => handleJoin(socket, payload));
-    socket.on("startGame", (options) => handleStartGame(socket, options));
-    socket.on("playerUpdate", (data) => handlePlayerUpdate(socket, data));
-    socket.on("shoot", (bulletData) => handleShoot(socket, bulletData));
-    socket.on("switchWeapon", () => handleSwitchWeapon(socket));
-    socket.on('grenadeCharge',()=>{
+    if (bindLobby) {
+      bind("join", (payload) => handleJoin(socket, payload));
+      bind("startGame", (startOptions) => handleStartGame(socket, startOptions));
+    }
+    bind("playerUpdate", (data) => handlePlayerUpdate(socket, data));
+    bind("shoot", (bulletData) => handleShoot(socket, bulletData));
+    bind("switchWeapon", () => handleSwitchWeapon(socket));
+    bind('grenadeCharge',()=>{
       const p=activePlayers.find(p=>p.id===socket.id);
       if(gameInProgress.status&&!gameOverTimeout&&!riding()&&p?.alive&&p.grenades>0&&p.grenadeChargeAt==null)p.grenadeChargeAt=Date.now();
     });
-    socket.on('grenadeCancel',()=>{const p=activePlayers.find(p=>p.id===socket.id);if(p)p.grenadeChargeAt=null;});
-    socket.on('throwGrenade',data=>{
+    bind('grenadeCancel',()=>{const p=activePlayers.find(p=>p.id===socket.id);if(p)p.grenadeChargeAt=null;});
+    bind('throwGrenade',data=>{
       const p=activePlayers.find(p=>p.id===socket.id),started=p?.grenadeChargeAt;
       if(p)p.grenadeChargeAt=null;
       if(!gameInProgress.status||gameOverTimeout||riding()||!p?.alive||!(p.grenades>0)||started==null||
@@ -189,19 +212,28 @@ function createGameServer(io) {
       p.grenades--;
       const g=throwGrenade(p,data.angle,data.pitch,now-started,now,nextGrenadeId++);
       grenades.push(g);
+      if (p.accountUsername) {
+        const accountUser = usersByUsername.get(p.accountUsername);
+        const stats = recordGrenadeThrown(accountUser);
+        if (stats) io.to(p.id).emit('statsUpdated', stats);
+      }
       // Creation must reach every client even if replaceable motion snapshots
       // are dropped. One lifecycle event per throw, not reliable per-tick traffic.
       const {id,x,y,height,vx,vy,vz,expiresAt}=g;
       io.emit('grenadeThrown',{id,x,y,height,vx,vy,vz,expiresAt,serverNow:now});
       queueSnapshot();
     });
-    socket.on("jump", () => {
+    bind("jump", () => {
       if (!gameInProgress.status || gameOverTimeout || riding()) return;
       const player = activePlayers.find(p => p.id === socket.id);
       updateCargoLifts(gameMap,activePlayers,Date.now());
       if (player && startJump(player, Date.now())) queueSnapshot();
     });
-    socket.on("disconnect", () => handleDisconnect(socket));
+    if (bindDisconnect) bind("disconnect", () => handleDisconnect(socket));
+    return () => {
+      if (typeof socket.off !== 'function') return;
+      for (const [name, handler] of bindings) socket.off(name, handler);
+    };
   }
 
   function handleJoin(socket, payload) {
@@ -224,7 +256,7 @@ function createGameServer(io) {
       player.color = waitingPlayers[existingIndex].color;
       waitingPlayers[existingIndex] = player;
     }
-    socket.join("waiting");
+    if (options.manageRooms !== false) socket.join("waiting");
 
     io.to("waiting").emit("updateWaitingList", waitingPlayers);
     console.log(
@@ -318,7 +350,7 @@ function createGameServer(io) {
 
     io.emit("gameStarting", { players: activePlayers.map(playerSnapshot), walls, map: gameMap });
     if(enableBots) publishFloorState();
-    io.socketsLeave("waiting");
+    if (options.manageRooms !== false) io.socketsLeave("waiting");
     console.log(
       "Game started with",
       activePlayers.length,
@@ -542,9 +574,12 @@ function createGameServer(io) {
                 : 0;
             const newCoins = currentCoins + 5;
             accountUser.currencies.Coins = newCoins;
+            const killWeapon = payload?.kind === 'grenade' ? null : shooter.weapon;
+            const stats = recordUserKill(accountUser, gameMap.mode, killWeapon, { persist: false });
             saveUsers();
 
             io.to(shooter.id).emit("coinsUpdated", { coins: newCoins });
+            io.to(shooter.id).emit("statsUpdated", stats);
           }
         } else {
           console.log(
@@ -601,7 +636,7 @@ function createGameServer(io) {
       }
     }
 
-    displayName = displayName.substring(0, 16);
+    displayName = displayName.substring(0, 24);
     if (!displayName) {
       displayName = fallbackName;
     }
@@ -686,6 +721,7 @@ function createGameServer(io) {
     nextBulletId = 1;
     if (recipients.length > 0) io.to(recipients).emit("resetGame");
     matchParticipantIds.clear();
+    if (typeof options.onReset === 'function') options.onReset(recipients);
     console.log("Game reset");
   }
 
@@ -2401,6 +2437,11 @@ function createGameServer(io) {
     get gameMap() { return gameMap; },
     get floorState() { return floorState; },
     get encounterActive() { return pveEncounterActive; },
+    connectSocket,
+    registerSocketHandlers,
+    handleJoin,
+    handleStartGame,
+    handleDisconnect,
     rebuildNavigation() { navigation.configure(gameMap,gameWalls); },
     close() {
       navigation.close();

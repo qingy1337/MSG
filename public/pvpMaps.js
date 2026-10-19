@@ -409,6 +409,179 @@
         [360,260,3],[470,540,3],[830,260,3],[930,540,3],
       ],
     },
+    orbital:{
+      id:'orbital',name:'Orbital Station',
+      description:'A two-storey research station with enclosed transit tunnels and exposed bridges beneath the stars.',
+      width:1400,height:1000,ceiling:14,roof:false,boundaryTop:1.45,scale:0.76,style:'orbital',accent:'#65dff2',
+      palette:{sky:'#02050d',wall:'#d7dde3',panel:'#7c8792',cap:'#f4f6f8',glow:'#62ddeb',
+        floorLow:'#aeb7c0',floorHigh:'#edf1f4',reflection:'#d6dde2',reflectionGlow:'#8deaf3',
+        ambient:'#f4f7ff',ground:'#5e6874',sun:'#ffffff',rim:'#76dcff',
+        ambientIntensity:2.75,sunIntensity:4.25,rimIntensity:2.6},
+      walls:[
+        // Each upper wing sits over a real lower-floor transit tunnel.
+        wall(90,50,500,24,3.25),wall(90,206,500,24,3.25),
+        wall(700,770,500,24,3.25),wall(700,926,500,24,3.25),
+        // Offset pressure partitions keep the exposed deck close-range without
+        // reducing the station to another rectangular maze.
+        wall(120,520,280,24,3.5),wall(1050,400,240,24,3.5),
+        wall(160,700,250,24,3.5),wall(1120,270,24,120,3.8),
+      ],
+      terrain:[
+        terrain('orbitalTunnelRoof',90,74,500,132,3,{bottom:2.7}),
+        terrain('orbitalTunnelRoof',700,794,500,132,3,{bottom:2.7}),
+
+        // The second floor is a real architectural layer, 4.5 metres above
+        // the lower station. Three narrow, unrailed bridges tie its wings to
+        // the large central research floor.
+        terrain('orbitalDeck',180,50,250,180,4.5,{bottom:4.22,walkable:true,wing:'astronomy'}),
+        terrain('orbitalDeck',500,240,400,520,4.5,{bottom:4.22,walkable:true,wing:'operations'}),
+        terrain('orbitalDeck',950,770,250,180,4.5,{bottom:4.22,walkable:true,wing:'habitation'}),
+        terrain('orbitalDeck',1040,100,220,160,4.5,{bottom:4.22,walkable:true,wing:'communications'}),
+        terrain('orbitalDeck',430,120,70,170,4.5,{bottom:4.22,walkable:true,bridge:true}),
+        terrain('orbitalDeck',900,700,50,170,4.5,{bottom:4.22,walkable:true,bridge:true}),
+        terrain('orbitalDeck',900,190,140,80,4.5,{bottom:4.22,walkable:true,bridge:true}),
+
+        // One stair descends south from the astronomy wing; the opposite-side
+        // stair descends east from habitation, producing a true circulation loop.
+        terrain('ramp',260,230,100,250,4.5,{axis:'y',reverse:true,stairs:true,steps:24,style:'orbital'}),
+        terrain('ramp',1040,520,100,250,4.5,{axis:'y',stairs:true,steps:24,style:'orbital'}),
+
+        // Supports make the upper storey feel engineered rather than floated.
+        terrain('orbitalSupport',500,240,30,30,4.22),terrain('orbitalSupport',870,240,30,30,4.22),
+        terrain('orbitalSupport',500,730,30,30,4.22),terrain('orbitalSupport',870,730,30,30,4.22),
+        terrain('orbitalSupport',1040,100,28,28,4.22),terrain('orbitalSupport',1232,232,28,28,4.22),
+
+        // Every part of both floors gets a distinct landmark and callout.
+        terrain('orbitalAntenna',235,75,120,120,9.2,{bottom:4.5,collisionShape:'circle',collisionRadius:42}),
+        terrain('orbitalCore',640,380,110,100,8,{bottom:4.5,collisionShape:'circle',collisionRadius:43}),
+        terrain('orbitalPod',700,600,150,90,6.7,{bottom:4.5}),
+        terrain('orbitalPod',980,815,150,90,6.7,{bottom:4.5}),
+        terrain('orbitalCore',1100,135,85,85,7.2,{bottom:4.5,collisionShape:'circle',collisionRadius:32}),
+        terrain('orbitalPod',80,350,160,100,2.25),
+        terrain('orbitalPod',1200,500,165,100,2.25),
+        // These are deliberately waist-high jump-up cover. The old 1.2 m
+        // shells sat almost exactly at the player's 1.25 m jump apex, making
+        // a successful landing depend on hitting the box at one precise frame.
+        terrain('orbitalCrate',470,835,95,58,.82,{jumpable:true}),
+        terrain('orbitalCrate',900,520,105,62,.88,{jumpable:true}),
+      ],
+      variants:[
+        [terrain('orbitalCrate',400,400,105,58,.86,{jumpable:true}),terrain('orbitalCrate',1160,630,95,58,.8,{jumpable:true})],
+        [terrain('orbitalPod',390,575,135,88,2.05),terrain('orbitalCrate',970,320,105,58,.84,{jumpable:true})],
+        [terrain('orbitalAntenna',340,800,105,105,3.7,{collisionShape:'circle',collisionRadius:38}),
+          terrain('orbitalCrate',970,300,100,60,.86,{jumpable:true})],
+      ],
+      spawns:[
+        [50,60],[700,70],[1350,60],[60,470],[1340,470],[60,940],[600,940],[1350,960],
+        [260,140],[850,860],[560,600],[900,350],
+        [390,100,4.5],[560,300,4.5],[820,720,4.5],[1180,790,4.5],[1220,220,4.5],[465,200,4.5],
+      ],
+    },
+    airport:{
+      id:'airport',name:'Terminal 7',
+      description:'A detailed international terminal spanning check-in, security, gates, an airline lounge, and baggage handling.',
+      width:1500,height:1050,ceiling:9.5,scale:.72,style:'airport',accent:'#3f82b7',
+      palette:{sky:'#7894aa',wall:'#e7e4dd',panel:'#82909a',cap:'#f8f6f0',glow:'#54a9cf',groundStyle:'airport',
+        floorLow:'#aeb3b4',floorHigh:'#e7e2d8',reflection:'#9da8ad',reflectionGlow:'#cde8ef',
+        ambient:'#eff6fa',ground:'#8d9698',sun:'#fff0d2',rim:'#8bc8e2',
+        ambientIntensity:3.15,sunIntensity:3.75,rimIntensity:1.45},
+      walls:[
+        // Public terminal and baggage hall are separate pieces of architecture,
+        // joined through four staff doors instead of one arena-wide opening.
+        {...wall(12,780,248,24,3.25),airportWall:'service'},
+        {...wall(340,780,250,24,3.25),airportWall:'service'},
+        {...wall(680,780,230,24,3.25),airportWall:'service'},
+        {...wall(1000,780,220,24,3.25),airportWall:'service'},
+        {...wall(1310,780,178,24,3.25),airportWall:'service'},
+
+        // Glass-ended partitions shape security and the gate lounge while
+        // keeping the terminal visually open and naturally short-range.
+        {...wall(490,330,22,165,3.55),airportWall:'glass'},
+        {...wall(490,620,22,160,3.55),airportWall:'glass'},
+        {...wall(790,330,22,145,3.55),airportWall:'glass'},
+        {...wall(790,600,22,180,3.55),airportWall:'glass'},
+        {...wall(1030,300,22,165,3.7),airportWall:'gate'},
+        {...wall(1030,610,22,170,3.7),airportWall:'gate'},
+        {...wall(1220,515,180,22,3.25),airportWall:'gate'},
+        {...wall(1080,650,170,22,3.25),airportWall:'gate'},
+      ],
+      terrain:[
+        // Carpet is a visual zoning layer whose top is exactly the gameplay
+        // floor; it cannot catch feet or overlap the physical architecture.
+        terrain('airportCarpet',825,30,645,710,0,{bottom:-.035,zone:'gates'}),
+        terrain('airportCarpet',85,65,690,190,0,{bottom:-.035,zone:'lounge'}),
+
+        // A connected departures mezzanine and airline lounge overlook the
+        // terminal. Two broad staircases prevent the high route being camped.
+        terrain('airportDeck',70,70,380,220,3.35,{bottom:3.08,walkable:true,wing:'departures'}),
+        terrain('airportDeck',450,70,300,120,3.35,{bottom:3.08,walkable:true,bridge:true,wing:'security-overlook'}),
+        terrain('airportDeck',750,70,250,160,3.35,{bottom:3.08,walkable:true,wing:'airline-lounge'}),
+        terrain('ramp',140,290,100,210,3.35,{axis:'y',reverse:true,stairs:true,steps:22,style:'airport'}),
+        terrain('ramp',840,230,100,190,3.35,{axis:'y',reverse:true,stairs:true,steps:21,style:'airport'}),
+
+        // Glass balustrades leave deliberate openings at both stair landings.
+        terrain('rail',70,63,380,7,4.35,{style:'airport',bottom:3.35}),
+        terrain('rail',63,70,7,220,4.35,{style:'airport',bottom:3.35}),
+        terrain('rail',70,290,70,7,4.35,{style:'airport',bottom:3.35}),
+        terrain('rail',240,290,210,7,4.35,{style:'airport',bottom:3.35}),
+        terrain('rail',450,63,300,7,4.35,{style:'airport',bottom:3.35}),
+        terrain('rail',450,190,300,7,4.35,{style:'airport',bottom:3.35}),
+        terrain('rail',750,63,250,7,4.35,{style:'airport',bottom:3.35}),
+        terrain('rail',1000,70,7,160,4.35,{style:'airport',bottom:3.35}),
+        terrain('rail',750,230,90,7,4.35,{style:'airport',bottom:3.35}),
+        terrain('rail',940,230,60,7,4.35,{style:'airport',bottom:3.35}),
+
+        // Check-in hall: counters are coherent islands rather than loose cover.
+        terrain('airportCheckin',105,545,270,54,1.18,{row:'A'}),
+        terrain('airportCheckin',105,665,270,54,1.18,{row:'B'}),
+        terrain('airportKiosk',400,540,58,58,1.55,{collisionShape:'circle',collisionRadius:24}),
+        terrain('airportKiosk',400,665,58,58,1.55,{collisionShape:'circle',collisionRadius:24}),
+
+        // Three readable security lanes, backed by a suspended departures board.
+        terrain('airportScanner',575,360,120,52,2.35),
+        terrain('airportScanner',575,500,120,52,2.35),
+        terrain('airportScanner',575,640,120,52,2.35),
+        terrain('airportFlightBoard',715,485,130,34,4.75,{collisionShape:'capsule',collisionRadius:14}),
+
+        // Gate furniture makes close fighting believable and prevents the broad
+        // glazed concourse from becoming another sniper runway.
+        terrain('airportSeats',1070,345,250,54,.9,{collisionShape:'capsule',collisionRadius:22}),
+        terrain('airportSeats',1115,410,245,54,.9,{collisionShape:'capsule',collisionRadius:22}),
+        terrain('airportSeats',830,575,180,54,.9,{collisionShape:'capsule',collisionRadius:22}),
+        terrain('airportGateDesk',1280,275,135,56,1.2),
+        terrain('airportGateDesk',1260,610,130,56,1.2),
+        terrain('airportPlanter',1120,250,68,68,1.5,{collisionShape:'circle',collisionRadius:30}),
+        terrain('airportPlanter',1408,540,66,66,1.45,{collisionShape:'circle',collisionRadius:29}),
+
+        // The staff route is a real baggage system with belts, carts and an
+        // inspection station, providing a lower, industrial-feeling flank.
+        terrain('airportBaggage',120,845,360,88,1.1),
+        terrain('airportBaggage',600,900,320,82,1.1),
+        terrain('airportBaggage',1060,835,300,88,1.1),
+        terrain('airportLuggageCart',500,835,120,52,.92,{collisionShape:'capsule',collisionRadius:19}),
+        terrain('airportLuggageCart',920,925,120,52,.92,{collisionShape:'capsule',collisionRadius:19}),
+
+        // Upstairs furniture anchors each mezzanine rather than leaving a bare
+        // gameplay slab floating above the terminal.
+        terrain('airportSeats',270,135,145,48,4.2,{bottom:3.35,collisionShape:'capsule',collisionRadius:20}),
+        terrain('airportGateDesk',535,95,130,48,4.45,{bottom:3.35}),
+        terrain('airportPlanter',790,105,60,60,4.7,{bottom:3.35,collisionShape:'circle',collisionRadius:27}),
+        terrain('airportSeats',860,150,120,45,4.2,{bottom:3.35,collisionShape:'capsule',collisionRadius:19}),
+      ],
+      variants:[
+        [terrain('airportLuggageCart',380,935,125,52,.92,{collisionShape:'capsule',collisionRadius:19}),
+          terrain('airportKiosk',1190,700,56,56,1.5,{collisionShape:'circle',collisionRadius:23})],
+        [terrain('airportPlanter',425,390,64,64,1.45,{collisionShape:'circle',collisionRadius:28}),
+          terrain('airportLuggageCart',1360,905,110,50,.9,{collisionShape:'capsule',collisionRadius:18})],
+        [terrain('airportSeats',260,405,180,50,.88,{collisionShape:'capsule',collisionRadius:21}),
+          terrain('airportKiosk',1080,700,56,56,1.5,{collisionShape:'circle',collisionRadius:23})],
+      ],
+      spawns:[
+        [45,45],[520,55],[1070,55],[1450,55],[45,420],[1450,430],[45,745],[1420,400],
+        [290,820],[750,840],[850,835],[900,720],[350,500],[740,730],[980,520],
+        [105,120,3.35],[500,110,3.35],[700,110,3.35],[880,100,3.35],
+      ],
+    },
     maze:{
       id:'maze',name:'The Maze',description:'The original arena, rebuilt with a new scatter every match.',procedural:true,
       palette:{sky:'#9ebbc9',wall:'#526d79',panel:'#9db5b8',cap:'#bdd0cf',glow:'#69e8df',
@@ -564,7 +737,8 @@
       palette:{...source.palette},spawns:source.spawns.map(([x,y,height=0])=>({x:x*scale,y:y*scale,height})),
       terrain:[...source.terrain,...source.variants[variant]].map(s=>resize({...s,accent:s.accent||accent})),
     };
-    const layout={map,walls:[...boundary(width,height,source.ceiling||CEILING,EDGE*scale),...source.walls.map(resize)]};
+    const boundaryHeight=source.boundaryTop??source.ceiling??CEILING;
+    const layout={map,walls:[...boundary(width,height,boundaryHeight,EDGE*scale),...source.walls.map(resize)]};
     const result=validatePvpLayout(layout);
     if(!result.valid)throw new Error(`${source.name} failed validation: ${result.errors.join(', ')}`);
     return layout;

@@ -5,7 +5,7 @@ const path = require("path");
 
 const { createAuthRoutes } = require("./routes/authRoutes");
 const { createShopRoutes } = require("./routes/shopRoutes");
-const { createGameServer } = require("./game/gameServer");
+const { createLobbyServer } = require("./game/lobbyServer");
 
 const app = express();
 const server = http.createServer(app);
@@ -19,14 +19,16 @@ const io = socketIO(server,{
 app.use(express.json());
 app.use("/vendor/three", express.static(path.join(__dirname, "node_modules/three/build")));
 app.use("/vendor/three/addons", express.static(path.join(__dirname, "node_modules/three/examples/jsm")));
+app.use("/vendor/rowdies", express.static(path.join(__dirname, "node_modules/@fontsource/rowdies")));
+app.use("/vendor/manrope", express.static(path.join(__dirname, "node_modules/@fontsource/manrope")));
 app.use(express.static(path.join(__dirname, "public")));
 
 // Attach core features
-const gameState = createGameServer(io);
+const gameState = createLobbyServer(io);
 app.use("/api", createAuthRoutes());
 app.use(
   "/api/shop",
-  createShopRoutes({ io, activePlayers: gameState.activePlayers }),
+  createShopRoutes({ io, getActivePlayers: () => gameState.getActivePlayers() }),
 );
 
 server.listen(3001, () => {

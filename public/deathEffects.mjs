@@ -54,6 +54,10 @@ function poseBody(c,p) {
 export function poseCorpse(c,dt,world,supportHeight=c.death.ground) {
   c.age+=dt;
   const d=c.death,ogre=c.character.ogreModel,duration=d.ogre?1.65:.65;
+  // Once the fall has settled, the pose is completely static until the final
+  // opacity fade. Keep the corpse visible without recomputing every limb and
+  // material for the intervening several seconds.
+  if(c.impacted&&c.age<d.lifetime-1.5){c.group.position.y=supportHeight+c.restOffset;return {impact:false,done:false};}
   const t=clamp(c.age/duration);
   // Ogre pauses on its knees before a fast, heavy face-first impact.
   const p=d.ogre?(t<.58?.32*ease(t/.58):.32+.68*Math.pow(clamp((t-.58)/.42),2)):ease(t);
@@ -109,6 +113,9 @@ export function createDeathRemains(death,random=Math.random) {
 
 export function poseDeathRemains(group,dt,cameraQuaternion) {
   const data=group.userData,t=data.age+=dt,fade=clamp((12-t)/2);
+  // Dust has vanished and debris is at rest during this interval. Resume at
+  // ten seconds for the existing two-second fade.
+  if(data.settled&&t<10)return false;
   data.mark.material.opacity=.46*fade;
   for(const {mesh,angle,speed} of data.dust) {
     mesh.visible=t<1.8;if(!mesh.visible)continue;
@@ -121,6 +128,7 @@ export function poseDeathRemains(group,dt,cameraQuaternion) {
     mesh.position.set(Math.cos(angle)*r,.09+Math.max(0,2*travel-2*travel*travel),Math.sin(angle)*r);
     mesh.rotation.set(travel*7+angle,angle,travel*4);mesh.scale.set(1.2*fade,.4*fade,.8*fade);
   }
+  if(t>1.8)data.settled=true;
   return t>=12;
 }
 

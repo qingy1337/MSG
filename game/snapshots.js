@@ -4,7 +4,7 @@ const FIELDS=['id','name','displayName','color','weapon','weaponSkinKey','primar
 // Static identity/loadout data is sent by gameStarting/floorStarting. At 20 Hz,
 // repeating names, colors, teams and both loadout slots for every bot wastes a
 // large fraction of later-floor bandwidth.
-const FRAME_FIELDS=['id','weapon','weaponSkinKey','weaponSwapUntil','x','y','angle','alive','health','isBot',
+const FRAME_FIELDS=['id','x','y','angle','alive','health','isBot',
   'height','groundHeight','ceilingHeight','jumpStartedAt','jumpBase','jumpVelocity','jumpInputSeq',
   'jumpPlatformId','groundPlatformId','platformId','lastProcessedInput','movementEpoch',
   'shotgunShotsRemaining','shotgunReloadUntil','grenades'];

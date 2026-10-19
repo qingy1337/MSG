@@ -18,6 +18,10 @@ let lastSnapshotSequence=0;
 const canvas = document.getElementById('game-canvas');
 const playersAliveInfo = document.getElementById('players-alive');
 const gameMessage = document.getElementById('game-message');
+const crosshair=document.getElementById('crosshair');
+const weaponStatus=document.getElementById('weapon-status');
+const performanceInfo=document.getElementById('performance-info');
+let previousBloomRadius='',previousWeaponStatus='',previousWeaponStatusHidden=null;
 let arena, players = [], walls = [], localPlayer;
 let gameMap = DEFAULT_MAP, mapSolids = [];
 let floorState = {phase:'combat',floor:1,startedAt:0}, floorClockOffset = 0;
@@ -119,22 +123,24 @@ function gameLoop(now) {
   arena.animateElevator(floorState, Date.now()+floorClockOffset);
   const sniperSpread=localPlayer?.alive&&localPlayer.weapon==='sniper'?
     sniperBloomRadians(localPlayer,inputPrediction.time):0;
-  document.getElementById('crosshair').style.setProperty('--sniper-bloom-radius',
-    `${sniperBloomPixels(sniperSpread,canvas.clientHeight||600).toFixed(2)}px`);
+  const bloomRadius=`${sniperBloomPixels(sniperSpread,canvas.clientHeight||600).toFixed(2)}px`;
+  if(previousBloomRadius!==bloomRadius){previousBloomRadius=bloomRadius;
+    crosshair.style.setProperty('--sniper-bloom-radius',bloomRadius);}
   arena.render(snapshotMotion.sample(players,socket.id,now), socket.id, dt, pitch);
   updateGrenadeHud(localPlayer?.grenades??0,grenadeChargeAt==null||!localPlayer?.alive?null:performance.now()-grenadeChargeAt);
   updateMinigunSpool(firing&&localPlayer?.alive&&localPlayer.weapon==='miniGun'&&minigunSpinAt!=null?
     performance.now()-minigunSpinAt:null,WEAPONS.miniGun.spinUpMs);
-  const shotgunStatus=document.getElementById('weapon-status');
-  shotgunStatus.hidden=!localPlayer?.alive;
-  if(!shotgunStatus.hidden) {
+  const statusHidden=!localPlayer?.alive;
+  if(previousWeaponStatusHidden!==statusHidden){previousWeaponStatusHidden=statusHidden;weaponStatus.hidden=statusHidden;}
+  if(!statusHidden) {
     const otherWeapon=localPlayer.weapon==='pistol'?localPlayer.primaryWeapon:'pistol';
     const swapHint=otherWeapon&&WEAPONS[otherWeapon]?` · E: ${WEAPONS[otherWeapon].name}`:'';
     const reloadLeft=(localPlayer.shotgunReloadUntil||0)-(Date.now()+floorClockOffset);
     const ammo=localPlayer.shotgunShotsRemaining===0&&reloadLeft<=0?2:(localPlayer.shotgunShotsRemaining??2);
-    shotgunStatus.textContent=localPlayer.weapon==='shotgun'?
+    const statusText=localPlayer.weapon==='shotgun'?
       (reloadLeft>0?`Reloading · ${(reloadLeft/1000).toFixed(1)}s${swapHint}`:`Shotgun · ${ammo}/2${swapHint}`):
       `${WEAPONS[localPlayer.weapon]?.name||'Weapon'}${swapHint}`;
+    if(previousWeaponStatus!==statusText){previousWeaponStatus=statusText;weaponStatus.textContent=statusText;}
   }
   if(now-lastProbeAt>=2000){
     lastProbeAt=now;const id=++probeId,sent=performance.now();
@@ -145,7 +151,7 @@ function gameLoop(now) {
   }
   if(now-lastMetricsAt>=500){
     lastMetricsAt=now;
-    document.getElementById('performance-info').textContent=
+    performanceInfo.textContent=
       `${Math.round(1000/arena.frameBudget.average)} FPS · Ping ${networkRtt==null?'…':Math.round(networkRtt)+' ms'} · Server ${serverTickMs==null?'…':serverTickMs.toFixed(1)+' ms'} · Render ${Math.round(arena.frameBudget.scale*100)}%`;
   }
   frame = requestAnimationFrame(gameLoop);
@@ -306,8 +312,7 @@ socket.on('gameOver', winner => {
   gameMessage.textContent = `Game over · ${winner.name} wins!`; clearTimeout(returnTimer);
   returnTimer = setTimeout(() => {
     returnTimer = null;
-    if (!waitingScreen.classList.contains('hidden') || !weaponScreen.classList.contains('hidden')) return;
-    stop(); setActiveScreen(loginScreen); nameInput.value = '';
+    stop(); window.returnToHome?.();
   }, 5000);
 });
 socket.on('resetGame', stop);

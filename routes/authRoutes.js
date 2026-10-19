@@ -9,8 +9,11 @@ const {
   publicUser,
   ensureUserCurrencies,
   ensureUserSkins,
+  ensureUserLoadout,
+  ensureUserStats,
   saveUsers,
 } = require("../lib/userStore");
+const { WEAPONS, DEFAULT_WEAPON_KEY } = require('../public/weapons');
 
 function createAuthRoutes() {
   const router = express.Router();
@@ -44,9 +47,11 @@ function createAuthRoutes() {
         owned: [],
         equippedByWeapon: {},
       },
+      loadout: { primaryWeapon: DEFAULT_WEAPON_KEY },
     };
     ensureUserCurrencies(user);
     ensureUserSkins(user);
+    ensureUserStats(user);
     usersByUsername.set(cleanUsername, user);
     saveUsers();
 
@@ -94,6 +99,19 @@ function createAuthRoutes() {
     const user = getUserFromRequest(req);
     if (!user) return res.status(401).json({ error: "Not authenticated." });
     res.json(publicUser(user));
+  });
+
+  router.post('/loadout', (req, res) => {
+    const user = getUserFromRequest(req);
+    if (!user) return res.status(401).json({ error: 'Not authenticated.' });
+    const primaryWeapon = req.body?.primaryWeapon;
+    if (typeof primaryWeapon !== 'string' || !WEAPONS[primaryWeapon] || WEAPONS[primaryWeapon].selectable === false) {
+      return res.status(400).json({ error: 'Invalid primary weapon.' });
+    }
+    ensureUserLoadout(user);
+    user.loadout.primaryWeapon = primaryWeapon;
+    saveUsers();
+    res.json({ ok: true, user: publicUser(user) });
   });
 
   return router;

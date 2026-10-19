@@ -98,6 +98,40 @@ export function createTerrainModel(s) {
       }
       return group;
     }
+    if(s.style==='orbital') {
+      const alongX=w>d,length=alongX?w:d;
+      const ceramic=material('#e8edf1',0.62),frame=material('#697681',0.82);
+      const glass=new THREE.MeshPhysicalMaterial({color:'#bcecf2',transparent:true,opacity:.28,
+        roughness:.08,metalness:.12,depthWrite:false,side:THREE.DoubleSide});
+      const cyan=new THREE.MeshStandardMaterial({color:'#9af5ff',emissive:'#3ddcec',emissiveIntensity:2.1,
+        roughness:.22,metalness:.25,toneMapped:false});
+      // A low ceramic curb prevents the glass from looking like it floats.
+      box(alongX?length:.12,.18,alongX?.12:length,w/2,base(w/2,d/2)+.09,d/2,ceramic);
+      const pane=box(alongX?length-.12:.025,.58,alongX?.025:length-.12,w/2,base(w/2,d/2)+.48,d/2,glass);
+      pane.castShadow=false;
+      for(let i=0,n=Math.max(1,Math.ceil(length/1.8));i<=n;i++) {
+        const t=i/n,x=alongX?length*t:w/2,z=alongX?d/2:length*t;
+        box(.065,.86,.065,x,base(x,z)+.43,z,frame);
+      }
+      box(alongX?length:.075,.075,alongX?.075:length,w/2,base(w/2,d/2)+.88,d/2,frame);
+      box(alongX?length-.1:.035,.035,alongX?.035:length-.1,w/2,base(w/2,d/2)+.21,d/2,cyan);
+      return group;
+    }
+    if(s.style==='airport') {
+      const alongX=w>d,length=alongX?w:d;
+      const curb=material('#e8e5dd',.12),frame=material('#5e6b74',.68);
+      const pane=new THREE.MeshPhysicalMaterial({color:'#a9c8d4',transparent:true,opacity:.27,
+        roughness:.08,metalness:.06,depthWrite:false,side:THREE.DoubleSide});
+      box(alongX?length:.13,.18,alongX?.13:length,w/2,base(w/2,d/2)+.09,d/2,curb);
+      const glass=box(alongX?length-.09:.025,.58,alongX?.025:length-.09,
+        w/2,base(w/2,d/2)+.48,d/2,pane);glass.castShadow=false;
+      for(let i=0,n=Math.max(1,Math.ceil(length/1.45));i<=n;i++) {
+        const t=i/n,x=alongX?length*t:w/2,z=alongX?d/2:length*t;
+        box(.055,.93,.055,x,base(x,z)+.465,z,frame);
+      }
+      box(alongX?length:.075,.075,alongX?.075:length,w/2,base(w/2,d/2)+.91,d/2,frame);
+      return group;
+    }
     if(s.style==='industrial') {
       const alongX=w>d,length=alongX?w:d;
       for(let i=0,n=Math.max(1,Math.ceil(length/1.5));i<=n;i++) {
@@ -129,8 +163,10 @@ export function createTerrainModel(s) {
     const beam=box(alongX?Math.hypot(length,rise):0.10,0.10,alongX?0.10:Math.hypot(length,rise),w/2,base(w/2,d/2)+1,d/2,trim);
     if(alongX)beam.rotation.z=Math.atan2(rise,length);else beam.rotation.x=-Math.atan2(rise,length);
   } else if (s.kind === 'ramp' && s.stairs) {
-    const stairBody=s.style==='temple'?material('#596553'):dark;
-    const stairTop=s.style==='temple'?material('#9a9b79'):trim;
+    const stairBody=s.style==='temple'?material('#596553'):s.style==='orbital'?material('#7b8792',.72):
+      s.style==='airport'?material('#727e84',.56):dark;
+    const stairTop=s.style==='temple'?material('#9a9b79'):s.style==='orbital'?material('#e8edf1',.56):
+      s.style==='airport'?material('#e9e5dc',.16):trim;
     const moss=s.style==='temple'?material('#63804b',0.02):null;
     const vertical=s.axis==='y',length=vertical?d:w;
     for(let i=0;i<s.steps;i++) {
@@ -440,6 +476,208 @@ export function createTerrainModel(s) {
       const a=i*Math.PI/4;
       beam([cx,h-.08,cz],[cx+Math.cos(a)*r*.72,h-.08,cz+Math.sin(a)*r*.72],.045,edge,6,.018);
     }
+  } else if(s.kind==='airportCarpet') {
+    const carpet=material(s.zone==='gates'?'#315f78':'#466c80',.02),thread=material('#7c9aab',.01);
+    // Collision remains exactly at floor height, but the visible pile sits
+    // 18 mm above the terrazzo. Rendering the old carpet cap at y=0 made it
+    // coplanar with the arena floor and produced severe z-fighting.
+    const pile=.018;
+    box(w,pile,d,w/2,h+pile/2,d/2,carpet);
+    const alongX=w>=d,length=alongX?w:d;
+    for(let at=.45;at<length;at+=1.15)
+      box(alongX?.025:w-.12,.006,alongX?d-.12:.025,alongX?at:w/2,h+pile+.003,alongX?d/2:at,thread);
+  } else if(s.kind==='airportDeck') {
+    const fascia=material('#65727a',.68),slab=material('#e8e5dd',.18),carpet=material('#345e76',.02);
+    box(w,h,d,w/2,h/2,d/2,slab);
+    box(w-.05,.045,d-.05,w/2,h+.018,d/2,s.wing==='airline-lounge'?carpet:slab);
+    const alongX=w>=d;
+    for(const side of [.075,(alongX?d:w)-.075])box(alongX?w-.05:.13,.20,alongX?.13:d-.05,
+      alongX?w/2:side,.03,alongX?side:d/2,fascia);
+    for(let at=.65;at<(alongX?w:d)-.3;at+=1.35)
+      box(alongX?.045:w-.18,.018,alongX?d-.18:.045,alongX?at:w/2,h+.05,alongX?d/2:at,fascia);
+  } else if(s.kind==='airportCheckin') {
+    const cabinet=material('#d6d5ce',.22),counter=material('#f6f4ee',.1),edge=material('#52616b',.72);
+    const screen=new THREE.MeshStandardMaterial({color:'#a7d7e8',emissive:'#2c789d',emissiveIntensity:.8,
+      roughness:.24,metalness:.16,toneMapped:false});
+    box(w,h-.16,d,w/2,(h-.16)/2,d/2,cabinet);
+    box(w,.16,d,w/2,h-.08,d/2,counter);
+    box(w-.25,.12,.16,w/2,.18,d+.04,edge,.025);
+    const stations=Math.max(2,Math.floor(w/2.2));
+    for(let i=0;i<stations;i++) {
+      const x=w*(i+.5)/stations;
+      box(.08,.52,.08,x,h+.24,d*.28,edge,.018);
+      const display=box(.62,.40,.055,x,h+.5,d*.28,screen,.035);display.rotation.x=-.12;
+      box(Math.max(.45,w/stations-.3),.035,d*.35,x,h+.04,d*.72,edge,.008);
+    }
+  } else if(s.kind==='airportScanner') {
+    const shell=material('#d9dde0',.52),edge=material('#596872',.72),belt=material('#2f3b43',.8);
+    const scan=new THREE.MeshStandardMaterial({color:'#a9e9fb',emissive:'#3ca5ca',emissiveIntensity:1.35,
+      roughness:.2,metalness:.15,toneMapped:false});
+    const archX=w*.42,archW=w*.30;
+    box(archW*.26,h,d*.72,archX-archW*.37,h/2,d/2,shell);
+    box(archW*.26,h,d*.72,archX+archW*.37,h/2,d/2,shell);
+    box(archW,h*.18,d*.72,archX,h*.91,d/2,shell);
+    box(archW*.62,h*.60,.035,archX,h*.50,d*.12,scan,.015);
+    box(w*.43,.58,d*.62,w*.77,.29,d/2,edge);
+    box(w*.43,.09,d*.52,w*.77,.61,d/2,belt,.018);
+    for(const x of [w*.59,w*.94])box(.10,.58,.10,x,.29,d/2,edge);
+  } else if(s.kind==='airportFlightBoard') {
+    const frame=material('#4b5962',.74),screen=material('#17242d',.78),white=material('#dbe8ed',.18);
+    const cyan=new THREE.MeshStandardMaterial({color:'#8dddf1',emissive:'#3898bb',emissiveIntensity:1.1,
+      roughness:.24,metalness:.18,toneMapped:false});
+    box(w,h,d,w/2,h/2,d/2,frame);
+    box(w+.04,h*.66,d*.58,w/2,h*.57,-.02,screen,.035);
+    for(let row=0;row<7;row++) {
+      const y=h*.32+row*h*.072;
+      box(w*.18,.035,.02,w*.2,y,-.06,row%3===0?cyan:white,.005);
+      box(w*.42,.026,.02,w*.57,y,-.06,white,.005);
+      box(w*.13,.028,.02,w*.85,y,-.06,row%2?cyan:white,.005);
+    }
+  } else if(s.kind==='airportSeats') {
+    const frame=material('#59666e',.76),seat=material(s.bottom?'#55788a':'#496d80',.15),pad=material('#8da4ad',.08);
+    const alongX=w>=d,length=alongX?w:d,count=Math.max(2,Math.floor(length/.85));
+    for(let i=0;i<count;i++) {
+      const at=length*(i+.5)/count,x=alongX?at:w/2,z=alongX?d/2:at;
+      box(alongX?length/count-.07:d*.48,.12,alongX?d*.48:length/count-.07,x,h*.46,z,seat,.045);
+      const back=box(alongX?length/count-.08:.11,.48,alongX?.11:length/count-.08,
+        alongX?x:d*.23,h*.68,alongX?d*.24:z,seat,.04);back.rotation[alongX?'x':'z']=-.12;
+      box(alongX?length/count-.16:d*.35,.035,alongX?d*.34:length/count-.16,x,h*.53,z,pad,.012);
+    }
+    box(alongX?length-.15:.10,.10,alongX?.10:length-.15,w/2,h*.34,d/2,frame,.025);
+    for(let at=.3;at<length;at+=1.4)box(.09,h*.40,.09,alongX?at:w/2,h*.2,alongX?d/2:at,frame,.018);
+  } else if(s.kind==='airportGateDesk') {
+    const body=material('#d7d8d3',.28),top=material('#f5f2e9',.12),edge=material('#4e626f',.72);
+    const screen=new THREE.MeshStandardMaterial({color:'#a7deee',emissive:'#397c9b',emissiveIntensity:.75,
+      roughness:.24,metalness:.15,toneMapped:false});
+    box(w,h-.14,d,w/2,(h-.14)/2,d/2,body);
+    box(w,.14,d,w/2,h-.07,d/2,top);
+    box(w*.7,.10,.05,w/2,h*.34,-.025,edge,.012);
+    for(const x of [w*.28,w*.72]) {
+      box(.055,.32,.055,x,h+.14,d*.52,edge,.012);
+      const monitor=box(.48,.3,.04,x,h+.34,d*.52,screen,.025);monitor.rotation.x=-.12;
+    }
+  } else if(s.kind==='airportPlanter') {
+    const pot=material('#d7d2c7',.18),soil=material('#453a2e',.01),leaf=material('#4d755d',.01),light=material('#6d9474',.01);
+    const cx=w/2,cz=d/2,r=Math.min(w,d)*.42;
+    add(new THREE.CylinderGeometry(r*.82,r,h*.48,20),pot,cx,h*.24,cz);
+    add(new THREE.CylinderGeometry(r*.77,r*.77,.08,20),soil,cx,h*.5,cz);
+    for(let i=0;i<11;i++) {
+      const a=i*2.4,stemH=h*(.42+(i%4)*.08),radius=.10+(i%3)*.025;
+      const stem=beam([cx,h*.48,cz],[cx+Math.cos(a)*r*.55,h*.48+stemH,cz+Math.sin(a)*r*.55],.035,leaf,7,.02);
+      const crown=add(new THREE.SphereGeometry(radius,9,6),i%2?light:leaf,
+        cx+Math.cos(a)*r*.58,h*.5+stemH,cz+Math.sin(a)*r*.58);crown.scale.set(1.8,.55,1);
+    }
+  } else if(s.kind==='airportBaggage') {
+    const frame=material('#53616a',.82),belt=material('#252f35',.88),roller=material('#9aa4a8',.68);
+    const alongX=w>=d,length=alongX?w:d;
+    box(w,.20,d,w/2,.10,d/2,frame);
+    box(w-.14,.11,d-.14,w/2,h-.12,d/2,belt,.025);
+    const count=Math.max(5,Math.floor(length/.52));
+    for(let i=0;i<count;i++) {
+      const at=length*(i+.5)/count;
+      const roll=add(new THREE.CylinderGeometry(.065,.065,(alongX?d:w)-.18,9),roller,
+        alongX?at:w/2,h-.04,alongX?d/2:at);
+      if(alongX)roll.rotation.x=Math.PI/2;else roll.rotation.z=Math.PI/2;
+    }
+    for(const side of [.07,(alongX?d:w)-.07])box(alongX?w:.12,.18,alongX?.12:d,
+      alongX?w/2:side,h-.09,alongX?side:d/2,frame,.025);
+    // A few restrained bags make the belt read immediately without clutter.
+    for(let i=0;i<3;i++)box(.48,.32,.34,w*(.24+i*.24),h+.15,d*(.38+(i%2)*.24),i%2?material('#99584b',.65):material('#455d78',.65),.07);
+  } else if(s.kind==='airportLuggageCart') {
+    const frame=material('#6b777d',.78),bagA=material('#334a61',.72),bagB=material('#a2634f',.75);
+    box(w,.12,d,w/2,.28,d/2,frame,.025);
+    for(const x of [.16,w-.16])for(const z of [.14,d-.14])
+      add(new THREE.CylinderGeometry(.10,.10,.08,10),dark,x,.10,z).rotation.z=Math.PI/2;
+    box(.08,h*.75,.08,.12,h*.55,d*.18,frame,.018);box(.08,h*.75,.08,.12,h*.55,d*.82,frame,.018);
+    box(.08,.08,d*.64,.12,h*.91,d/2,frame,.018);
+    for(let i=0;i<3;i++)box(w*.22,h*.42,d*.55,w*(.42+i*.21),h*.48,d/2,i%2?bagA:bagB,.075);
+  } else if(s.kind==='airportKiosk') {
+    const shell=material('#e3e1da',.28),edge=material('#5b6870',.72);
+    const screen=new THREE.MeshStandardMaterial({color:'#a4dff0',emissive:'#347f9e',emissiveIntensity:1.0,
+      roughness:.22,metalness:.15,toneMapped:false});
+    const cx=w/2,cz=d/2,r=Math.min(w,d)*.33;
+    add(new THREE.CylinderGeometry(r*.9,r,h*.18,18),edge,cx,h*.09,cz);
+    add(new THREE.CylinderGeometry(r*.72,r*.82,h*.58,18),shell,cx,h*.43,cz);
+    const display=box(w*.52,h*.30,.045,cx,h*.72,-.025,screen,.045);display.rotation.x=-.18;
+    box(w*.42,.07,d*.22,cx,h*.88,d*.27,edge,.018);
+  } else if(s.kind==='orbitalTunnelRoof') {
+    const ceramic=material('#e6ebef',.48),frame=material('#6d7984',.82),inner=material('#323b45',.68);
+    const light=new THREE.MeshStandardMaterial({color:'#b9f7ff',emissive:'#48ddeb',emissiveIntensity:2.4,
+      roughness:.2,metalness:.25,toneMapped:false});
+    box(w,h,d,w/2,h/2,d/2,ceramic);
+    box(w-.12,.055,d-.12,w/2,-.015,d/2,inner);
+    const alongX=w>=d,length=alongX?w:d,count=Math.max(4,Math.ceil(length/1.7));
+    for(let i=0;i<=count;i++) {
+      const at=length*i/count;
+      box(alongX?.08:w-.06,.13,alongX?d-.06:.08,alongX?at:w/2,h-.02,alongX?d/2:at,frame);
+    }
+    for(const side of [.18,(alongX?d:w)-.18])
+      box(alongX?w-.28:.055,.035,alongX?.055:d-.28,
+        alongX?w/2:side,-.055,alongX?side:d/2,light);
+  } else if(s.kind==='orbitalDeck') {
+    const shell=material('#dbe1e6',.58),edge=material('#66727e',.84),surface=material('#f1f4f6',.42);
+    const light=new THREE.MeshStandardMaterial({color:'#9bf5ff',emissive:'#42d9e8',emissiveIntensity:1.9,
+      roughness:.2,metalness:.22,toneMapped:false});
+    box(w,h-.055,d,w/2,(h-.055)/2,d/2,shell);
+    box(w-.07,.055,d-.07,w/2,h-.027,d/2,surface);
+    const alongX=w>=d,length=alongX?w:d;
+    for(let at=.55;at<length-.2;at+=1.15)
+      box(alongX?.035:w-.14,.02,alongX?d-.14:.035,alongX?at:w/2,h+.012,alongX?d/2:at,edge);
+    for(const side of [.11,(alongX?d:w)-.11])
+      box(alongX?w-.08:.10,.17,alongX?.10:d-.08,
+        alongX?w/2:side,-.05,alongX?side:d/2,edge);
+    box(alongX?w*.46:.045,.026,alongX?.045:d*.46,w/2,h+.022,d/2,light);
+  } else if(s.kind==='orbitalCore') {
+    const base=material('#58636e',.84),shell=material('#e4e9ed',.62),ring=material('#8a969f',.86);
+    const energy=new THREE.MeshStandardMaterial({color:'#abf7ff',emissive:'#48ddec',emissiveIntensity:2.8,
+      roughness:.15,metalness:.16,toneMapped:false});
+    const cx=w/2,cz=d/2,r=Math.min(w,d)*.34;
+    add(new THREE.CylinderGeometry(r*1.16,r*1.24,.28,24),base,cx,.14,cz);
+    add(new THREE.CylinderGeometry(r*.67,r*.75,h-.52,24),energy,cx,h/2,cz);
+    for(let i=0;i<6;i++) {
+      const a=i*Math.PI/3,x=cx+Math.cos(a)*r,z=cz+Math.sin(a)*r;
+      beam([x,.25,z],[x,h-.3,z],.085,shell,9,.055);
+    }
+    for(const y of [.48,h*.52,h-.32])add(new THREE.TorusGeometry(r*.98,.07,7,28),y===h*.52?energy:ring,cx,y,cz).rotation.x=Math.PI/2;
+    add(new THREE.CylinderGeometry(r*.84,r*1.02,.26,24),shell,cx,h-.13,cz);
+  } else if(s.kind==='orbitalPod') {
+    const shell=material('#e3e8ec',.58),edge=material('#687581',.82),joint=material('#aab4bc',.7);
+    const glass=new THREE.MeshPhysicalMaterial({color:'#7696ad',transparent:true,opacity:.56,roughness:.1,
+      metalness:.18,depthWrite:false});
+    box(w,h-.18,d,w/2,(h-.18)/2,d/2,shell);
+    box(w-.16,.16,d-.16,w/2,h-.08,d/2,joint);
+    const alongX=w>=d;
+    for(const side of [-1,1])box(alongX?w*.46:.028,h*.42,alongX?.028:d*.46,
+      alongX?w/2:w/2+side*(w/2+.018),h*.56,alongX?d/2+side*(d/2+.018):d/2,glass,.025);
+    for(let at=.42;at<(alongX?w:d)-.2;at+=.8)box(alongX?.06:w-.1,h-.35,alongX?d-.1:.06,
+      alongX?at:w/2,(h-.35)/2,alongX?d/2:at,edge);
+  } else if(s.kind==='orbitalAntenna') {
+    const base=material('#68737d',.86),shell=material('#e3e8ec',.62),dish=material('#cfd7dd',.74);
+    const signal=new THREE.MeshStandardMaterial({color:'#a7f5ff',emissive:'#3bd7e9',emissiveIntensity:2.2,
+      roughness:.18,metalness:.2,toneMapped:false});
+    const cx=w/2,cz=d/2,r=Math.min(w,d)*.34;
+    add(new THREE.CylinderGeometry(r*1.15,r*1.25,.3,20),base,cx,.15,cz);
+    add(new THREE.CylinderGeometry(r*.36,r*.48,h*.55,16),shell,cx,h*.31,cz);
+    const bowl=add(new THREE.SphereGeometry(r,24,10,0,Math.PI*2,0,Math.PI*.36),dish,cx,h*.72,cz);
+    bowl.scale.y=.34;bowl.rotation.z=-.5;
+    beam([cx,h*.7,cz],[cx+r*.52,h*.92,cz],.055,base,9,.035);
+    add(new THREE.SphereGeometry(.11,12,8),signal,cx+r*.58,h*.95,cz);
+    add(new THREE.TorusGeometry(r*.82,.055,7,28),signal,cx,h*.72,cz).rotation.x=Math.PI/2;
+  } else if(s.kind==='orbitalSupport') {
+    const spine=material('#596570',.86),shell=material('#dce2e7',.6),joint=material('#8b97a1',.78);
+    box(w,h,d,w/2,h/2,d/2,spine);
+    box(w+.035,.24,d+.035,w/2,.12,d/2,joint);
+    box(w+.035,.24,d+.035,w/2,h-.12,d/2,joint);
+    for(const side of [-1,1])box(.055,h-.5,d*.42,w/2+side*(w/2+.018),h/2,d/2,shell,.015);
+    for(let y=.55;y<h-.35;y+=.82)box(w+.025,.075,d+.025,w/2,y,d/2,joint,.015);
+  } else if(s.kind==='orbitalCrate') {
+    const shell=material('#cbd3d9',.7),edge=material('#66727e',.86);
+    const light=new THREE.MeshStandardMaterial({color:'#adf7ff',emissive:'#45dbe9',emissiveIntensity:1.8,
+      roughness:.22,metalness:.2,toneMapped:false});
+    box(w,h,d,w/2,h/2,d/2,shell);
+    for(const x of [.11,w-.11])for(const z of [.11,d-.11])box(.16,h-.08,.16,x,h/2,z,edge);
+    box(w*.56,.035,.025,w/2,h*.68,-.018,light,.008);
+    box(w*.35,.04,d*.36,w*.66,h+.018,d*.52,edge,.01);
   } else if(s.kind==='catwalk') {
     const steel=material('#38484c',0.65),grate=material(s.accent||'#d99149',0.55);
     box(w,h,d,w/2,h/2,d/2,steel);

@@ -11,6 +11,8 @@ import reactions from '../game/enemyReactions.js';
 import {updateCharacterMotion} from '../public/characterMotion.mjs';
 import { createTerrainModel } from '../public/pveEnvironment.mjs';
 import {createTempleEnvironment} from '../public/templeEnvironment.mjs';
+import {createSpaceEnvironment} from '../public/spaceEnvironment.mjs';
+import {createAirportEnvironment} from '../public/airportEnvironment.mjs';
 import { createElevatorModel } from '../public/elevator.mjs';
 const { createPveMap, moveOnTerrain, groundHeight, canOccupy, regeneratePlayers } = maps;
 const { startJump, advanceJump } = movement;
@@ -510,13 +512,56 @@ test('every terrain model has finite geometry and ramp/deck bounds match physics
   }
 });
 
-test('authored PvP machinery, catwalks and lifts render finite geometry',()=>{
-  for(const id of ['foundry','tower'])for(const s of maps.createPvpMap(0,id).map.terrain) {
+test('authored PvP machinery, catwalks, tunnels and lifts render finite geometry',()=>{
+  for(const id of ['foundry','tower','orbital','airport'])for(const s of maps.createPvpMap(0,id).map.terrain) {
     const model=createTerrainModel(s),bounds=new THREE.Box3().setFromObject(model);
     for(const value of [...bounds.min.toArray(),...bounds.max.toArray()])
       assert.ok(Number.isFinite(value),`${id} ${s.kind} has finite bounds`);
     assert.ok(model.children.length>0,`${id} ${s.kind} has visible geometry`);
   }
+});
+
+test('Terminal 7 has a finite bespoke shell, runway, aircraft and jet bridge',()=>{
+  const {map,walls}=maps.createPvpMap(0,'airport'),model=createAirportEnvironment(map,walls);
+  assert.equal(model.name,'terminal-7-environment');
+  let meshes=0,transparent=0,emissive=0;
+  model.traverse(object=>{
+    if(!object.isMesh)return;meshes++;
+    const positions=object.geometry?.getAttribute?.('position');
+    if(positions)assert.ok(Array.from(positions.array).every(Number.isFinite));
+    const materials=Array.isArray(object.material)?object.material:[object.material];
+    transparent+=materials.some(m=>m?.transparent)?1:0;
+    emissive+=materials.some(m=>m?.emissiveIntensity>0)?1:0;
+  });
+  assert.ok(meshes>100,'terminal shell includes architectural and airside detail');
+  assert.ok(transparent>4,'curtain walls use real transparent glazing');
+  assert.ok(emissive>10,'signage, ceiling fixtures, and runway lights are luminous');
+  model.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});
+});
+
+test('Terminal 7 carpet renders above the terrazzo without adding a collision step',()=>{
+  const carpet=maps.createPvpMap(0,'airport').map.terrain.find(s=>s.kind==='airportCarpet');
+  const model=createTerrainModel(carpet),bounds=new THREE.Box3().setFromObject(model);
+  assert.equal(carpet.top,0,'carpet does not alter the authoritative walking surface');
+  assert.ok(bounds.max.y+(carpet.bottom||0)>=.018,
+    'visible carpet pile is separated from the floor instead of being coplanar');
+  assert.ok(bounds.min.y+(carpet.bottom||0)>=-1e-6,'carpet geometry does not sink through the floor');
+  model.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});
+});
+
+test('Orbital Station has a finite single-draw starfield and distant planetary backdrop',()=>{
+  const model=createSpaceEnvironment();
+  assert.equal(model.name,'orbital-space-environment');
+  const stars=model.getObjectByName('orbital-starfield');
+  const planet=model.getObjectByName('orbital-planet');
+  const atmosphere=model.getObjectByName('orbital-atmosphere');
+  assert.ok(stars?.isPoints&&planet?.isMesh&&atmosphere?.isMesh);
+  assert.equal(stars.geometry.getAttribute('position').count,900);
+  model.traverse(object=>{
+    const positions=object.geometry?.getAttribute?.('position');
+    if(positions)assert.ok(Array.from(positions.array).every(Number.isFinite));
+    object.geometry?.dispose();object.material?.dispose();
+  });
 });
 
 test('Temple pools keep bed, water, and rim on separate depth layers',()=>{

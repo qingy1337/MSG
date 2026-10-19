@@ -5,7 +5,7 @@ import shotgun from '../game/shotgun.js';
 import server from '../game/gameServer.js';
 import weapons from '../public/weapons.js';
 import skins from '../lib/skins.js';
-import {createShotgun,poseShotgun,shotgunMuzzleStyle,shotgunPelletColor} from '../public/shotgun.mjs';
+import {createShotgun,poseShotgun,triggerShotgunChamber,shotgunMuzzleStyle,shotgunPelletColor} from '../public/shotgun.mjs';
 import {muzzleFlashScaleForWeapon} from '../public/muzzleFlash.mjs';
 import {SHOTGUN_SPREAD_RADIANS,shotgunReticleDiameter} from '../public/shotgunCrosshair.mjs';
 
@@ -73,6 +73,7 @@ test('shotgun has a selectable registry entry, free default skin and detailed mo
   assert.equal(skins.ALL_SKINS_BY_KEY.shotgun_silverline.price,2000);
   assert.equal(skins.ALL_SKINS_BY_KEY.shotgun_bubble_trouble.price,4000);
   assert.equal(muzzleFlashScaleForWeapon('shotgun'),1.65);
+  assert.equal(muzzleFlashScaleForWeapon('sniper'),1.5);
   assert.equal(muzzleFlashScaleForWeapon('pistol'),1);
   for(const skin of skins.WEAPON_SKINS.shotgun) for(const length of [0.68,1.05]) {
       const model=createShotgun(skin.key,length);
@@ -117,19 +118,28 @@ test('shotgun has a selectable registry entry, free default skin and detailed mo
         assert.equal(model.getObjectsByProperty('name','energy-core').length,2);
         assert.equal(model.getObjectsByProperty('name','floating-bubble').length,10);
         assert.equal(model.getObjectsByProperty('name','muzzle-bore').length,2);
-        assert.equal(model.getObjectsByProperty('name','iridescent-trim').length,2);
+        assert.equal(model.getObjectsByProperty('name','reactor-trim').length,2);
         assert.equal(model.getObjectsByProperty('name','chamber-guard').length,4);
         assert.equal(model.getObjectsByProperty('name','chroma-shroud').length,2);
-        assert.equal(model.getObjectsByProperty('name','chroma-top-panel').length,2);
+        assert.equal(model.getObjectsByProperty('name','chroma-top-panel').length,0,
+          'separate top plates no longer clutter the continuous chamber armor');
         assert.equal(model.getObjectsByProperty('name','receiver-chroma-panel').length,2);
         assert.equal(model.getObjectsByProperty('name','pump-wing').length,2);
-        assert.equal(model.getObjectsByProperty('name','status-light').length,3);
+        assert.equal(model.getObjectsByProperty('name','status-light').length,2);
+        assert.equal(model.getObjectsByProperty('name','reactor-port').length,2);
+        assert.equal(model.getObjectsByProperty('name','reactor-interface-collar').length,2);
+        assert.equal(model.getObjectsByProperty('name','bubble-dimple').length,6);
+        assert.equal(model.getObjectsByProperty('name','bubble-dimple-rim').length,6);
+        assert.equal(model.getObjectsByProperty('name','chamber-energy-burst').length,2);
+        assert.equal(model.getObjectsByProperty('name','chamber-energy-ring').length,2);
+        assert.equal(model.getObjectsByProperty('name','chamber-energy-hot-core').length,2);
+        assert.equal(model.getObjectsByProperty('name','chamber-energy-wash').length,2);
         assert.ok(model.getObjectByName('reactor-bridge'));
         const chambers=model.getObjectsByProperty('name','bubble-chamber');
         assert.ok(chambers.every(chamber=>chamber.material.transparent&&!chamber.material.depthWrite));
-        assert.deepEqual(chambers.map(chamber=>chamber.material.color.getHexString()),['008fa8','6e21b8']);
+        assert.deepEqual(chambers.map(chamber=>chamber.material.color.getHexString()),['007d95','58209d']);
         assert.ok(chambers.every(chamber=>chamber.material.opacity>=0.5),'saturated glass resists washed-out room lighting');
-        assert.equal(model.getObjectByName('receiver').material.color.getHexString(),'9bb7bf');
+        assert.equal(model.getObjectByName('receiver').material.color.getHexString(),'071f30');
         const floating=model.getObjectByName('floating-bubble'),before=floating.position.clone();
         const core=model.getObjectByName('energy-core'),coreRotation=core.rotation.z;
         poseShotgun(model,1,2.1);
@@ -137,7 +147,16 @@ test('shotgun has a selectable registry entry, free default skin and detailed mo
         assert.equal(core.geometry.type,'TubeGeometry','colored energy cores spiral through the glass');
         assert.notEqual(core.rotation.z,coreRotation,'energy spirals counter-rotate inside the chambers');
         assert.deepEqual(model.getObjectsByProperty('name','chroma-shroud').map(part=>part.material.color.getHexString()),
-          ['00b8c8','923de0']);
+          ['009cae','7430bb']);
+        for(const name of ['chroma-shroud','receiver-chroma-panel']) {
+          const panels=model.getObjectsByProperty('name',name);
+          assert.ok(panels.every(part=>part.geometry.type==='CylinderGeometry'&&part.userData.molded),
+            `${name} follows the round body instead of using flat plates`);
+          assert.equal(model.getObjectsByProperty('name',`${name}-end-cap`).length,4,
+            `${name} blends into the body with curved end caps`);
+        }
+        assert.ok(model.getObjectsByProperty('name','chamber-guard').every(part=>part.geometry.type==='CylinderGeometry'),
+          'longitudinal chamber guards follow the edges of the molded shrouds');
         assert.deepEqual(shotgunMuzzleStyle(skin.key,0),{barrel:-1,color:'#5ff7ff'});
         assert.deepEqual(shotgunMuzzleStyle(skin.key,1),{barrel:1,color:'#ce70ff'});
       } else {
@@ -145,6 +164,35 @@ test('shotgun has a selectable registry entry, free default skin and detailed mo
       }
       model.traverse(m=>{m.geometry?.dispose();m.material?.dispose();});
     }
+});
+
+test('Bubble Trouble surges only the chamber corresponding to each fired barrel',()=>{
+  const model=createShotgun('shotgun_bubble_trouble',0.68);
+  const bursts=model.getObjectsByProperty('name','chamber-energy-burst');
+  assert.deepEqual(bursts.map(effect=>effect.visible),[false,false]);
+  assert.equal(triggerShotgunChamber(model,0,2),true);
+  poseShotgun(model,0.04,2.04);
+  assert.equal(bursts[0].visible,true);assert.equal(bursts[1].visible,false);
+  assert.equal(bursts[0].material.color.getHexString(),'2fffff');
+  const hotCores=model.getObjectsByProperty('name','chamber-energy-hot-core');
+  const washes=model.getObjectsByProperty('name','chamber-energy-wash');
+  assert.equal(hotCores[0].visible,true);assert.ok(hotCores[0].material.opacity>0.8);
+  assert.equal(washes[0].visible,true);assert.ok(washes[0].material.opacity>0.2);
+  const firstZ=bursts[0].position.z;
+  poseShotgun(model,0.12,2.12);
+  assert.ok(bursts[0].position.z<firstZ,'energy travels forward through the chamber');
+  assert.ok(model.getObjectsByProperty('name','bubble-chamber')[0].material.emissiveIntensity>0.13,
+    'the fired chamber glass flashes with the moving energy');
+  const litChamber=model.getObjectsByProperty('name','bubble-chamber')[0];
+  assert.ok(litChamber.material.emissiveIntensity>5,'the entire fired chamber becomes a strong light source');
+  assert.ok(litChamber.material.emissive.g>0.8&&litChamber.material.emissive.b>0.8,
+    'the cyan chamber reaches a saturated cyan-white flash');
+  assert.equal(triggerShotgunChamber(model,1,2.12),true);
+  poseShotgun(model,0.02,2.14);
+  assert.equal(bursts[1].visible,true);assert.equal(bursts[1].material.color.getHexString(),'d23fff');
+  poseShotgun(model,0.4,2.5);
+  assert.deepEqual(bursts.map(effect=>effect.visible),[false,false]);
+  model.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});
 });
 
 test('only Bubble Trouble overrides alternating shotgun muzzle colors',()=>{

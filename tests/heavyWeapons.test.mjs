@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createMinigunSpoolHud,READY_FLASH_MS} from '../public/minigunSpoolHud.mjs';
 import * as THREE from 'three';
 import skins from '../public/skins.js';
-import { createHeavyWeapon,heavyWeaponMuzzleDepth,heavyWeaponViewScale,heavyWeaponViewYOffset,heavyWeaponViewZ } from '../public/heavyWeapons.mjs';
+import { createHeavyWeapon,heavyWeaponMuzzleDepth,heavyWeaponMuzzleYOffset,heavyWeaponViewScale,heavyWeaponViewYOffset,heavyWeaponViewZ,KINTSUGI_GLOW_DURATION,poseHeavyWeaponSkin,triggerHeavyWeaponSkin } from '../public/heavyWeapons.mjs';
 import { createMuzzleFlash, triggerMuzzleFlash, updateMuzzleFlash } from '../public/muzzleFlash.mjs';
 
 function dispose(group) {
@@ -27,6 +27,11 @@ test('Calibrated sniper has purple rails, scope, and calibration marks in both v
     assert.equal(receiver.geometry.type, 'LatheGeometry');
     const receiverBounds = new THREE.Box3().setFromObject(receiver);
     assert.ok(receiverBounds.max.x - receiverBounds.min.x < 0.105 * length, 'receiver is narrow, not boxy');
+    const barrelBounds=new THREE.Box3().setFromObject(model.getObjectByName('precision-barrel'));
+    assert.ok(Math.abs(receiverBounds.max.y-barrelBounds.max.y)<1e-6,
+      'thin barrel stays flush with the top of the receiver');
+    assert.ok(barrelBounds.min.y>receiverBounds.min.y,
+      'receiver narrows only along the underside of the barrel');
     assert.equal(model.getObjectByName('rear-fin'), undefined);
     assert.ok(model.getObjectByName('receiver-trim'));
     const scopeBounds = new THREE.Box3().setFromObject(model.getObjectByName('scope'));
@@ -90,6 +95,42 @@ test('Flatpack sniper is a clean cardboard box profile in both views', () => {
     assert.ok(model.getObjectByName('cardboard-bore'));
     dispose(model);
   }
+});
+
+test('Kintsugi sniper is a premium ceramic model with restrained pulsing gold repairs', () => {
+  const skin = skins.WEAPON_SKINS.sniper.find(entry => entry.key === 'sniper_kintsugi');
+  assert.equal(skin.price, 8000);
+  assert.equal(skin.bulletColor, '#f2b94f');
+  for (const length of [0.8, 1.35]) {
+    const model = createHeavyWeapon('sniper', skin.key, length);
+    for (const name of ['kintsugi-receiver', 'kintsugi-fore-end', 'kintsugi-stock', 'kintsugi-seam',
+      'kintsugi-branch', 'kintsugi-scope', 'kintsugi-scope-lens', 'kintsugi-muzzle-ring']) {
+      assert.ok(model.getObjectByName(name), `${name} exists`);
+    }
+    assert.equal(model.getObjectByName('kintsugi-receiver').material.color.getHexString(), '18191c');
+    assert.equal(model.getObjectByName('kintsugi-seam').material.color.getHexString(), 'e3ad42');
+    assert.ok(model.getObjectByName('kintsugi-scope').position.z > -0.3,
+      'scope sits rearward near the player instead of far down the barrel');
+    assert.equal(model.children.filter(child => child.name === 'kintsugi-seam').length, 4,
+      'only four principal repair seams keep the finish controlled');
+    const gold = model.userData.kintsugiGold;
+    poseHeavyWeaponSkin(model, 1);
+    assert.equal(gold.emissiveIntensity, 0.24);
+    triggerHeavyWeaponSkin(model, 1);
+    poseHeavyWeaponSkin(model, 1);
+    assert.ok(gold.emissiveIntensity > 8, 'a shot sends a brilliant pulse through the gold');
+    poseHeavyWeaponSkin(model, 1.5);
+    assert.ok(gold.emissiveIntensity > 3, 'the gold remains visibly energized halfway through the fade');
+    poseHeavyWeaponSkin(model, 1 + KINTSUGI_GLOW_DURATION);
+    assert.ok(Math.abs(gold.emissiveIntensity - 0.24) < 0.001, 'the gold settles back to its restrained idle glow');
+    model.updateMatrixWorld(true);
+    const bounds = new THREE.Box3().setFromObject(model);
+    assert.ok(bounds.max.x - bounds.min.x < 0.17 * length, 'ceramic silhouette stays slim');
+    assert.ok(bounds.max.z - bounds.min.z > 1.18 * length, 'silhouette remains recognizably long-range');
+    dispose(model);
+  }
+  assert.equal(heavyWeaponMuzzleDepth(skin.key), 1.165);
+  assert.equal(heavyWeaponMuzzleYOffset(skin.key), 0.01);
 });
 
 test('minigun skins retain their themes while Midas is an original streamlined SMG', () => {
@@ -169,6 +210,8 @@ test('Midas sits naturally in the first-person hand without shifting other heavy
   assert.equal(heavyWeaponViewYOffset('miniGun_midas'),-0.045);
   assert.equal(heavyWeaponViewYOffset('miniGun_default'),0);
   assert.equal(heavyWeaponViewYOffset('sniper_calibrated'),0);
+  assert.equal(heavyWeaponMuzzleYOffset('sniper_calibrated'),0.022);
+  assert.equal(heavyWeaponMuzzleYOffset('miniGun_default'),0);
   assert.equal(heavyWeaponViewScale('miniGun_midas'),1);
   assert.equal(heavyWeaponViewScale('miniGun_default'),1);
   assert.equal(heavyWeaponViewZ('miniGun_midas'),-0.32);
