@@ -9,6 +9,12 @@ const GUARDIAN_COMBAT=Object.freeze({
   gravity:260,
   maxDamage:30,
   blastRadius:120,
+  // A close blast should throw a player clear of the impact, not merely
+  // jitter them. Lower splash damage still produces a much smaller shove.
+  knockbackBase:120,
+  knockbackDamageScale:4,
+  knockbackDeceleration:420,
+  knockbackMaxSpeed:360,
 });
 const PROJECTILE_RADIUS=5;
 
@@ -58,6 +64,7 @@ function geometry(map,walls) {
 }
 
 function expanded(s) {
+  if(s.kind==='heightfield')return s;
   return {...s,x:s.x-PROJECTILE_RADIUS,y:s.y-PROJECTILE_RADIUS,
     width:s.width+PROJECTILE_RADIUS*2,height:s.height+PROJECTILE_RADIUS*2,
     bottom:(s.bottom??0)-PROJECTILE_RADIUS*.05,top:(s.top??3.1)+PROJECTILE_RADIUS*.05};
@@ -103,4 +110,9 @@ function guardianBlastDamage(projectile,target,map,walls) {
   return GUARDIAN_COMBAT.maxDamage*Math.pow(1-distance/GUARDIAN_COMBAT.blastRadius,1.65);
 }
 
-module.exports={GUARDIAN_COMBAT,tickGuardianBurst,launchGuardianProjectile,stepGuardianProjectile,guardianBlastDamage};
+function guardianKnockbackSpeed(damage) {
+  const amount=Math.max(0,Math.min(GUARDIAN_COMBAT.maxDamage,Number(damage)||0));
+  return GUARDIAN_COMBAT.knockbackBase+amount*GUARDIAN_COMBAT.knockbackDamageScale;
+}
+
+module.exports={GUARDIAN_COMBAT,tickGuardianBurst,launchGuardianProjectile,stepGuardianProjectile,guardianBlastDamage,guardianKnockbackSpeed};

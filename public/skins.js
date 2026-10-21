@@ -170,6 +170,24 @@ const WEAPON_SKINS = {
         },
       ],
     },
+    {
+      key: "pistol_kintsugi",
+      weaponKey: "pistol",
+      name: "Kintsugi",
+      description: "Sculpted charcoal ceramic joined by living gold.",
+      price: 8000,
+      isDefault: false,
+      bulletColor: "#f2b94f",
+      shapes: [
+        {type:"line",fromX:0.04,fromY:0,toX:0.96,toY:0,lineWidth:10,color:"#18191c",outlineColor:"#2d2a30",outlineWidth:12},
+        {type:"line",fromX:0.1,fromY:-0.08,toX:0.34,toY:0.04,lineWidth:1.8,color:"#e3ad42"},
+        {type:"line",fromX:0.34,fromY:0.04,toX:0.57,toY:-0.055,lineWidth:1.8,color:"#e3ad42"},
+        {type:"line",fromX:0.57,fromY:-0.055,toX:0.88,toY:0.035,lineWidth:1.8,color:"#e3ad42"},
+        {type:"line",fromX:0.57,fromY:-0.055,toX:0.64,toY:-0.14,lineWidth:1.2,color:"#e3ad42"},
+        {type:"rect",cx:0.34,cy:0.13,width:0.34,height:0.055,color:"#29272b"},
+        {type:"circle",cx:0.94,cy:0,radius:0.075,color:"#e3ad42",outlineColor:"#18191c"},
+      ],
+    },
   ],
   autoRifle: [
     {

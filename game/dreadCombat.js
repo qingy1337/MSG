@@ -9,7 +9,7 @@ const DREAD_COMBAT = Object.freeze({
 // Dread Troopers expose this tiny state machine to clients so their otherwise
 // instant hitscan burst has a clear, red warning beam and audible-looking
 // charge window. Losing line of sight cancels the attack before it can fire.
-function tickDreadCarbine(bot, target, visible, aligned, now) {
+function tickDreadCarbine(bot, target, visible, aligned, now, config=DREAD_COMBAT) {
   const state=bot.botState||(bot.botState={});
   let attack=bot.dreadAttack;
   if(!target||!visible) {
@@ -20,26 +20,27 @@ function tickDreadCarbine(bot, target, visible, aligned, now) {
   if(!attack) {
     if(!aligned||now<(state.dreadReadyAt||0))return false;
     attack=bot.dreadAttack={phase:'charge',targetId:target.id,start:now,
-      fireAt:now+DREAD_COMBAT.chargeMs,nextShotAt:now+DREAD_COMBAT.chargeMs,shots:0,progress:0};
+      fireAt:now+config.chargeMs,nextShotAt:now+config.chargeMs,shots:0,progress:0,
+      burstShots:config.burstShots};
     return false;
   }
   if(attack.phase==='charge') {
-    attack.progress=Math.min(1,(now-attack.start)/DREAD_COMBAT.chargeMs);
+    attack.progress=Math.min(1,(now-attack.start)/Math.max(1,config.chargeMs));
     if(now<attack.fireAt)return false;
     attack.phase='burst';attack.progress=0;
   }
-  return aligned&&attack.shots<DREAD_COMBAT.burstShots&&now>=attack.nextShotAt;
+  return aligned&&attack.shots<config.burstShots&&now>=attack.nextShotAt;
 }
 
-function recordDreadShot(bot,now) {
+function recordDreadShot(bot,now,config=DREAD_COMBAT) {
   const attack=bot.dreadAttack;
   if(!attack)return;
   attack.shots++;
-  attack.progress=attack.shots/DREAD_COMBAT.burstShots;
-  attack.nextShotAt=now+DREAD_COMBAT.shotIntervalMs;
-  if(attack.shots>=DREAD_COMBAT.burstShots) {
+  attack.progress=attack.shots/config.burstShots;
+  attack.nextShotAt=now+config.shotIntervalMs;
+  if(attack.shots>=config.burstShots) {
     bot.dreadAttack=null;
-    bot.botState.dreadReadyAt=now+DREAD_COMBAT.recoveryMs;
+    bot.botState.dreadReadyAt=now+config.recoveryMs;
   }
 }
 

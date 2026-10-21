@@ -2,13 +2,15 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import difficulty from '../game/pveDifficulty.js';
 import combat from '../game/guardianCombat.js';
+import maps from '../public/arenaMap.js';
 import server from '../game/gameServer.js';
 import {createGuardianModel,poseGuardian,createGuardianProjectile,createGuardianExplosion,poseGuardianExplosion} from '../public/guardian.mjs';
 
 const {floorDifficulty}=difficulty;
-const {GUARDIAN_COMBAT,tickGuardianBurst,launchGuardianProjectile,stepGuardianProjectile,guardianBlastDamage}=combat;
+const {killCoinReward}=server;
+const {GUARDIAN_COMBAT,tickGuardianBurst,launchGuardianProjectile,stepGuardianProjectile,guardianBlastDamage,guardianKnockbackSpeed}=combat;
 
-test('Guardians begin after floor 40 without replacing Dread Troopers or Ogres',t=>{
+test('Guardians begin after floor 40 by replacing soldiers in the full-sized wave',t=>{
   assert.equal(floorDifficulty(40).guardians,undefined);
   assert.equal(floorDifficulty(41).guardians,1);
   assert.equal(floorDifficulty(48).guardians,2);
@@ -21,11 +23,14 @@ test('Guardians begin after floor 40 without replacing Dread Troopers or Ogres',
   handlers.startGame({enableBots:true,startFloor:41});
   try {
     const bots=game.activePlayers.filter(player=>player.isBot);
-    assert.equal(bots.length,11);assert.equal(bots.filter(bot=>bot.botType==='guardian').length,1);
+    assert.equal(bots.length,23);assert.equal(bots.filter(bot=>bot.botType==='guardian').length,1);
     assert.equal(bots.filter(bot=>bot.botType==='ogre').length,4);
-    assert.equal(bots.filter(bot=>bot.botType==='dread').length,6);
+    const dreads=bots.filter(bot=>bot.botType==='dread');
+    assert.equal(dreads.length,3);assert.ok(dreads.every(bot=>bot.botRank==='captain'));
+    assert.equal(bots.filter(bot=>bot.botType==='soldier').length,15);
     const guardian=bots.find(bot=>bot.botType==='guardian');
     assert.equal(guardian.health,420);assert.equal(guardian.hoverOffset,1.1);assert.equal(guardian.bodyRadius,28);
+    assert.equal(killCoinReward(guardian),15);
   } finally {game.close();}
 });
 
@@ -52,6 +57,23 @@ test('Guardian orbs arc into terrain, splash with fast falloff and respect cover
   assert.ok(guardianBlastDamage(orb,{...target,x:orb.x+10},map,[])>25);
   assert.ok(guardianBlastDamage(orb,{...target,x:orb.x+100},map,[])<8);
   assert.equal(guardianBlastDamage(orb,{...target,x:orb.x+80},map,[{x:orb.x+30,y:orb.y-20,width:10,height:40,bottom:0,top:4}]),0);
+});
+
+test('Guardian explosions deliver a strong distance-scaled residual shove',()=>{
+  const direct=guardianKnockbackSpeed(GUARDIAN_COMBAT.maxDamage);
+  const splash=guardianKnockbackSpeed(7);
+  assert.equal(direct,240);assert.equal(splash,148);assert.ok(direct>splash);
+  const player={alive:true,x:300,y:300,height:0,groundHeight:0};
+  maps.addKnockbackImpulse(player,direct,0,1000,'guardianBurst',{
+    deceleration:GUARDIAN_COMBAT.knockbackDeceleration,
+    maxSpeed:GUARDIAN_COMBAT.knockbackMaxSpeed,
+  });
+  assert.equal(player.knockback.vx,direct);
+  assert.equal(player.knockback.ax,-GUARDIAN_COMBAT.knockbackDeceleration);
+  maps.advanceKnockback(player,2000,{width:1000,height:600,ceiling:8,terrain:[]},[]);
+  const expected=300+direct*direct/(2*GUARDIAN_COMBAT.knockbackDeceleration);
+  assert.ok(Math.abs(player.x-expected)<1e-8);
+  assert.equal(player.knockback,null);
 });
 
 test('Guardian model, projectile and implosion pose with finite geometry',()=>{

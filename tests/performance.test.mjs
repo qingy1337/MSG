@@ -96,6 +96,11 @@ test('snapshots omit private AI state and retain independent combat/movement dat
   const frame=snapshots.playerFrame({...p,name:'Static name',color:'#fff',team:'bots'});
   assert.equal(frame.name,undefined);assert.equal(frame.color,undefined);assert.equal(frame.team,undefined);
   assert.equal(frame.id,'a');assert.equal(frame.height,3);assert.equal(frame.health,50);
+  const cleared=snapshots.playerFrame({...p,ogreAttack:null});
+  assert.equal(cleared.ogreAttack,null,'clients must receive the reset instead of retaining a stale laser');
+  assert.equal(Object.assign({},frame,cleared).ogreAttack,null);
+  const settled=snapshots.playerFrame({...p,knockback:null});
+  assert.equal(Object.assign({},frame,settled).knockback,null,'settled impact velocity must clear retained motion');
 });
 test('many movement/damage updates produce at most one state snapshot per tick',t=>{
   let tick,connect,now=100000;

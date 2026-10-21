@@ -4,15 +4,16 @@ const {supportHeight}=require('../public/arenaMap');
 // One small reliable death descriptor, never a networked ragdoll.
 function deathDescriptor(target,source,kind,map,walls,random=Math.random) {
   const angle=source?Math.atan2(target.y-source.y,target.x-source.x):(target.angle||0);
-  const dx=Math.cos(angle),dy=Math.sin(angle),solids=[...walls,...map.terrain];
+  const dx=Math.cos(angle),dy=Math.sin(angle),solids=[...walls,...map.terrain].filter(s=>!s.nonSolid);
   const guardian=target.botType==='guardian';
   const height=(target.height||0)+(target.hoverOffset||0)+(guardian?(target.bodyHeight||2.6)/2:0),ogre=target.botType==='ogre';
   let distance=ogre?8:kind==='grenade'?65:kind==='shotgun'?34:10;
   const radius=ogre?35:24;
   for(const solid of solids)distance=Math.min(distance,Math.max(0,rayBox(target.x,target.y,dx,dy,
     {...solid,x:solid.x-radius,y:solid.y-radius,width:solid.width+radius*2,height:solid.height+radius*2},height+.4)-2));
-  const endX=Math.max(radius,Math.min(map.width-radius,target.x+dx*distance));
-  const endY=Math.max(radius,Math.min(map.height-radius,target.y+dy*distance));
+  const bounds=map.worldBounds||{minX:0,minY:0,maxX:map.width,maxY:map.height};
+  const endX=Math.max(bounds.minX+radius,Math.min(bounds.maxX-radius,target.x+dx*distance));
+  const endY=Math.max(bounds.minY+radius,Math.min(bounds.maxY-radius,target.y+dy*distance));
   const ground=supportHeight(endX,endY,height,solids);
   return {x:target.x,y:target.y,height,endX,endY,ground,angle,kind,ogre,
     variant:Math.floor(random()*3),lifetime:8+random()*4,

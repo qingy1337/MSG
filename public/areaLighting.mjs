@@ -2,6 +2,25 @@ import * as THREE from 'three';
 
 // Architectural anchors, not a random grid. Six local lights is a fixed budget.
 export function planAreaLighting(map,walls=[]) {
+  if(map.style==='airport') {
+    const roofAt=ratio=>map.ceiling-.40-1.28*(ratio*2-1)**2;
+    // Six shadow-free architectural pools follow the rebuilt terminal's real
+    // functions: processing, the warm market, two gate rooms, and the gallery.
+    return [
+      {kind:'airport-checkin',x:map.width*.50,y:map.height*.86,height:0,sourceHeight:roofAt(.50),
+        color:'#bde8ff',intensity:82,radius:10.5,castsShadow:false},
+      {kind:'airport-security',x:map.width*.50,y:map.height*.66,height:0,sourceHeight:roofAt(.50),
+        color:'#8fd4ff',intensity:92,radius:9.5,castsShadow:false},
+      {kind:'airport-market',x:map.width*.50,y:map.height*.43,height:0,sourceHeight:roofAt(.50),
+        color:'#ffd49a',intensity:104,radius:12.5,castsShadow:false},
+      {kind:'airport-gates-west',x:map.width*.25,y:map.height*.17,height:0,sourceHeight:roofAt(.25),
+        color:'#d8f3ff',intensity:86,radius:11.5,castsShadow:false},
+      {kind:'airport-gates-east',x:map.width*.75,y:map.height*.17,height:0,sourceHeight:roofAt(.75),
+        color:'#d8f3ff',intensity:86,radius:11.5,castsShadow:false},
+      {kind:'airport-gallery',x:map.width*.50,y:map.height*.33,height:4.1,sourceHeight:roofAt(.50),
+        color:'#ffe7bd',intensity:78,radius:10,castsShadow:false},
+    ];
+  }
   if(map.mode!=='pve'||!map.ceiling)return [];
   const lights=[],ceiling=map.ceiling-0.32;
   const add=(kind,x,y,height,color,intensity,radius,sourceHeight=ceiling)=>{

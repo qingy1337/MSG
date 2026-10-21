@@ -97,7 +97,7 @@ test('Flatpack sniper is a clean cardboard box profile in both views', () => {
   }
 });
 
-test('Kintsugi sniper is a premium ceramic model with restrained pulsing gold repairs', () => {
+test('Kintsugi sniper has bold branching repairs with continuously flowing shot-reactive gold', () => {
   const skin = skins.WEAPON_SKINS.sniper.find(entry => entry.key === 'sniper_kintsugi');
   assert.equal(skin.price, 8000);
   assert.equal(skin.bulletColor, '#f2b94f');
@@ -109,13 +109,25 @@ test('Kintsugi sniper is a premium ceramic model with restrained pulsing gold re
     }
     assert.equal(model.getObjectByName('kintsugi-receiver').material.color.getHexString(), '18191c');
     assert.equal(model.getObjectByName('kintsugi-seam').material.color.getHexString(), 'e3ad42');
+    assert.ok(model.getObjectByName('kintsugi-seam').geometry.parameters.radius>=0.0075,
+      'principal gold seams are physically bold rather than hairline-thin');
     assert.ok(model.getObjectByName('kintsugi-scope').position.z > -0.3,
       'scope sits rearward near the player instead of far down the barrel');
     assert.equal(model.children.filter(child => child.name === 'kintsugi-seam').length, 4,
-      'only four principal repair seams keep the finish controlled');
+      'four principal seams anchor the expanded branch network');
+    assert.equal(model.children.filter(child => child.name === 'kintsugi-branch').length,6,
+      'the large weapon keeps a restrained set of purposeful offshoots');
+    const flow=model.getObjectByName('kintsugi-flow');
+    assert.ok(flow?.isInstancedMesh&&flow.count>=30,'dense flow packets cover the sniper repair network');
+    const halo=model.getObjectByName('kintsugi-flow-halo');
+    assert.ok(halo?.isInstancedMesh&&halo.count===flow.count,
+      'the sniper alone receives a batched additive flow halo');
     const gold = model.userData.kintsugiGold;
     poseHeavyWeaponSkin(model, 1);
     assert.equal(gold.emissiveIntensity, 0.24);
+    const idleMatrix=Array.from(flow.instanceMatrix.array);
+    poseHeavyWeaponSkin(model,1.2);
+    assert.notDeepEqual(Array.from(flow.instanceMatrix.array),idleMatrix,'molten gold travels while idle');
     triggerHeavyWeaponSkin(model, 1);
     poseHeavyWeaponSkin(model, 1);
     assert.ok(gold.emissiveIntensity > 8, 'a shot sends a brilliant pulse through the gold');
@@ -123,9 +135,12 @@ test('Kintsugi sniper is a premium ceramic model with restrained pulsing gold re
     assert.ok(gold.emissiveIntensity > 3, 'the gold remains visibly energized halfway through the fade');
     poseHeavyWeaponSkin(model, 1 + KINTSUGI_GLOW_DURATION);
     assert.ok(Math.abs(gold.emissiveIntensity - 0.24) < 0.001, 'the gold settles back to its restrained idle glow');
+    // Additive energy extends beyond the shell by design; it is not part of
+    // the ceramic weapon silhouette measured below.
+    flow.visible=false;halo.visible=false;
     model.updateMatrixWorld(true);
     const bounds = new THREE.Box3().setFromObject(model);
-    assert.ok(bounds.max.x - bounds.min.x < 0.17 * length, 'ceramic silhouette stays slim');
+    assert.ok(bounds.max.x - bounds.min.x < 0.18 * length, 'ceramic silhouette and its halo stay slim');
     assert.ok(bounds.max.z - bounds.min.z > 1.18 * length, 'silhouette remains recognizably long-range');
     dispose(model);
   }

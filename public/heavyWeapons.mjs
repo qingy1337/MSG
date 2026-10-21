@@ -46,6 +46,47 @@ export function triggerHeavyWeaponSkin(root, now = 0) {
   if (model) model.userData.kintsugiShotAt = now;
 }
 
+// Each repair curve gets two traveling energy packets, but they are rendered
+// as one InstancedMesh. That keeps the molten flow readable without turning a
+// premium skin into dozens of draw calls for every player carrying it.
+export function attachKintsugiFlow(model, curves, radius = 0.006,
+  {packetsPerCurve=2,haloScale=0}={}) {
+  if (!model || !curves?.length) return null;
+  const points=[];
+  for(let index=0;index<curves.length;index++)for(let packet=0;packet<packetsPerCurve;packet++)points.push({
+    curve:curves[index],phase:(index*0.173+packet/packetsPerCurve)%1,
+    speed:0.16+(index%4)*0.018,size:packet?0.76:1,
+  });
+  const material=new THREE.MeshBasicMaterial({
+    name:'Kintsugi flowing gold',color:'#ffd36b',transparent:true,opacity:0.82,
+    depthWrite:false,blending:THREE.AdditiveBlending,toneMapped:false,
+  });
+  const mesh=new THREE.InstancedMesh(new THREE.SphereGeometry(radius,8,6),material,points.length);
+  mesh.name='kintsugi-flow';mesh.castShadow=false;mesh.receiveShadow=false;mesh.frustumCulled=false;
+  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);model.add(mesh);
+  let halo=null,haloMaterial=null;
+  if(haloScale>0) {
+    haloMaterial=new THREE.MeshBasicMaterial({
+      name:'Kintsugi flowing halo',color:'#ffb936',transparent:true,opacity:0.2,
+      depthWrite:false,blending:THREE.AdditiveBlending,toneMapped:false,
+    });
+    halo=new THREE.InstancedMesh(mesh.geometry,haloMaterial,points.length);
+    halo.name='kintsugi-flow-halo';halo.castShadow=false;halo.receiveShadow=false;halo.frustumCulled=false;
+    halo.instanceMatrix.setUsage(THREE.DynamicDrawUsage);model.add(halo);
+  }
+  const dummy=new THREE.Object3D();
+  for(let index=0;index<points.length;index++) {
+    const packet=points[index];dummy.position.copy(packet.curve.getPointAt(packet.phase));
+    dummy.scale.setScalar(packet.size);dummy.updateMatrix();mesh.setMatrixAt(index,dummy.matrix);
+    if(halo){dummy.scale.setScalar(packet.size*haloScale);dummy.updateMatrix();halo.setMatrixAt(index,dummy.matrix);}
+  }
+  mesh.instanceMatrix.needsUpdate=true;
+  if(halo)halo.instanceMatrix.needsUpdate=true;
+  model.userData.kintsugiFlow={mesh,material,halo,haloMaterial,haloScale,points,dummy,
+    baseColor:new THREE.Color('#ffd36b'),hotColor:new THREE.Color('#fff7cf')};
+  return mesh;
+}
+
 export function poseHeavyWeaponSkin(root, now = 0) {
   const model = findKintsugiModel(root);
   if (!model) return;
@@ -55,6 +96,29 @@ export function poseHeavyWeaponSkin(root, now = 0) {
   // back into the restrained molten-gold idle finish over a full second.
   const pulse = Math.pow(1 - progress, 1.35);
   model.userData.kintsugiGold.emissiveIntensity = model.userData.kintsugiBaseGlow + pulse * 8.8;
+  const flow=model.userData.kintsugiFlow;
+  if(flow) {
+    const idle=0.5+0.5*Math.sin(now*5.2);
+    for(let index=0;index<flow.points.length;index++) {
+      const packet=flow.points[index],travel=(packet.phase+now*packet.speed)%1;
+      flow.dummy.position.copy(packet.curve.getPointAt(travel));
+      const shimmer=0.82+0.18*Math.sin(now*8.5+index*1.7);
+      flow.dummy.scale.setScalar(packet.size*(shimmer+pulse*0.9));
+      flow.dummy.updateMatrix();flow.mesh.setMatrixAt(index,flow.dummy.matrix);
+      if(flow.halo) {
+        flow.dummy.scale.setScalar(packet.size*(shimmer+pulse*0.9)*flow.haloScale);
+        flow.dummy.updateMatrix();flow.halo.setMatrixAt(index,flow.dummy.matrix);
+      }
+    }
+    flow.mesh.instanceMatrix.needsUpdate=true;
+    if(flow.halo)flow.halo.instanceMatrix.needsUpdate=true;
+    flow.material.opacity=Math.min(1,0.7+idle*0.18+pulse*0.28);
+    flow.material.color.copy(flow.baseColor).lerp(flow.hotColor,pulse*0.82);
+    if(flow.haloMaterial) {
+      flow.haloMaterial.opacity=Math.min(0.6,0.13+idle*0.06+pulse*0.4);
+      flow.haloMaterial.color.copy(flow.baseColor).lerp(flow.hotColor,0.25+pulse*0.75);
+    }
+  }
 }
 
 export function createHeavyWeapon(weapon, skinKey, length) {
@@ -94,9 +158,11 @@ export function createHeavyWeapon(weapon, skinKey, length) {
         metalness: 0.08, roughness: 0.06, transparent: true, opacity: 0.72,
         clearcoat: 1, clearcoatRoughness: 0.02,
       });
-      const seam = (points, x, name = 'kintsugi-seam') => {
+      const flowCurves=[];
+      const seam = (points, x, name = 'kintsugi-seam', radius = name==='kintsugi-seam'?0.0075:0.006) => {
         const curve = new THREE.CatmullRomCurve3(points.map(([y, z]) => new THREE.Vector3(x, y, z)));
-        return add(new THREE.TubeGeometry(curve, Math.max(8, points.length * 5), 0.0052, 7, false), gold, 0, 0, 0, name);
+        flowCurves.push(curve);
+        return add(new THREE.TubeGeometry(curve, Math.max(8, points.length * 5), radius, 7, false), gold, 0, 0, 0, name);
       };
 
       // A single calm ceramic silhouette, split into fitted panels rather than
@@ -118,7 +184,8 @@ export function createHeavyWeapon(weapon, skinKey, length) {
         const x = side * 0.077;
         seam([[0.053, -0.1], [0.025, -0.22], [0.052, -0.34], [-0.02, -0.47], [0.012, -0.6]], x);
         seam([[0.025, -0.22], [-0.026, -0.27], [-0.052, -0.31]], x, 'kintsugi-branch');
-        seam([[-0.02, -0.47], [-0.05, -0.5], [-0.061, -0.56]], x, 'kintsugi-branch');
+        seam([[0.035, 0.115], [-0.018, 0.07], [0.036, 0.012], [-0.015, -0.07]],
+          side*0.074,'kintsugi-branch',0.0064);
         const foreX = side * 0.062;
         seam([[0.02, -0.63], [-0.018, -0.75], [0.035, -0.86], [-0.025, -0.99], [0.01, -1.13]], foreX);
         seam([[0.035, -0.86], [0.057, -0.9], [0.058, -0.96]], foreX, 'kintsugi-branch');
@@ -127,8 +194,8 @@ export function createHeavyWeapon(weapon, skinKey, length) {
         new THREE.Vector3(-0.045, 0.086, -0.21), new THREE.Vector3(0.018, 0.087, -0.31),
         new THREE.Vector3(-0.028, 0.087, -0.43), new THREE.Vector3(0.038, 0.087, -0.55),
       ]);
-      add(new THREE.TubeGeometry(topCrack, 20, 0.0048, 7, false), gold, 0, 0, 0, 'kintsugi-top-seam');
-
+      flowCurves.push(topCrack);
+      add(new THREE.TubeGeometry(topCrack, 20, 0.007, 7, false), gold, 0, 0, 0, 'kintsugi-top-seam');
       // Compact ceramic optic, visually seated into the upper ridge.
       box(0.052, 0.045, 0.12, 0, 0.111, -0.2, dark, 'kintsugi-scope-mount');
       tube(0.044, 0.3, 0, 0.157, -0.24, ceramic, 'kintsugi-scope');
@@ -142,6 +209,7 @@ export function createHeavyWeapon(weapon, skinKey, length) {
       group.userData.kintsugiGold = gold;
       group.userData.kintsugiBaseGlow = 0.24;
       group.userData.kintsugiShotAt = -10;
+      attachKintsugiFlow(group,flowCurves,0.0065,{packetsPerCurve:3,haloScale:1.8});
       return group;
     }
     if (skinKey === 'sniper_flatpack') {

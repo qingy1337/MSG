@@ -1,18 +1,14 @@
 const { traceShot } = require('./hitscan');
+const {addKnockbackImpulse}=require('../public/arenaMap');
 
 function floorDifficulty(floor, baseCount = 4) {
   const level = Math.max(1, Math.floor(floor || 1));
-  // Floor 21 begins the elite phase. Smaller, fixed-size waves avoid turning
-  // later floors into a network/CPU stress test; individual enemies become
-  // tougher instead. Health keeps climbing for a while so progression does
-  // not simply stop at the old floor-20 ceiling.
+  // Floors after 20 keep the large floor-20 wave. New enemy classes replace
+  // soldiers inside that wave instead of collapsing it or adding extra actors.
   if (level > 20) {
-    const result={count:10,health:Math.min(300,220+(level-21)*5),speed:1.3,ogres:4};
+    const result={count:Math.min(24,baseCount+19),health:Math.min(300,220+(level-21)*5),speed:1.3,ogres:4};
     if(level>40) {
       result.guardians=Math.min(3,1+Math.floor((level-41)/7));
-      // Guardians join the established late-game force; they never consume a
-      // Dread Trooper or Ogre slot.
-      result.count+=result.guardians;
     }
     return result;
   }
@@ -89,7 +85,7 @@ function tickOgre(bot, target, players, walls, map, now, damage) {
         if(p.alive) {
           p.movementEpoch=(p.movementEpoch||0)+1;
           const angle=distance>0.01?Math.atan2(p.y-bot.y,p.x-bot.x):attack.angle;
-          p.knockback={start:now,lastAt:now,duration:450,vx:Math.cos(angle)*320,vy:Math.sin(angle)*320};
+          addKnockbackImpulse(p,Math.cos(angle)*320,Math.sin(angle)*320,now,'ogreSlam');
         }
       }
     }

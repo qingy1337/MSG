@@ -19,6 +19,11 @@ export function createTerrainModel(s) {
       (a.x+b.x)/2,(a.y+b.y)/2,(a.z+b.z)/2);
     mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),direction.normalize());return mesh;
   };
+  // Some detailed props use several authoritative collision primitives rather
+  // than one oversized authoring box. Their visible geometry is supplied by
+  // the matching non-solid terrain item, so these pieces intentionally render
+  // no duplicate blocks.
+  if(s.collisionOnly){group.name=`collision-${s.scannerPart||s.kind}`;return group;}
   if(s.kind==='grandLantern') {
     const iron=material('#2d3437',0.82),brass=material('#b7833f',0.72),rim=material('#e4b45f',0.58);
     const glow=new THREE.MeshStandardMaterial({color:'#ffd58a',emissive:'#ff9f32',emissiveIntensity:2.3,
@@ -122,14 +127,24 @@ export function createTerrainModel(s) {
       const curb=material('#e8e5dd',.12),frame=material('#5e6b74',.68);
       const pane=new THREE.MeshPhysicalMaterial({color:'#a9c8d4',transparent:true,opacity:.27,
         roughness:.08,metalness:.06,depthWrite:false,side:THREE.DoubleSide});
-      box(alongX?length:.13,.18,alongX?.13:length,w/2,base(w/2,d/2)+.09,d/2,curb);
-      const glass=box(alongX?length-.09:.025,.58,alongX?.025:length-.09,
-        w/2,base(w/2,d/2)+.48,d/2,pane);glass.castShadow=false;
+      const rise=s.axis?(s.reverse?-s.rise:s.rise):0;
+      const pitch=Math.atan2(rise,length),slopedLength=Math.hypot(length,rise);
+      const followPitch=mesh=>{
+        if(!s.axis)return mesh;
+        if(alongX)mesh.rotation.z=pitch;else mesh.rotation.x=-pitch;
+        return mesh;
+      };
+      followPitch(box(alongX?slopedLength:.13,.18,alongX?.13:slopedLength,
+        w/2,base(w/2,d/2)+.09,d/2,curb));
+      const glass=followPitch(box(alongX?slopedLength-.09:.025,.58,alongX?.025:slopedLength-.09,
+        w/2,base(w/2,d/2)+.48,d/2,pane));glass.castShadow=false;
       for(let i=0,n=Math.max(1,Math.ceil(length/1.45));i<=n;i++) {
         const t=i/n,x=alongX?length*t:w/2,z=alongX?d/2:length*t;
         box(.055,.93,.055,x,base(x,z)+.465,z,frame);
       }
-      box(alongX?length:.075,.075,alongX?.075:length,w/2,base(w/2,d/2)+.91,d/2,frame);
+      const handrail=followPitch(box(alongX?slopedLength:.075,.075,alongX?.075:slopedLength,
+        w/2,base(w/2,d/2)+.91,d/2,frame));
+      if(s.axis)handrail.name='terminal-stair-handrail';
       return group;
     }
     if(s.style==='industrial') {
@@ -477,15 +492,284 @@ export function createTerrainModel(s) {
       beam([cx,h-.08,cz],[cx+Math.cos(a)*r*.72,h-.08,cz+Math.sin(a)*r*.72],.045,edge,6,.018);
     }
   } else if(s.kind==='airportCarpet') {
-    const carpet=material(s.zone==='gates'?'#315f78':'#466c80',.02),thread=material('#7c9aab',.01);
+    const carpetColors={'gate-a':'#315a70','gate-b':'#3d6476','gate-c':'#2f5669',entry:'#526167'};
+    const carpet=material(carpetColors[s.zone]||'#3b6276',.02),thread=material(s.zone==='entry'?'#899397':'#7c9aab',.01);
     // Collision remains exactly at floor height, but the visible pile sits
     // 18 mm above the terrazzo. Rendering the old carpet cap at y=0 made it
     // coplanar with the arena floor and produced severe z-fighting.
     const pile=.018;
     box(w,pile,d,w/2,h+pile/2,d/2,carpet);
     const alongX=w>=d,length=alongX?w:d;
-    for(let at=.45;at<length;at+=1.15)
-      box(alongX?.025:w-.12,.006,alongX?d-.12:.025,alongX?at:w/2,h+pile+.003,alongX?d/2:at,thread);
+    if(s.zone==='entry') {
+      for(let at=.28;at<length;at+=.34)
+        box(alongX?.018:w-.12,.006,alongX?d-.12:.018,alongX?at:w/2,h+pile+.003,alongX?d/2:at,thread);
+    } else {
+      // A restrained woven grid reads as fitted gate-area carpet instead of
+      // one flat color swatch pasted across the entire concourse.
+      for(let at=.45;at<length;at+=1.15)
+        box(alongX?.025:w-.12,.006,alongX?d-.12:.025,alongX?at:w/2,h+pile+.003,alongX?d/2:at,thread);
+      const cross=alongX?d:w;
+      for(let at=.55;at<cross;at+=1.45)
+        box(alongX?w-.12:.018,.006,alongX?.018:d-.12,alongX?w/2:at,h+pile+.004,alongX?at:d/2,thread);
+    }
+  } else if(s.kind==='airportAtrium') {
+    const curb=material('#d8d5cc',.22),bed=material('#263f3a',.03),water=material('#4b8996',.08);
+    const leaf=material('#47755c',.02),lightLeaf=material('#6b9a73',.01),stoneChip=material('#a9aaa2',.08);
+    // The court sits a few centimetres above the shared floor so none of its
+    // broad surfaces are coplanar. Glazed gameplay walls keep this decorative
+    // garden inaccessible while preserving the hollow-terminal sightline.
+    box(w,.025,d,w/2,h+.012,d/2,bed);
+    box(w*.54,.018,d*.34,w/2,h+.030,d/2,water);
+    for(const side of [-1,1]) {
+      box(w*.86,.34,.34,w/2,h+.17,d/2+side*d*.37,curb);
+      for(let i=0;i<9;i++) {
+        const x=w*(.12+i*.095),z=d/2+side*d*.37;
+        beam([x,h+.30,z],[x+(i%2?.10:-.08),h+.88+(i%3)*.13,z+side*.05],.035,leaf,7,.018);
+        const crown=add(new THREE.SphereGeometry(.16+(i%3)*.025,9,6),i%2?lightLeaf:leaf,
+          x+(i%2?.10:-.08),h+.92+(i%3)*.13,z+side*.05);
+        crown.scale.set(1.45,.72,1.0);
+      }
+    }
+    for(let i=0;i<7;i++) {
+      const x=w*(.20+i*.10),z=d/2+(i%2?.38:-.38);
+      add(new THREE.DodecahedronGeometry(.10+(i%3)*.025,0),stoneChip,x,h+.09,z);
+    }
+    const bridge=box(w*.20,.08,d*.40,w/2,h+.12,d/2,curb);bridge.name='terminal-atrium-bridge';
+    group.name='terminal-central-atrium';
+  } else if(s.kind==='airportMarketIsland') {
+    const stone=material('#d8d4c8',.16),wood=material('#9a724c',.28),soil=material('#33443b',.03);
+    const leaf=material('#3f7359',.02),lightLeaf=material('#6b9670',.02),metal=material('#64737a',.72);
+    const lamp=new THREE.MeshStandardMaterial({color:'#fff0cf',emissive:'#ffc969',emissiveIntensity:1.35,
+      roughness:.28,metalness:.06,toneMapped:false});
+    // One continuous plinth makes the capsule collider visually honest. Seats,
+    // planting beds, tables, and charging rails are integrated into that base.
+    box(w,.28,d*.78,w/2,.14,d/2,stone,.14);
+    for(const side of [-1,1]) {
+      const z=d/2+side*d*.31;
+      box(w*.72,.14,.52,w/2,.36,z,wood,.12);
+      for(let x=w*.18;x<w*.83;x+=1.25)box(.055,.22,.46,x,.24,z,metal,.015);
+    }
+    for(const x of [w*.12,w*.88]) {
+      add(new THREE.CylinderGeometry(d*.28,d*.31,.42,20),stone,x,.39,d/2);
+      add(new THREE.CylinderGeometry(d*.245,d*.245,.08,20),soil,x,.64,d/2);
+      for(let i=0;i<13;i++) {
+        const a=i*2.4,reach=d*(.08+(i%4)*.025),stemH=.58+(i%5)*.13;
+        beam([x,.62,d/2],[x+Math.cos(a)*reach,.62+stemH,d/2+Math.sin(a)*reach],.035,leaf,7,.02);
+        const crown=add(new THREE.SphereGeometry(.14+(i%3)*.025,9,6),i%2?lightLeaf:leaf,
+          x+Math.cos(a)*reach,.66+stemH,d/2+Math.sin(a)*reach);
+        crown.scale.set(1.55,.62,1);
+      }
+    }
+    for(const x of [w*.35,w*.50,w*.65]) {
+      box(w*.11,.10,d*.42,x,.77,d/2,wood,.065);
+      box(.11,.52,.11,x,.51,d/2,metal,.025);
+      box(w*.075,.035,.12,x,.86,d*.29,metal,.012);
+      for(const offset of [-.18,.18])
+        add(new THREE.CylinderGeometry(.06,.075,.10,9),offset>0?lamp:material('#73a8b7',.18),x+offset,.91,d*.29);
+    }
+    group.name='terminal-market-island';
+  } else if(s.kind==='airportShopRoof') {
+    const colors={coffee:'#49382f',bakery:'#77504b',books:'#304f68',travel:'#34434d',
+      restaurant:'#713f35',noodles:'#6c352f'};
+    const shell=material(colors[s.shop]||'#46545d',.30);
+    const light=new THREE.MeshStandardMaterial({color:'#fff2d8',emissive:'#ffd28a',emissiveIntensity:1.05,
+      roughness:.3,metalness:.05,toneMapped:false});
+    box(w,h,d,w/2,h/2,d/2,shell);
+    for(const x of [w*.24,w*.5,w*.76])box(.28,.025,.12,x,-.012,d*.5,light,.012);
+  } else if(s.kind==='airportShop') {
+    const schemes={
+      coffee:['#49382f','#d5a253','#fff0d1'],bakery:['#77504b','#e79175','#fff1dc'],
+      books:['#304f68','#62a0bb','#e7f4ef'],travel:['#34434d','#d1a957','#eef8fa'],
+      restaurant:['#713f35','#db7653','#ffe5b0'],
+      noodles:['#6c352f','#d86d4e','#ffe0a2'],
+    };
+    const [bodyColor,accentColor,lightColor]=schemes[s.shop]||schemes.travel;
+    const body=material(bodyColor,.28),accent=material(accentColor,.42),floor=material('#d9d2c4',.08);
+    const signGlow=new THREE.MeshStandardMaterial({color:lightColor,emissive:accentColor,emissiveIntensity:1.25,
+      roughness:.28,metalness:.08,toneMapped:false});
+    const shopH=(s.shopHeight||3.15)-(s.bottom||0),floorY=h+.014;
+    // Integrated terminal shops share the arena floor mesh. Drawing another
+    // raised slab across the old perimeter made that obsolete boundary show
+    // up as a hard line through every shop. Standalone shops can still opt in
+    // to their own floor when used by another environment.
+    if(!s.integratedFloor) {
+      const shopFloor=box(w-.05,.028,d-.05,w/2,floorY,d/2,floor);
+      shopFloor.name='terminal-shop-floor';
+    }
+    const horizontal=s.front==='north'||s.front==='south',positive=s.front==='south'||s.front==='east';
+    const length=horizontal?w:d,fx=horizontal?w/2:(positive?w+.035:-.035),
+      fz=horizontal?(positive?d+.035:-.035):d/2;
+    const faceBox=(lengthSize,heightSize,depthSize,y,mat,radius=.025,offset=0)=>{
+      const outward=positive?1:-1;
+      return horizontal?
+        box(lengthSize,heightSize,depthSize,fx,y,fz+outward*offset,mat,radius):
+        box(depthSize,heightSize,lengthSize,fx+outward*offset,y,fz,mat,radius);
+    };
+    faceBox(length*.90,.54,.12,shopH-.50,accent,.05,.08);
+    faceBox(length*.62,.11,.15,shopH-.50,signGlow,.018,.15);
+    faceBox(length*.88,.13,.72,shopH-.93,body,.035,.34);
+    // A full-width opening remains below the fascia. Slim edge columns frame
+    // the recess but stay aligned with the authored side-wall colliders.
+    for(const along of [-length*.46,length*.46]) {
+      if(horizontal)box(.13,shopH-.90,.13,fx+along,(shopH-.90)/2,fz,accent,.028);
+      else box(.13,shopH-.90,.13,fx,(shopH-.90)/2,fz+along,accent,.028);
+    }
+    for(let i=0;i<3;i++) {
+      const along=-length*.27+i*length*.27;
+      add(new THREE.CylinderGeometry(.10,.13,.035,12),signGlow,
+        horizontal?fx+along:w*(.18+i*.32),shopH-.17,horizontal?d*(.38+i%2*.24):fz+along);
+    }
+    // A recessed feature wall and pendant pool give the shop interior depth
+    // when viewed from the concourse. Everything is offset from the authored
+    // collision walls, avoiding the coplanar flashing that plagued old maps.
+    const backX=horizontal?w/2:(s.front==='west'?w-.10:.10);
+    const backZ=horizontal?(s.front==='north'?d-.10:.10):d/2;
+    const feature=horizontal?
+      box(w*.62,1.12,.045,backX,1.45,backZ,body,.025):
+      box(.045,1.12,d*.62,backX,1.45,backZ,body,.025);
+    feature.name=`terminal-shop-feature-${s.shop}`;
+    const towardFront=s.front==='north'||s.front==='west'?-1:1;
+    const wallArt=(along,y,artW,artH,artMaterial)=>{
+      return horizontal?
+        box(artW,artH,.035,w/2+along,y,backZ+towardFront*.045,artMaterial,.018):
+        box(.035,artH,artW,backX+towardFront*.045,y,d/2+along,artMaterial,.018);
+    };
+    const ink=material('#202b30',.45),paper=material('#f4e8cf',.08);
+    if(s.shop==='coffee') {
+      for(let i=0;i<3;i++) {
+        wallArt((i-1)*length*.17,1.53,length*.13,.66,ink);
+        for(let line=0;line<4;line++)wallArt((i-1)*length*.17,1.69-line*.12,length*.085,.018,line===0?accent:paper);
+      }
+    } else if(s.shop==='books') {
+      const posterColors=[material('#d96555',.12),material('#e4b34f',.12),material('#57a0a9',.12),paper];
+      for(let i=0;i<7;i++)wallArt((i-3)*length*.075,1.48,length*.052,.76,posterColors[i%posterColors.length]);
+    } else if(s.shop==='restaurant') {
+      for(let i=0;i<3;i++) {
+        wallArt((i-1)*length*.18,1.50,length*.14,.72,ink);
+        const plate=add(new THREE.TorusGeometry(.13,.025,6,16),i===1?signGlow:paper,
+          horizontal?w/2+(i-1)*length*.18:backX+(towardFront*.07),1.5,
+          horizontal?backZ+towardFront*.07:d/2+(i-1)*length*.18);
+        if(!horizontal)plate.rotation.y=Math.PI/2;
+      }
+    } else if(s.shop==='travel') {
+      wallArt(0,1.48,length*.52,.78,material('#d7e2db',.08));
+      for(let i=0;i<5;i++) {
+        const line=wallArt((i-2)*length*.075,1.50+(i%2)*.13,length*.12,.026,i%2?accent:ink);
+        line.rotation[horizontal?'z':'x']=(i-2)*.12;
+      }
+      for(const along of [-length*.18,0,length*.19])wallArt(along,1.42,.07,.07,signGlow);
+    }
+    for(let i=0;i<3;i++) {
+      const along=-length*.25+i*length*.25;
+      const lampX=horizontal?fx+along:w*.48;
+      const lampZ=horizontal?d*.48:fz+along;
+      box(.025,.58,.025,lampX,shopH-.47,lampZ,accent,.006);
+      const lamp=add(new THREE.CylinderGeometry(.18,.32,.20,12),signGlow,lampX,shopH-.82,lampZ);
+      lamp.name='terminal-shop-pendant';
+    }
+
+    // Each tenant owns a distinct geometric mark rather than sharing the same
+    // generic ring. The symbols are deliberately simple enough to remain crisp
+    // at first-person distance without texture atlases or runtime text.
+    const outward=positive?1:-1,iconAlong=-length*.27,iconY=shopH-.50;
+    const placeIcon=(geometry,along,y=iconY,depth=.17)=>{
+      const mesh=add(geometry,signGlow,horizontal?fx+along:fx+outward*depth,y,
+        horizontal?fz+outward*depth:fz+along);
+      if(!horizontal)mesh.rotation.y=Math.PI/2;
+      return mesh;
+    };
+    if(s.shop==='coffee') {
+      placeIcon(new THREE.TorusGeometry(.19,.055,7,18),iconAlong);
+      placeIcon(new THREE.TorusGeometry(.095,.035,6,14),iconAlong+.20);
+      for(const offset of [-.08,.08])placeIcon(new THREE.CapsuleGeometry(.018,.16,3,6),iconAlong+offset,iconY+.27);
+    } else if(s.shop==='books') {
+      for(let i=0;i<3;i++)placeIcon(new RoundedBoxGeometry(.42-i*.05,.075,.07,2,.018),iconAlong+(i-1)*.025,iconY+(i-1)*.12);
+    } else if(s.shop==='bakery') {
+      for(const offset of [-.16,0,.16])placeIcon(new THREE.TorusGeometry(.105,.038,6,14,Math.PI*1.3),iconAlong+offset,iconY+(offset===0?.07:0));
+    } else if(s.shop==='travel') {
+      placeIcon(new RoundedBoxGeometry(.42,.34,.07,3,.07),iconAlong);
+      placeIcon(new THREE.TorusGeometry(.105,.026,6,14,Math.PI),iconAlong,iconY+.22);
+    } else if(s.shop==='restaurant') {
+      placeIcon(new THREE.TorusGeometry(.20,.035,7,20),iconAlong);
+      for(const offset of [-.28,.28])placeIcon(new THREE.CapsuleGeometry(.018,.38,3,6),iconAlong+offset,iconY);
+    } else {
+      placeIcon(new THREE.CylinderGeometry(.22,.14,.15,16),iconAlong,iconY-.05);
+      for(const offset of [-.07,.07]) {
+        const stick=placeIcon(new THREE.CapsuleGeometry(.015,.46,3,6),iconAlong+offset,iconY+.18);
+        stick.rotation.z=offset<0?-.15:.15;
+      }
+    }
+    group.name=`terminal-shop-${s.shop}`;
+  } else if(s.kind==='airportShopFixture') {
+    const schemes={coffee:['#49382f','#d5a253'],bakery:['#77504b','#e79175'],books:['#304f68','#62a0bb'],
+      travel:['#34434d','#d1a957'],restaurant:['#713f35','#db7653'],noodles:['#6c352f','#d86d4e']};
+    const [bodyColor,accentColor]=schemes[s.shop]||schemes.travel;
+    const body=material(bodyColor,.30),accent=material(accentColor,.38),pale=material('#eee7d9',.10),metal=material('#7d898e',.72);
+    const glow=new THREE.MeshStandardMaterial({color:'#fff0cf',emissive:accentColor,emissiveIntensity:1.15,
+      roughness:.25,metalness:.06,toneMapped:false});
+    if(s.fixture==='table') {
+      const r=Math.min(w,d)*.42;
+      add(new THREE.CylinderGeometry(r,r,.12,18),pale,w/2,h-.08,d/2);
+      add(new THREE.CylinderGeometry(.09,.15,h-.14,12),metal,w/2,(h-.14)/2,d/2);
+      for(let i=0;i<3;i++) {
+        const a=i*Math.PI*2/3,x=w/2+Math.cos(a)*r*1.55,z=d/2+Math.sin(a)*r*1.55;
+        add(new THREE.CylinderGeometry(.13,.13,.08,12),accent,x,.48,z);
+        box(.07,.44,.07,x,.22,z,metal);
+      }
+      if(s.shop==='coffee')for(const offset of [-.13,.13]) {
+        const cup=add(new THREE.CylinderGeometry(.065,.055,.14,9),pale,w/2+offset,h+.04,d/2);
+        cup.name='terminal-coffee-cup';
+      }
+      if(s.shop==='restaurant') {
+        add(new THREE.CylinderGeometry(.15,.15,.025,16),pale,w/2,h+.005,d/2);
+        for(const offset of [-.11,.11])add(new THREE.SphereGeometry(.045,8,5),accent,w/2+offset,h+.04,d/2);
+        box(.035,.22,.035,w/2,h+.12,d/2,accent,.008);
+        add(new THREE.SphereGeometry(.09,9,6),glow,w/2,h+.26,d/2).scale.set(1.4,.72,1);
+      }
+    } else if(s.fixture==='shelf') {
+      box(w,h,d,w/2,h/2,d/2,body);
+      for(const y of [.32,.72,1.12,1.52].filter(y=>y<h-.08)) {
+        box(w-.10,.055,d+.06,w/2,y,d/2,accent);
+        const books=Math.max(4,Math.floor(w/.28));
+        for(let i=0;i<books;i++)box(Math.min(.15,w/books*.55),.23,.10,w*(i+.5)/books,y+.14,d*.22,
+          i%3===0?accent:i%3===1?pale:material('#a85f4b',.12),.012);
+      }
+    } else if(s.fixture==='display'||s.fixture==='island') {
+      box(w,h*.55,d,w/2,h*.275,d/2,body);
+      box(w+.08,.10,d+.08,w/2,h*.58,d/2,accent);
+      if(s.shop==='travel')for(let i=0;i<3;i++) {
+        const x=w*(.22+i*.28);
+        box(w*.18,h*.35,d*.55,x,h*.80,d/2,i%2?accent:pale,.07);
+        box(.06,.14,.06,x,h*.99,d/2,metal);
+      } else for(let i=0;i<5;i++)
+        add(new THREE.SphereGeometry(.10+(i%2)*.03,10,7),i%2?accent:pale,w*(.16+i*.17),h*.72,d/2);
+    } else {
+      box(w,h-.10,d,w/2,(h-.10)/2,d/2,body);
+      box(w+.06,.12,d+.06,w/2,h-.06,d/2,pale);
+      const glass=new THREE.MeshPhysicalMaterial({color:'#c4e1e5',transparent:true,opacity:.34,roughness:.08,
+        metalness:.05,depthWrite:false,side:THREE.DoubleSide});
+      box(w*.84,.36,.035,w/2,h*.62,-.025,glass,.012);
+      if(s.shop==='coffee') {
+        box(w*.32,.42,d*.58,w*.55,h+.21,d/2,metal,.055);
+        box(w*.24,.12,d*.46,w*.55,h+.47,d/2,accent,.025);
+        for(const x of [w*.18,w*.34,w*.76]) {
+          const cup=add(new THREE.CylinderGeometry(.10,.085,.22,10),pale,x,h+.13,d*.25);
+          cup.name='terminal-coffee-cup';
+        }
+      } else if(s.shop==='restaurant') {
+        for(let i=0;i<4;i++) {
+          add(new THREE.CylinderGeometry(.14,.14,.025,16),pale,w*(.17+i*.22),h+.015,d*.28);
+          add(new THREE.SphereGeometry(.055+(i%2)*.018,8,5),i%2?accent:glow,w*(.17+i*.22),h+.06,d*.28);
+        }
+        for(let i=0;i<3;i++)box(w*.22,.28,.035,w*(.2+i*.3),h+.54,d+.03,i===1?glow:accent,.025);
+      } else if(s.shop==='bakery')for(let i=0;i<6;i++)
+        add(new THREE.SphereGeometry(.11+(i%2)*.025,10,7),i%2?accent:pale,w*(.12+i*.15),h+.10,d*.26);
+      else if(s.shop==='noodles')for(const x of [w*.25,w*.50,w*.75]) {
+        add(new THREE.CylinderGeometry(.12,.16,.10,12),accent,x,h+.08,d*.28);
+        beam([x,h+.13,d*.28],[x+.08,h+.32,d*.28],.018,metal,6,.009);
+      }
+    }
+    group.name=`terminal-shop-fixture-${s.shop}-${s.fixture}`;
   } else if(s.kind==='airportDeck') {
     const fascia=material('#65727a',.68),slab=material('#e8e5dd',.18),carpet=material('#345e76',.02);
     box(w,h,d,w/2,h/2,d/2,slab);
@@ -497,41 +781,61 @@ export function createTerrainModel(s) {
       box(alongX?.045:w-.18,.018,alongX?d-.18:.045,alongX?at:w/2,h+.05,alongX?d/2:at,fascia);
   } else if(s.kind==='airportCheckin') {
     const cabinet=material('#d6d5ce',.22),counter=material('#f6f4ee',.1),edge=material('#52616b',.72);
+    const belt=material('#303a40',.84);
     const screen=new THREE.MeshStandardMaterial({color:'#a7d7e8',emissive:'#2c789d',emissiveIntensity:.8,
       roughness:.24,metalness:.16,toneMapped:false});
-    box(w,h-.16,d,w/2,(h-.16)/2,d/2,cabinet);
-    box(w,.16,d,w/2,h-.08,d/2,counter);
-    box(w-.25,.12,.16,w/2,.18,d+.04,edge,.025);
+    // A continuous recessed plinth preserves the exact collider footprint;
+    // individual desks above it stop a long check-in island from reading as
+    // one crude rectangular obstacle.
+    box(w,.24,d,w/2,.12,d/2,edge,.035);
+    box(w-.25,.10,.16,w/2,.29,d+.04,edge,.025);
     const stations=Math.max(2,Math.floor(w/2.2));
     for(let i=0;i<stations;i++) {
-      const x=w*(i+.5)/stations;
+      const bay=w/stations,x=w*(i+.5)/stations,bayWidth=bay-.16;
+      box(bayWidth,h-.38,d*.82,x,(h-.38)/2+.24,d*.48,cabinet,.055);
+      box(bayWidth+.03,.14,d*.86,x,h-.12,d*.48,counter,.035);
+      box(bayWidth*.54,.055,d*.32,x,h-.015,d*.70,belt,.012);
+      for(let roll=-1;roll<=1;roll++)box(bayWidth*.12,.018,d*.28,x+roll*bayWidth*.15,h+.02,d*.70,edge,.006);
       box(.08,.52,.08,x,h+.24,d*.28,edge,.018);
       const display=box(.62,.40,.055,x,h+.5,d*.28,screen,.035);display.rotation.x=-.12;
-      box(Math.max(.45,w/stations-.3),.035,d*.35,x,h+.04,d*.72,edge,.008);
+      box(Math.max(.45,bayWidth-.14),.035,d*.25,x,h+.04,d*.24,edge,.008);
     }
   } else if(s.kind==='airportScanner') {
     const shell=material('#d9dde0',.52),edge=material('#596872',.72),belt=material('#2f3b43',.8);
     const scan=new THREE.MeshStandardMaterial({color:'#a9e9fb',emissive:'#3ca5ca',emissiveIntensity:1.35,
       roughness:.2,metalness:.15,toneMapped:false});
-    const archX=w*.42,archW=w*.30;
-    box(archW*.26,h,d*.72,archX-archW*.37,h/2,d/2,shell);
-    box(archW*.26,h,d*.72,archX+archW*.37,h/2,d/2,shell);
+    const archX=w*.30,archW=w*.50;
+    box(archW*.18,h,d*.72,archX-archW*.40,h/2,d/2,shell);
+    box(archW*.18,h,d*.72,archX+archW*.40,h/2,d/2,shell);
     box(archW,h*.18,d*.72,archX,h*.91,d/2,shell);
     box(archW*.62,h*.60,.035,archX,h*.50,d*.12,scan,.015);
-    box(w*.43,.58,d*.62,w*.77,.29,d/2,edge);
-    box(w*.43,.09,d*.52,w*.77,.61,d/2,belt,.018);
-    for(const x of [w*.59,w*.94])box(.10,.58,.10,x,.29,d/2,edge);
+    box(w*.38,.58,d*.62,w*.80,.29,d/2,edge);
+    box(w*.38,.09,d*.52,w*.80,.61,d/2,belt,.018);
+    for(const x of [w*.62,w*.98])box(.10,.58,.10,x,.29,d/2,edge);
   } else if(s.kind==='airportFlightBoard') {
     const frame=material('#4b5962',.74),screen=material('#17242d',.78),white=material('#dbe8ed',.18);
     const cyan=new THREE.MeshStandardMaterial({color:'#8dddf1',emissive:'#3898bb',emissiveIntensity:1.1,
       roughness:.24,metalness:.18,toneMapped:false});
-    box(w,h,d,w/2,h/2,d/2,frame);
-    box(w+.04,h*.66,d*.58,w/2,h*.57,-.02,screen,.035);
-    for(let row=0;row<7;row++) {
-      const y=h*.32+row*h*.072;
-      box(w*.18,.035,.02,w*.2,y,-.06,row%3===0?cyan:white,.005);
-      box(w*.42,.026,.02,w*.57,y,-.06,white,.005);
-      box(w*.13,.028,.02,w*.85,y,-.06,row%2?cyan:white,.005);
+    if(s.wallMounted) {
+      const panelH=s.displayHeight||2,panelBottom=s.mountBottom||2.6,depth=.12;
+      box(w,panelH,depth,w/2,panelBottom+panelH/2,depth/2,frame,.045);
+      box(w-.12,panelH-.14,.035,w/2,panelBottom+panelH/2,-.012,screen,.018);
+      for(let row=0;row<7;row++) {
+        const y=panelBottom+.28+row*(panelH-.52)/6;
+        box(w*.16,.035,.018,w*.18,y,-.035,row%3===0?cyan:white,.005);
+        box(w*.43,.026,.018,w*.56,y,-.035,white,.005);
+        box(w*.13,.028,.018,w*.86,y,-.035,row%2?cyan:white,.005);
+      }
+      group.name='terminal-wall-flight-board';
+    } else {
+      box(w,h,d,w/2,h/2,d/2,frame);
+      box(w+.04,h*.66,d*.58,w/2,h*.57,-.02,screen,.035);
+      for(let row=0;row<7;row++) {
+        const y=h*.32+row*h*.072;
+        box(w*.18,.035,.02,w*.2,y,-.06,row%3===0?cyan:white,.005);
+        box(w*.42,.026,.02,w*.57,y,-.06,white,.005);
+        box(w*.13,.028,.02,w*.85,y,-.06,row%2?cyan:white,.005);
+      }
     }
   } else if(s.kind==='airportSeats') {
     const frame=material('#59666e',.76),seat=material(s.bottom?'#55788a':'#496d80',.15),pad=material('#8da4ad',.08);
@@ -577,12 +881,18 @@ export function createTerrainModel(s) {
       const at=length*(i+.5)/count;
       const roll=add(new THREE.CylinderGeometry(.065,.065,(alongX?d:w)-.18,9),roller,
         alongX?at:w/2,h-.04,alongX?d/2:at);
+      roll.name='terminal-baggage-roller';
       if(alongX)roll.rotation.x=Math.PI/2;else roll.rotation.z=Math.PI/2;
     }
     for(const side of [.07,(alongX?d:w)-.07])box(alongX?w:.12,.18,alongX?.12:d,
       alongX?w/2:side,h-.09,alongX?side:d/2,frame,.025);
     // A few restrained bags make the belt read immediately without clutter.
-    for(let i=0;i<3;i++)box(.48,.32,.34,w*(.24+i*.24),h+.15,d*(.38+(i%2)*.24),i%2?material('#99584b',.65):material('#455d78',.65),.07);
+    for(let i=0;i<3;i++) {
+      const bag=box(.48,.32,.34,w*(.24+i*.24),h+.15,d*(.38+(i%2)*.24),
+        i%2?material('#99584b',.65):material('#455d78',.65),.07);
+      bag.name='terminal-baggage-case';
+    }
+    group.name='terminal-baggage-belt';
   } else if(s.kind==='airportLuggageCart') {
     const frame=material('#6b777d',.78),bagA=material('#334a61',.72),bagB=material('#a2634f',.75);
     box(w,.12,d,w/2,.28,d/2,frame,.025);

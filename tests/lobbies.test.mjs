@@ -105,3 +105,30 @@ test('lobbies use the authenticated username and only their leader can launch', 
   }
 });
 
+test('a solo fireteam can launch The Red Vault without replacing Endless PvE', t => {
+  t.mock.method(global, 'setInterval', () => 1);
+  t.mock.method(global, 'clearInterval', () => {});
+  const io = fakeIo();
+  const manager = lobbyModule.createLobbyServer(io);
+  const striker = new FakeSocket('striker', 'red-vault-lead');
+  const endless = new FakeSocket('endless', 'endless-lead');
+  io.connect(striker);io.connect(endless);
+
+  try {
+    const strikeCreated=request(striker,'lobby:create',{mode:'strike',weapon:'sniper'});
+    const pveCreated=request(endless,'lobby:create',{mode:'pve',weapon:'autoRifle'});
+    assert.equal(strikeCreated.ok,true);assert.equal(pveCreated.ok,true);
+    assert.equal(request(striker,'lobby:start').ok,true,'one-player co-op Strike can launch');
+    const strikeLobby=manager.lobbies.get(strikeCreated.lobby.id);
+    const pveLobby=manager.lobbies.get(pveCreated.lobby.id);
+    assert.equal(strikeLobby.status,'active');
+    assert.equal(strikeLobby.engine.gameMap.id,'red-vault');
+    assert.equal(strikeLobby.engine.gameMap.mode,'strike');
+    assert.equal(strikeLobby.engine.gameMap.activity,'strike');
+    assert.ok(strikeLobby.engine.strikeState);
+    assert.equal(pveLobby.status,'open','the independent Endless fireteam remains available');
+    assert.equal(pveLobby.engine.strikeState,null);
+  } finally {
+    manager.close();
+  }
+});

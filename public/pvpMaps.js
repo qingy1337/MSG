@@ -12,6 +12,12 @@
   ];
   const wall=(x,y,width,height,top=3.1)=>({x,y,width,height,top});
   const terrain=(kind,x,y,width,height,top,extra={})=>({kind,x,y,width,height,top,...extra});
+  const airportScanner=(x,y)=>[
+    terrain('airportScanner',x,y,125,58,2.4,{nonSolid:true}),
+    terrain('airportScannerCollider',x+7,y+8,11,42,2.4,{collisionOnly:true,scannerPart:'arch-left'}),
+    terrain('airportScannerCollider',x+57,y+8,11,42,2.4,{collisionOnly:true,scannerPart:'arch-right'}),
+    terrain('airportScannerCollider',x+76,y+11,48,36,.68,{collisionOnly:true,scannerPart:'belt'}),
+  ];
 
   const definitions={
     foundry:{
@@ -479,107 +485,172 @@
     },
     airport:{
       id:'airport',name:'Terminal 7',
-      description:'A detailed international terminal spanning check-in, security, gates, an airline lounge, and baggage handling.',
-      width:1500,height:1050,ceiling:9.5,scale:.72,style:'airport',accent:'#3f82b7',
+      description:'A full-scale departures terminal with three gates, a lively airside market, security, check-in, and an upper lounge circuit.',
+      width:1800,height:1250,ceiling:11.4,scale:.88,style:'airport',accent:'#3f82b7',
+      // Retail rooms punch through the east/west shell while the public hall
+      // keeps its original footprint. These pockets are deliberately narrow:
+      // they extend movement only inside a completed shop, never into an
+      // unbounded strip outside the terminal.
+      worldBounds:{minX:-188,maxX:1988,minY:0,maxY:1250},
+      sideOpenings:[[350,520],[550,720]],
+      walkablePockets:[
+        {x:-188,y:350,width:270,height:170},{x:-188,y:550,width:270,height:170},
+        {x:1718,y:350,width:270,height:170},{x:1718,y:550,width:270,height:170},
+      ],
       palette:{sky:'#7894aa',wall:'#e7e4dd',panel:'#82909a',cap:'#f8f6f0',glow:'#54a9cf',groundStyle:'airport',
         floorLow:'#aeb3b4',floorHigh:'#e7e2d8',reflection:'#9da8ad',reflectionGlow:'#cde8ef',
-        ambient:'#eff6fa',ground:'#8d9698',sun:'#fff0d2',rim:'#8bc8e2',
-        ambientIntensity:3.15,sunIntensity:3.75,rimIntensity:1.45},
+        ambient:'#d9eeff',ground:'#758b98',sun:'#dceeff',rim:'#56bce9',
+        ambientIntensity:2.85,sunIntensity:3.25,rimIntensity:2.35},
       walls:[
-        // Public terminal and baggage hall are separate pieces of architecture,
-        // joined through four staff doors instead of one arena-wide opening.
-        {...wall(12,780,248,24,3.25),airportWall:'service'},
-        {...wall(340,780,250,24,3.25),airportWall:'service'},
-        {...wall(680,780,230,24,3.25),airportWall:'service'},
-        {...wall(1000,780,220,24,3.25),airportWall:'service'},
-        {...wall(1310,780,178,24,3.25),airportWall:'service'},
+        // Gate separators grow from the curtain wall but stop before the main
+        // concourse, creating three recognisable boarding rooms without traps.
+        {...wall(595,20,20,255,3.25),airportWall:'glass',zone:'gate'},
+        {...wall(1185,20,20,255,3.25),airportWall:'glass',zone:'gate'},
 
-        // Glass-ended partitions shape security and the gate lounge while
-        // keeping the terminal visually open and naturally short-range.
-        {...wall(490,330,22,165,3.55),airportWall:'glass'},
-        {...wall(490,620,22,160,3.55),airportWall:'glass'},
-        {...wall(790,330,22,145,3.55),airportWall:'glass'},
-        {...wall(790,600,22,180,3.55),airportWall:'glass'},
-        {...wall(1030,300,22,165,3.7),airportWall:'gate'},
-        {...wall(1030,610,22,170,3.7),airportWall:'gate'},
-        {...wall(1220,515,180,22,3.25),airportWall:'gate'},
-        {...wall(1080,650,170,22,3.25),airportWall:'gate'},
+        // Four tenants are recessed into the east and west perimeter. The
+        // boundary is their back wall; these short returns are their only
+        // authored side walls, leaving each entire frontage genuinely open.
+        {...wall(-188,350,270,20,3.4),airportWall:'shop',shop:'coffee'},
+        {...wall(-188,500,270,20,3.4),airportWall:'shop',shop:'coffee'},
+        {...wall(-188,370,20,130,3.4),airportWall:'shop',shop:'coffee',shopBack:true},
+        {...wall(-188,550,270,20,3.4),airportWall:'shop',shop:'books'},
+        {...wall(-188,700,270,20,3.4),airportWall:'shop',shop:'books'},
+        {...wall(-188,570,20,130,3.4),airportWall:'shop',shop:'books',shopBack:true},
+        {...wall(1718,350,270,20,3.4),airportWall:'shop',shop:'restaurant'},
+        {...wall(1718,500,270,20,3.4),airportWall:'shop',shop:'restaurant'},
+        {...wall(1968,370,20,130,3.4),airportWall:'shop',shop:'restaurant',shopBack:true},
+        {...wall(1718,550,270,20,3.4),airportWall:'shop',shop:'travel'},
+        {...wall(1718,700,270,20,3.4),airportWall:'shop',shop:'travel'},
+        {...wall(1968,570,20,130,3.4),airportWall:'shop',shop:'travel',shopBack:true},
+
+        // The storefronts cut through only the occupied level of the terminal
+        // shell. Keep the upper wall continuous over every opening instead of
+        // leaving four ceiling-height holes above the low shop roofs.
+        ...[[350,170],[550,170]].flatMap(([y,height])=>[
+          {...wall(0,y,12,height,11.4),bottom:3.4,airportWall:'shop-overhead'},
+          {...wall(1788,y,12,height,11.4),bottom:3.4,airportWall:'shop-overhead'},
+        ]),
+
+        // Freestanding glass windbreaks retain close-range cover in the space
+        // released by the recessed storefronts. They belong to the concourse,
+        // remain visibly detached, and do not alter any shop's dimensions.
+        ...[350,500,550,700].flatMap(y=>[
+          {...wall(110,y,80,20,3.4),airportWall:'glass',zone:'retail-windbreak'},
+          {...wall(1610,y,80,20,3.4),airportWall:'glass',zone:'retail-windbreak'},
+        ]),
+
+        // Continue each stair's centre line beneath its upper landing. These
+        // read as glazed structural/security spines supporting the mezzanine,
+        // while ending exactly where the stair begins so its approach remains
+        // completely unobstructed.
+        {...wall(397.5,470,20,150,3.84),airportWall:'glass',zone:'gallery-support'},
+        {...wall(1382.5,470,20,150,3.84),airportWall:'glass',zone:'gallery-support'},
       ],
       terrain:[
-        // Carpet is a visual zoning layer whose top is exactly the gameplay
-        // floor; it cannot catch feet or overlap the physical architecture.
-        terrain('airportCarpet',825,30,645,710,0,{bottom:-.035,zone:'gates'}),
-        terrain('airportCarpet',85,65,690,190,0,{bottom:-.035,zone:'lounge'}),
+        // Only the three waiting rooms and two entrance vestibules are carpeted;
+        // the rest is one continuous, full-scale terrazzo circulation floor.
+        terrain('airportCarpet',35,35,540,245,0,{bottom:-.035,zone:'gate-a'}),
+        terrain('airportCarpet',630,35,540,245,0,{bottom:-.035,zone:'gate-b'}),
+        terrain('airportCarpet',1225,35,540,245,0,{bottom:-.035,zone:'gate-c'}),
+        terrain('airportCarpet',300,1175,250,55,0,{bottom:-.035,zone:'entry'}),
+        terrain('airportCarpet',1250,1175,250,55,0,{bottom:-.035,zone:'entry'}),
 
-        // A connected departures mezzanine and airline lounge overlook the
-        // terminal. Two broad staircases prevent the high route being camped.
-        terrain('airportDeck',70,70,380,220,3.35,{bottom:3.08,walkable:true,wing:'departures'}),
-        terrain('airportDeck',450,70,300,120,3.35,{bottom:3.08,walkable:true,bridge:true,wing:'security-overlook'}),
-        terrain('airportDeck',750,70,250,160,3.35,{bottom:3.08,walkable:true,wing:'airline-lounge'}),
-        terrain('ramp',140,290,100,210,3.35,{axis:'y',reverse:true,stairs:true,steps:22,style:'airport'}),
-        terrain('ramp',840,230,100,190,3.35,{axis:'y',reverse:true,stairs:true,steps:21,style:'airport'}),
+        // Each gate is a complete repeated bay: portal, podium, ordered seating,
+        // charging counter, and planting. This is airport furniture, not cover
+        // scattered into empty space.
+        terrain('airportGateDesk',115,105,155,58,1.2,{gate:'A1'}),
+        terrain('airportGateDesk',710,105,155,58,1.2,{gate:'A2'}),
+        terrain('airportGateDesk',1305,105,155,58,1.2,{gate:'A3'}),
+        terrain('airportSeats',125,190,330,52,.9,{collisionShape:'capsule',collisionRadius:22}),
+        terrain('airportSeats',720,190,330,52,.9,{collisionShape:'capsule',collisionRadius:22}),
+        terrain('airportSeats',1315,190,330,52,.9,{collisionShape:'capsule',collisionRadius:22}),
+        terrain('airportPlanter',505,175,62,62,1.45,{collisionShape:'circle',collisionRadius:27}),
+        terrain('airportPlanter',1100,175,62,62,1.45,{collisionShape:'circle',collisionRadius:27}),
+        terrain('airportPlanter',1695,175,62,62,1.45,{collisionShape:'circle',collisionRadius:27}),
 
-        // Glass balustrades leave deliberate openings at both stair landings.
-        terrain('rail',70,63,380,7,4.35,{style:'airport',bottom:3.35}),
-        terrain('rail',63,70,7,220,4.35,{style:'airport',bottom:3.35}),
-        terrain('rail',70,290,70,7,4.35,{style:'airport',bottom:3.35}),
-        terrain('rail',240,290,210,7,4.35,{style:'airport',bottom:3.35}),
-        terrain('rail',450,63,300,7,4.35,{style:'airport',bottom:3.35}),
-        terrain('rail',450,190,300,7,4.35,{style:'airport',bottom:3.35}),
-        terrain('rail',750,63,250,7,4.35,{style:'airport',bottom:3.35}),
-        terrain('rail',1000,70,7,160,4.35,{style:'airport',bottom:3.35}),
-        terrain('rail',750,230,90,7,4.35,{style:'airport',bottom:3.35}),
-        terrain('rail',940,230,60,7,4.35,{style:'airport',bottom:3.35}),
+        // Four full-depth, wall-integrated shops form the marketplace edges.
+        // Their floors are non-blocking; exact fixtures provide honest cover.
+        terrain('airportShop',-188,350,270,170,0,{bottom:-.035,shopHeight:3.4,shop:'coffee',front:'east',integratedFloor:true}),
+        terrain('airportShop',-188,550,270,170,0,{bottom:-.035,shopHeight:3.4,shop:'books',front:'east',integratedFloor:true}),
+        terrain('airportShop',1718,350,270,170,0,{bottom:-.035,shopHeight:3.4,shop:'restaurant',front:'west',integratedFloor:true}),
+        terrain('airportShop',1718,550,270,170,0,{bottom:-.035,shopHeight:3.4,shop:'travel',front:'west',integratedFloor:true}),
+        terrain('airportShopRoof',-168,370,230,130,3.4,{bottom:3.24,shop:'coffee'}),
+        terrain('airportShopRoof',-168,570,230,130,3.4,{bottom:3.24,shop:'books'}),
+        terrain('airportShopRoof',1738,370,230,130,3.4,{bottom:3.24,shop:'restaurant'}),
+        terrain('airportShopRoof',1738,570,230,130,3.4,{bottom:3.24,shop:'travel'}),
+        terrain('airportShopFixture',-155,385,42,100,1.18,{fixture:'counter',shop:'coffee'}),
+        terrain('airportShopFixture',-70,380,46,46,.82,{fixture:'table',shop:'coffee',collisionShape:'circle',collisionRadius:20}),
+        terrain('airportShopFixture',2,445,46,46,.82,{fixture:'table',shop:'coffee',collisionShape:'circle',collisionRadius:20}),
+        terrain('airportShopFixture',-158,580,32,112,1.9,{fixture:'shelf',shop:'books'}),
+        terrain('airportShopFixture',-105,580,32,112,1.9,{fixture:'shelf',shop:'books'}),
+        terrain('airportShopFixture',-25,600,72,48,.92,{fixture:'display',shop:'books'}),
+        terrain('airportShopFixture',1913,382,42,105,1.2,{fixture:'counter',shop:'restaurant'}),
+        terrain('airportShopFixture',1820,380,48,48,.82,{fixture:'table',shop:'restaurant',collisionShape:'circle',collisionRadius:21}),
+        terrain('airportShopFixture',1750,445,48,48,.82,{fixture:'table',shop:'restaurant',collisionShape:'circle',collisionRadius:21}),
+        terrain('airportShopFixture',1925,580,32,112,1.8,{fixture:'shelf',shop:'travel'}),
+        terrain('airportShopFixture',1835,595,62,78,1.0,{fixture:'island',shop:'travel'}),
+        terrain('airportShopFixture',1750,650,50,48,.92,{fixture:'display',shop:'travel'}),
 
-        // Check-in hall: counters are coherent islands rather than loose cover.
-        terrain('airportCheckin',105,545,270,54,1.18,{row:'A'}),
-        terrain('airportCheckin',105,665,270,54,1.18,{row:'B'}),
-        terrain('airportKiosk',400,540,58,58,1.55,{collisionShape:'circle',collisionRadius:24}),
-        terrain('airportKiosk',400,665,58,58,1.55,{collisionShape:'circle',collisionRadius:24}),
+        // The market court is one designed social island with trees, communal
+        // tables, integrated seating, and a sculptural light—not loose boxes.
+        terrain('airportMarketIsland',590,445,620,155,1.18,{collisionShape:'capsule',collisionRadius:68}),
+        terrain('airportKiosk',485,625,58,58,1.55,{collisionShape:'circle',collisionRadius:24}),
+        terrain('airportKiosk',1260,625,58,58,1.55,{collisionShape:'circle',collisionRadius:24}),
 
-        // Three readable security lanes, backed by a suspended departures board.
-        terrain('airportScanner',575,360,120,52,2.35),
-        terrain('airportScanner',575,500,120,52,2.35),
-        terrain('airportScanner',575,640,120,52,2.35),
-        terrain('airportFlightBoard',715,485,130,34,4.75,{collisionShape:'capsule',collisionRadius:14}),
+        // A real upper programme wraps the market: lounge and restaurant
+        // galleries, an apron overlook, and one broad bridge. The two permanent
+        // stairs keep all elevated combat independent of moving machinery.
+        terrain('airportDeck',250,320,240,300,4.1,{bottom:3.84,walkable:true,wing:'restaurant-gallery'}),
+        terrain('airportDeck',490,320,820,95,4.1,{bottom:3.84,walkable:true,bridge:true,wing:'apron-overlook'}),
+        terrain('airportDeck',1310,320,240,300,4.1,{bottom:3.84,walkable:true,wing:'airline-lounge'}),
+        terrain('airportDeck',490,550,820,70,4.1,{bottom:3.84,walkable:true,bridge:true,wing:'market-bridge'}),
+        terrain('ramp',350,620,115,210,4.1,{axis:'y',reverse:true,stairs:true,steps:22,style:'airport'}),
+        terrain('ramp',1335,620,115,210,4.1,{axis:'y',reverse:true,stairs:true,steps:22,style:'airport'}),
+        terrain('rail',250,313,1300,7,5.1,{style:'airport',bottom:4.1}),
+        terrain('rail',243,320,7,300,5.1,{style:'airport',bottom:4.1}),
+        terrain('rail',1550,320,7,300,5.1,{style:'airport',bottom:4.1}),
+        terrain('rail',490,415,820,7,5.1,{style:'airport',bottom:4.1}),
+        terrain('rail',490,543,820,7,5.1,{style:'airport',bottom:4.1}),
+        terrain('rail',250,620,80,7,5.1,{style:'airport',bottom:4.1}),
+        terrain('rail',490,620,820,7,5.1,{style:'airport',bottom:4.1}),
+        terrain('rail',1470,620,80,7,5.1,{style:'airport',bottom:4.1}),
+        terrain('airportSeats',270,370,175,48,4.95,{bottom:4.1,collisionShape:'capsule',collisionRadius:20}),
+        terrain('airportShopFixture',270,500,155,34,5.28,{bottom:4.1,fixture:'counter',shop:'restaurant'}),
+        terrain('airportSeats',1340,380,175,48,4.95,{bottom:4.1,collisionShape:'capsule',collisionRadius:20}),
+        terrain('airportPlanter',1430,520,58,58,5.45,{bottom:4.1,collisionShape:'circle',collisionRadius:25}),
 
-        // Gate furniture makes close fighting believable and prevents the broad
-        // glazed concourse from becoming another sniper runway.
-        terrain('airportSeats',1070,345,250,54,.9,{collisionShape:'capsule',collisionRadius:22}),
-        terrain('airportSeats',1115,410,245,54,.9,{collisionShape:'capsule',collisionRadius:22}),
-        terrain('airportSeats',830,575,180,54,.9,{collisionShape:'capsule',collisionRadius:22}),
-        terrain('airportGateDesk',1280,275,135,56,1.2),
-        terrain('airportGateDesk',1260,610,130,56,1.2),
-        terrain('airportPlanter',1120,250,68,68,1.5,{collisionShape:'circle',collisionRadius:30}),
-        terrain('airportPlanter',1408,540,66,66,1.45,{collisionShape:'circle',collisionRadius:29}),
-
-        // The staff route is a real baggage system with belts, carts and an
-        // inspection station, providing a lower, industrial-feeling flank.
-        terrain('airportBaggage',120,845,360,88,1.1),
-        terrain('airportBaggage',600,900,320,82,1.1),
-        terrain('airportBaggage',1060,835,300,88,1.1),
-        terrain('airportLuggageCart',500,835,120,52,.92,{collisionShape:'capsule',collisionRadius:19}),
-        terrain('airportLuggageCart',920,925,120,52,.92,{collisionShape:'capsule',collisionRadius:19}),
-
-        // Upstairs furniture anchors each mezzanine rather than leaving a bare
-        // gameplay slab floating above the terminal.
-        terrain('airportSeats',270,135,145,48,4.2,{bottom:3.35,collisionShape:'capsule',collisionRadius:20}),
-        terrain('airportGateDesk',535,95,130,48,4.45,{bottom:3.35}),
-        terrain('airportPlanter',790,105,60,60,4.7,{bottom:3.35,collisionShape:'circle',collisionRadius:27}),
-        terrain('airportSeats',860,150,120,45,4.2,{bottom:3.35,collisionShape:'capsule',collisionRadius:19}),
+        // The processing sequence is deliberately linear and correctly scaled:
+        // four screening lanes, two six-position airline islands, then doors.
+        ...airportScanner(505,810),
+        ...airportScanner(725,810),
+        ...airportScanner(945,810),
+        ...airportScanner(1165,810),
+        terrain('airportKiosk',155,835,58,58,1.55,{collisionShape:'circle',collisionRadius:24}),
+        terrain('airportKiosk',1585,835,58,58,1.55,{collisionShape:'circle',collisionRadius:24}),
+        terrain('airportCheckin',245,1035,520,62,1.22,{row:'A'}),
+        terrain('airportCheckin',1035,1035,520,62,1.22,{row:'B'}),
+        // Small staffed bag-drop belts bring back the intimate bit of airport
+        // machinery without interrupting either passenger entrance route.
+        terrain('airportBaggage',545,1118,190,48,1.05),
+        terrain('airportBaggage',1065,1118,190,48,1.05),
+        // Departures information belongs on the landside wall opposite the
+        // apron glazing, not as two enormous black obstacles in the room.
+        terrain('airportFlightBoard',585,1230,300,8,0,{bottom:-.035,wallMounted:true,mountBottom:2.65,displayHeight:2.0}),
+        terrain('airportFlightBoard',915,1230,300,8,0,{bottom:-.035,wallMounted:true,mountBottom:2.65,displayHeight:2.0}),
+        terrain('airportLuggageCart',95,1090,110,50,.9,{collisionShape:'capsule',collisionRadius:18}),
+        terrain('airportLuggageCart',1595,1090,110,50,.9,{collisionShape:'capsule',collisionRadius:18}),
       ],
       variants:[
-        [terrain('airportLuggageCart',380,935,125,52,.92,{collisionShape:'capsule',collisionRadius:19}),
-          terrain('airportKiosk',1190,700,56,56,1.5,{collisionShape:'circle',collisionRadius:23})],
-        [terrain('airportPlanter',425,390,64,64,1.45,{collisionShape:'circle',collisionRadius:28}),
-          terrain('airportLuggageCart',1360,905,110,50,.9,{collisionShape:'capsule',collisionRadius:18})],
-        [terrain('airportSeats',260,405,180,50,.88,{collisionShape:'capsule',collisionRadius:21}),
-          terrain('airportKiosk',1080,700,56,56,1.5,{collisionShape:'circle',collisionRadius:23})],
+        [terrain('airportPlanter',865,945,70,70,1.5,{collisionShape:'circle',collisionRadius:30})],
+        [terrain('airportSeats',805,940,190,50,.9,{collisionShape:'capsule',collisionRadius:21})],
+        [terrain('airportKiosk',870,940,60,60,1.55,{collisionShape:'circle',collisionRadius:25})],
       ],
       spawns:[
-        [45,45],[520,55],[1070,55],[1450,55],[45,420],[1450,430],[45,745],[1420,400],
-        [290,820],[750,840],[850,835],[900,720],[350,500],[740,730],[980,520],
-        [105,120,3.35],[500,110,3.35],[700,110,3.35],[880,100,3.35],
+        [70,75],[900,75],[1730,75],[80,300],[900,290],[1720,300],
+        [350,430],[900,420],[1450,430],[500,730],[900,710],[1300,730],
+        [120,960],[900,900],[1680,960],[80,1180],[900,1180],[1720,1180],
+        [300,450,4.1],[590,360,4.1],[900,360,4.1],[1210,360,4.1],[1490,345,4.1],
+        [350,575,4.1],[1050,390,4.1],[1385,575,4.1],
       ],
     },
     maze:{
@@ -594,6 +665,7 @@
   })])));
 
   function collides(x,y,solid,radius=17,footHeight=0) {
+    if(solid.nonSolid)return false;
     if((solid.bottom||0)>=footHeight+2.2||(solid.top??3.1)<=footHeight+0.001||solid.kind==='ramp')return false;
     const cx=Math.max(solid.x,Math.min(x,solid.x+solid.width));
     const cy=Math.max(solid.y,Math.min(y,solid.y+solid.height));
@@ -611,6 +683,7 @@
       if(!solids.some(s=>collides(p.x,p.y,s,20)))points.push(p);
     }
     const blocks=(a,b,s)=>{
+      if(s.nonSolid)return false;
       if((s.bottom||0)>1.84||(s.top??3.1)<1.84||s.kind==='ramp')return false;
       const dx=b.x-a.x,dy=b.y-a.y;let near=0.001,far=0.999;
       for(const [origin,direction,min,max] of [[a.x,dx,s.x,s.x+s.width],[a.y,dy,s.y,s.y+s.height]]) {
@@ -639,10 +712,11 @@
     if(!Number.isFinite(map?.width)||!Number.isFinite(map?.height)||map.width<600||map.height<600)
       errors.push('invalid map dimensions');
     const solids=[...(walls||[]),...(map?.terrain||[])];
+    const world=map?.worldBounds||{minX:0,minY:0,maxX:map?.width,maxY:map?.height};
     for(const [index,s] of solids.entries()) {
       if(![s.x,s.y,s.width,s.height,s.top??3.1].every(Number.isFinite)||s.width<=0||s.height<=0)
         errors.push(`invalid solid ${index}`);
-      else if(s.x<0||s.y<0||s.x+s.width>map.width||s.y+s.height>map.height)
+      else if(s.x<world.minX||s.y<world.minY||s.x+s.width>world.maxX||s.y+s.height>world.maxY)
         errors.push(`out-of-bounds solid ${index}`);
       if(s.kind==='lift'?(s.top||0)<0:(s.bottom||0)>=(s.top??3.1))errors.push(`inverted solid ${index}`);
     }
@@ -653,6 +727,7 @@
     }
     for(let i=0;i<solids.length;i++)for(let j=i+1;j<solids.length;j++) {
       const a=solids[i],b=solids[j];
+      if(a.nonSolid||b.nonSolid)continue;
       const overlapX=Math.min(a.x+a.width,b.x+b.width)-Math.max(a.x,b.x);
       const overlapY=Math.min(a.y+a.height,b.y+b.height)-Math.max(a.y,b.y);
       const overlapZ=Math.min(a.top??3.1,b.top??3.1)-Math.max(a.bottom||0,b.bottom||0);
@@ -737,8 +812,29 @@
       palette:{...source.palette},spawns:source.spawns.map(([x,y,height=0])=>({x:x*scale,y:y*scale,height})),
       terrain:[...source.terrain,...source.variants[variant]].map(s=>resize({...s,accent:s.accent||accent})),
     };
+    if(source.worldBounds)map.worldBounds={minX:source.worldBounds.minX*scale,minY:source.worldBounds.minY*scale,
+      maxX:source.worldBounds.maxX*scale,maxY:source.worldBounds.maxY*scale};
+    if(source.walkablePockets)map.walkablePockets=source.walkablePockets.map(resize);
     const boundaryHeight=source.boundaryTop??source.ceiling??CEILING;
-    const layout={map,walls:[...boundary(width,height,boundaryHeight,EDGE*scale),...source.walls.map(resize)]};
+    let perimeter=boundary(width,height,boundaryHeight,EDGE*scale);
+    if(source.sideOpenings?.length) {
+      const edge=EDGE*scale,openings=source.sideOpenings.map(([start,end])=>[start*scale,end*scale]);
+      const side=x=>{
+        const segments=[];let cursor=edge;
+        for(const [start,end] of openings) {
+          if(start>cursor)segments.push({kind:'boundary',x,y:cursor,width:edge,height:start-cursor,top:boundaryHeight});
+          cursor=Math.max(cursor,end);
+        }
+        if(cursor<height-edge)segments.push({kind:'boundary',x,y:cursor,width:edge,height:height-edge-cursor,top:boundaryHeight});
+        return segments;
+      };
+      perimeter=[
+        {kind:'boundary',x:0,y:0,width,height:edge,top:boundaryHeight},
+        {kind:'boundary',x:0,y:height-edge,width,height:edge,top:boundaryHeight},
+        ...side(0),...side(width-edge),
+      ];
+    }
+    const layout={map,walls:[...perimeter,...source.walls.map(resize)]};
     const result=validatePvpLayout(layout);
     if(!result.valid)throw new Error(`${source.name} failed validation: ${result.errors.join(', ')}`);
     return layout;

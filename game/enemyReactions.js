@@ -1,5 +1,6 @@
 // Server-owned reactions to incoming damage. These stay in botState so the
 // wire snapshot remains small; only the resulting movement is replicated.
+const {addKnockbackImpulse}=require('../public/arenaMap');
 const ENEMY_REACTIONS = Object.freeze({
   soldier: Object.freeze({ knockback: 1, fearThreshold: 0.22, fearDurationMs: 2200,
     retreatDistance: 260, retreatSpeed: 1.05, attackPause: 0.38 }),
@@ -36,17 +37,10 @@ function applyHitPush(bot, source, weapon, damage, now) {
     dx = Math.cos(angle); dy = Math.sin(angle); length = 1;
   }
   const velocity = Math.min(165, profile.velocity + (profile.damageVelocity || 0) * damage) * config.knockback;
-  const existing = bot.knockback;
-  // A rapid minigun stream must not stack into a comedy launch or erase a
-  // stronger sniper/grenade shove. Replace only once the old impulse is weaker.
-  const remaining = existing && now < existing.start + existing.duration
-    ? Math.hypot(existing.vx, existing.vy) * (1 - (now - existing.start) / existing.duration)
-    : 0;
   const throttled=profile.impulseCooldownMs&&state.lastHitPushWeapon===weapon&&
     now-(state.lastHitPushAt||0)<profile.impulseCooldownMs;
-  if (!throttled && velocity > remaining + 0.001) {
-    bot.knockback = { start: now, lastAt: now, duration: profile.duration,
-      vx: dx / length * velocity, vy: dy / length * velocity, kind: 'hit' };
+  if (!throttled) {
+    addKnockbackImpulse(bot,dx/length*velocity,dy/length*velocity,now,'hit');
     state.lastHitPushAt=now;state.lastHitPushWeapon=weapon;
   }
   state.hitStaggerUntil = Math.max(state.hitStaggerUntil || 0,

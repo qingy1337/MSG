@@ -164,22 +164,26 @@ test('server rejects forged durations, limits input spam, ignores duplicates and
     handlers.playerUpdate({angle:0,inputs:Array.from({length:32},(_,i)=>command(i+1))});
     assert.ok(p.x<=442.50001,'cannot move 1.6 seconds worth in a single instant');
     const x=p.x;handlers.playerUpdate({angle:0,inputs:[command(32)]});assert.equal(p.x,x);
-    p.movementEpoch=1;p.knockback={start:now,duration:450,lastAt:now,vx:320,vy:0};
+    p.movementEpoch=1;maps.addKnockbackImpulse(p,320,0,now,'test');
     handlers.playerUpdate({angle:0,inputs:[command(33)]});assert.equal(p.lastProcessedInput,33);assert.equal(p.x,x);
-    p.knockback=null;now+=500;
-    handlers.playerUpdate({angle:0,inputs:[command(34)]});assert.equal(p.x,x,'pre-slam packets cannot undo knockback');
-    handlers.playerUpdate({angle:0,inputs:[command(35,0.05,1)]});assert.ok(p.x>x);
+    now+=100;
+    handlers.playerUpdate({angle:0,inputs:[command(34)]});assert.equal(p.x,x,'pre-impact packets remain invalid');
+    handlers.playerUpdate({angle:0,inputs:[command(35,0.05,1)]});assert.ok(p.x>x,'current input works during residual velocity');
     const authoritativeX=p.x;
     handlers.playerUpdate({angle:0,x:900,y:400});assert.equal(p.x,authoritativeX,'cannot switch back to absolute positions to bypass input validation');
   }finally{game.close();}
 });
 
-test('prediction discards old input on knockback and floor changes, and keeps history bounded',()=>{
+test('prediction discards pre-impact input, then permits control during residual velocity',()=>{
   const prediction=new InputPrediction(),before={alive:true,x:10,movementEpoch:0};
   prediction.record(1,0,0.05,false,0);
   const after={alive:true,x:80,movementEpoch:1,lastProcessedInput:0,knockback:{start:100}};
   prediction.reconcile(after,before,100,()=>assert.fail('old movement must not be replayed'));
   assert.equal(after.x,80);assert.equal(prediction.pending.length,0);
+  prediction.record(1,0,0.05,false,1);
+  let replayed=0;
+  prediction.reconcile({...after,lastProcessedInput:0},after,150,()=>replayed++);
+  assert.equal(replayed,1,'fresh directional input coexists with residual knockback');
   for(let i=0;i<1000;i++)prediction.record(1,0,0.01,false,1);
   assert.equal(prediction.pending.length,240);assert.equal(prediction.outgoing().length,32);
   prediction.reset(500);assert.equal(prediction.pending.length,0);

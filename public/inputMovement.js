@@ -2,7 +2,7 @@
 function applyMovementInput(player,input,map,solids,now,cabin=null) {
   const movement=typeof module!=='undefined'&&module.exports?require('./movement'):{MOVEMENT,advanceJump,startJump};
   const terrain=typeof module!=='undefined'&&module.exports?require('./arenaMap'):{moveOnTerrain,canOccupy};
-  if(!player.alive||player.knockback)return;
+  if(!player.alive)return;
   const startX=player.x,startY=player.y;
   if(cabin) {
     // Travel is cabin-local: room terrain underneath the moving elevator must

@@ -29,6 +29,7 @@ function floorSpawn(map, bot, index) {
   if (bot && map.botSpawns?.length) return {...map.botSpawns[index%map.botSpawns.length]};
   if (bot && map.upperBotSpawns && index<map.upperBotSpawns.length) return {...map.upperBotSpawns[index]};
   if (bot) return { x:map.botSpawn.x+(index%3)*55, y:map.botSpawn.y+Math.floor(index/3)*55 };
+  if(map.playerSpawns?.length)return {...map.playerSpawns[index%map.playerSpawns.length]};
   const e=map.arrivalElevator||map.elevator;
   return { x:e.x+40+(index%3)*40, y:e.y+40+Math.floor(index/3)*40 };
 }

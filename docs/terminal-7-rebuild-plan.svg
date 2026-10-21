@@ -1,0 +1,164 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1100" viewBox="0 0 1600 1100">
+  <defs>
+    <style>
+      .title{font:700 30px system-ui,sans-serif;fill:#18252c;letter-spacing:.5px}
+      .subtitle{font:500 14px system-ui,sans-serif;fill:#64727a;letter-spacing:1.7px}
+      .zone{font:700 16px system-ui,sans-serif;fill:#24333b;letter-spacing:1px}
+      .label{font:600 12px system-ui,sans-serif;fill:#34454e;letter-spacing:.4px}
+      .small{font:500 10px system-ui,sans-serif;fill:#5f6c72;letter-spacing:.3px}
+      .room{fill:#f8f6ef;stroke:#68777d;stroke-width:3}
+      .wall{fill:#41515a}
+      .glass{fill:#b8deea;stroke:#5793a9;stroke-width:3}
+      .route{fill:none;stroke:#3b84a3;stroke-width:7;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:2 16}
+      .upper{fill:#d9e4e5;stroke:#516970;stroke-width:3}
+      .shop{stroke:#815f45;stroke-width:3}
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#3b84a3"/>
+    </marker>
+    <pattern id="terrazzo" width="34" height="34" patternUnits="userSpaceOnUse">
+      <rect width="34" height="34" fill="#e9e6de"/>
+      <circle cx="8" cy="12" r="1.3" fill="#c5c3bc"/>
+      <circle cx="25" cy="27" r="1" fill="#aeb7b8"/>
+      <path d="M0 34H34M34 0V34" stroke="#dad7cf" stroke-width="1"/>
+    </pattern>
+    <pattern id="carpet" width="18" height="18" patternUnits="userSpaceOnUse">
+      <rect width="18" height="18" fill="#426a7d"/>
+      <path d="M0 9H18M9 0V18" stroke="#7392a0" stroke-width="1" opacity=".55"/>
+    </pattern>
+  </defs>
+
+  <rect width="1600" height="1100" fill="#f2f0e9"/>
+  <text x="70" y="55" class="title">TERMINAL 7 — INTERIOR REBUILD</text>
+  <text x="70" y="82" class="subtitle">GROUND FLOOR • FUNCTION FIRST • FOUR COMBAT ROUTES • NO SCATTERED PROP FILLER</text>
+
+  <!-- Airside context retained from the existing map. -->
+  <rect x="70" y="105" width="1030" height="65" rx="12" fill="#9dafb6"/>
+  <path d="M115 137H1055" stroke="#eef3f3" stroke-width="3" stroke-dasharray="42 22"/>
+  <text x="585" y="143" text-anchor="middle" class="zone">AIRCRAFT APRON / EXISTING EXTERIOR</text>
+
+  <!-- Main shell and terrazzo floor. -->
+  <rect x="70" y="170" width="1030" height="850" rx="8" fill="url(#terrazzo)" stroke="#25363e" stroke-width="10"/>
+  <rect x="85" y="172" width="1000" height="13" class="glass"/>
+  <text x="585" y="199" text-anchor="middle" class="small">CONTINUOUS APRON-FACING CURTAIN WALL</text>
+
+  <!-- Gate hall: one repeated architectural system, not loose props. -->
+  <text x="585" y="230" text-anchor="middle" class="zone">DEPARTURE GATE HALL</text>
+  <g>
+    <rect x="105" y="245" width="285" height="155" rx="8" fill="url(#carpet)" stroke="#365a6b" stroke-width="3"/>
+    <rect x="442" y="245" width="285" height="155" rx="8" fill="url(#carpet)" stroke="#365a6b" stroke-width="3"/>
+    <rect x="779" y="245" width="285" height="155" rx="8" fill="url(#carpet)" stroke="#365a6b" stroke-width="3"/>
+    <g fill="#283942">
+      <rect x="190" y="186" width="115" height="42" rx="5"/><rect x="527" y="186" width="115" height="42" rx="5"/><rect x="864" y="186" width="115" height="42" rx="5"/>
+    </g>
+    <g class="label" text-anchor="middle" fill="#fff">
+      <text x="248" y="212" fill="#fff">GATE A1</text><text x="585" y="212" fill="#fff">GATE A2</text><text x="922" y="212" fill="#fff">GATE A3</text>
+    </g>
+    <g fill="#728791">
+      <rect x="130" y="278" width="235" height="16" rx="8"/><rect x="130" y="312" width="235" height="16" rx="8"/><rect x="130" y="346" width="235" height="16" rx="8"/>
+      <rect x="467" y="278" width="235" height="16" rx="8"/><rect x="467" y="312" width="235" height="16" rx="8"/><rect x="467" y="346" width="235" height="16" rx="8"/>
+      <rect x="804" y="278" width="235" height="16" rx="8"/><rect x="804" y="312" width="235" height="16" rx="8"/><rect x="804" y="346" width="235" height="16" rx="8"/>
+    </g>
+    <g class="small" text-anchor="middle">
+      <text x="248" y="389">SEATING + CHARGING</text><text x="585" y="389">SEATING + CHARGING</text><text x="922" y="389">SEATING + CHARGING</text>
+    </g>
+  </g>
+
+  <!-- Marketplace: tenants recessed into real perimeter architecture. -->
+  <rect x="90" y="420" width="995" height="270" fill="#f6f3ea" stroke="#9aa3a3" stroke-width="2"/>
+  <text x="585" y="449" text-anchor="middle" class="zone">TWO-STORY AIRSIDE MARKETPLACE</text>
+  <g>
+    <rect x="90" y="460" width="190" height="100" rx="0 10 10 0" fill="#765544" class="shop"/>
+    <rect x="90" y="578" width="190" height="92" rx="0 10 10 0" fill="#3f6070" class="shop"/>
+    <rect x="890" y="460" width="195" height="100" rx="10 0 0 10" fill="#8b594b" class="shop"/>
+    <rect x="890" y="578" width="195" height="92" rx="10 0 0 10" fill="#56616a" class="shop"/>
+    <text x="185" y="516" text-anchor="middle" fill="#fff" class="label">COFFEE SHOP</text>
+    <text x="185" y="630" text-anchor="middle" fill="#fff" class="label">BOOKS + NEWS</text>
+    <text x="987" y="516" text-anchor="middle" fill="#fff" class="label">RESTAURANT</text>
+    <text x="987" y="630" text-anchor="middle" fill="#fff" class="label">TRAVEL STORE</text>
+  </g>
+  <rect x="390" y="480" width="390" height="165" rx="82" fill="#e6e0d2" stroke="#a7a08d" stroke-width="3"/>
+  <rect x="425" y="512" width="320" height="100" rx="50" fill="#d1ddd5" stroke="#738f7c" stroke-width="3"/>
+  <text x="585" y="557" text-anchor="middle" class="label">CENTRAL SEATING COURT</text>
+  <text x="585" y="579" text-anchor="middle" class="small">charging tables • planting • clear sightlines</text>
+  <rect x="330" y="452" width="80" height="210" rx="6" fill="#d6dfe0" stroke="#66777e" stroke-width="3"/>
+  <rect x="760" y="452" width="80" height="210" rx="6" fill="#d6dfe0" stroke="#66777e" stroke-width="3"/>
+  <path d="M344 640L396 640L344 472L396 472Z" fill="none" stroke="#66777e" stroke-width="4"/>
+  <path d="M774 640L826 640L774 472L826 472Z" fill="none" stroke="#66777e" stroke-width="4"/>
+  <text x="370" y="677" text-anchor="middle" class="small">WIDE STAIR</text>
+  <text x="800" y="677" text-anchor="middle" class="small">WIDE STAIR</text>
+
+  <!-- Security boundary. -->
+  <rect x="250" y="710" width="670" height="115" rx="8" fill="#dfe7e7" stroke="#536970" stroke-width="4"/>
+  <text x="585" y="735" text-anchor="middle" class="zone">SECURITY HALL</text>
+  <g fill="#80939b" stroke="#45565e" stroke-width="2">
+    <rect x="285" y="752" width="125" height="47" rx="5"/><rect x="430" y="752" width="125" height="47" rx="5"/>
+    <rect x="575" y="752" width="125" height="47" rx="5"/><rect x="720" y="752" width="125" height="47" rx="5"/>
+  </g>
+  <g class="small" text-anchor="middle" fill="#fff">
+    <text x="347" y="781" fill="#fff">LANE 1</text><text x="492" y="781" fill="#fff">LANE 2</text><text x="637" y="781" fill="#fff">LANE 3</text><text x="782" y="781" fill="#fff">LANE 4</text>
+  </g>
+  <rect x="90" y="710" width="140" height="115" rx="0 8 8 0" fill="#c7d0d1" stroke="#617177" stroke-width="3"/>
+  <rect x="940" y="710" width="145" height="115" rx="8 0 0 8" fill="#c7d0d1" stroke="#617177" stroke-width="3"/>
+  <text x="160" y="764" text-anchor="middle" class="label">WEST STAFF</text><text x="160" y="783" text-anchor="middle" class="small">flank route</text>
+  <text x="1012" y="764" text-anchor="middle" class="label">EAST STAFF</text><text x="1012" y="783" text-anchor="middle" class="small">flank route</text>
+
+  <!-- Landside processing. -->
+  <text x="585" y="854" text-anchor="middle" class="zone">LANDSIDE CHECK-IN HALL</text>
+  <g fill="#d4d5d0" stroke="#596970" stroke-width="3">
+    <rect x="180" y="875" width="350" height="62" rx="12"/>
+    <rect x="640" y="875" width="350" height="62" rx="12"/>
+  </g>
+  <g class="label" text-anchor="middle">
+    <text x="355" y="912">CHECK-IN ISLAND A — 6 STATIONS</text>
+    <text x="815" y="912">CHECK-IN ISLAND B — 6 STATIONS</text>
+  </g>
+  <rect x="505" y="852" width="160" height="32" rx="5" fill="#263740"/>
+  <text x="585" y="873" text-anchor="middle" fill="#d8f1fa" class="small">DEPARTURE BOARD</text>
+  <path d="M210 950H500M670 950H960" stroke="#8b989d" stroke-width="3" stroke-dasharray="10 8"/>
+  <text x="355" y="970" text-anchor="middle" class="small">ORDERED QUEUE FIELD</text>
+  <text x="815" y="970" text-anchor="middle" class="small">ORDERED QUEUE FIELD</text>
+
+  <!-- Public entrances. -->
+  <rect x="275" y="987" width="165" height="42" rx="8" class="glass"/>
+  <rect x="730" y="987" width="165" height="42" rx="8" class="glass"/>
+  <text x="357" y="1013" text-anchor="middle" class="small">GLASS VESTIBULE</text>
+  <text x="812" y="1013" text-anchor="middle" class="small">GLASS VESTIBULE</text>
+
+  <!-- Primary passenger flow. -->
+  <path class="route" marker-end="url(#arrow)" d="M357 1010V950Q357 845 492 815V690Q492 650 520 635"/>
+  <path class="route" marker-end="url(#arrow)" d="M812 1010V950Q812 845 678 815V690Q678 650 650 635"/>
+  <path class="route" marker-end="url(#arrow)" d="M520 470V420Q520 405 248 400V238"/>
+  <path class="route" marker-end="url(#arrow)" d="M650 470V420Q650 405 922 400V238"/>
+
+  <!-- Upper-floor inset. -->
+  <rect x="1160" y="105" width="380" height="640" rx="12" fill="#f8f6ef" stroke="#25363e" stroke-width="5"/>
+  <text x="1190" y="148" class="zone">UPPER FLOOR</text>
+  <text x="1190" y="169" class="small">A purposeful mezzanine—not decorative catwalks</text>
+  <rect x="1200" y="205" width="300" height="450" rx="8" fill="#eef0eb" stroke="#8a9698" stroke-width="3"/>
+  <rect x="1218" y="225" width="58" height="410" class="upper"/>
+  <rect x="1424" y="225" width="58" height="410" class="upper"/>
+  <rect x="1276" y="225" width="148" height="72" class="upper"/>
+  <rect x="1276" y="503" width="148" height="55" class="upper"/>
+  <rect x="1280" y="312" width="140" height="176" rx="70" fill="#fff" stroke="#a3adae" stroke-width="2" stroke-dasharray="8 8"/>
+  <text x="1350" y="393" text-anchor="middle" class="label">OPEN TO</text>
+  <text x="1350" y="413" text-anchor="middle" class="label">MARKETPLACE</text>
+  <rect x="1228" y="245" width="38" height="150" rx="5" fill="#6a7f88"/>
+  <rect x="1434" y="245" width="38" height="150" rx="5" fill="#6a7f88"/>
+  <text x="1247" y="416" text-anchor="middle" class="small" transform="rotate(-90 1247 416)">RESTAURANT GALLERY</text>
+  <text x="1453" y="416" text-anchor="middle" class="small" transform="rotate(90 1453 416)">AIRLINE LOUNGE</text>
+  <text x="1350" y="279" text-anchor="middle" class="small">APRON OVERLOOK</text>
+  <text x="1350" y="539" text-anchor="middle" class="small">GLASS BRIDGE</text>
+  <path d="M1218 600h58M1424 600h58" stroke="#3b84a3" stroke-width="12"/>
+  <text x="1350" y="688" text-anchor="middle" class="label">TWO WIDE STAIRS</text>
+  <text x="1350" y="711" text-anchor="middle" class="small">both permanent • no lifts required for routing</text>
+
+  <!-- Legend / design rules. -->
+  <rect x="1160" y="775" width="380" height="245" rx="12" fill="#e7ebe8" stroke="#94a09f" stroke-width="2"/>
+  <text x="1190" y="815" class="zone">NON-NEGOTIABLE RULES</text>
+  <circle cx="1195" cy="849" r="5" fill="#3b84a3"/><text x="1212" y="854" class="label">Four readable routes: center, west, east, upper</text>
+  <circle cx="1195" cy="885" r="5" fill="#3b84a3"/><text x="1212" y="890" class="label">Furniture appears only in organized systems</text>
+  <circle cx="1195" cy="921" r="5" fill="#3b84a3"/><text x="1212" y="926" class="label">Every shop is recessed, hollow, and enterable</text>
+  <circle cx="1195" cy="957" r="5" fill="#3b84a3"/><text x="1212" y="962" class="label">No coplanar trim, floating slabs, or fake cover</text>
+  <circle cx="1195" cy="993" r="5" fill="#3b84a3"/><text x="1212" y="998" class="label">Architecture first; detailing only after validation</text>
+</svg>

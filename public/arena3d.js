@@ -13,6 +13,7 @@ import { createTerrainModel, poseCargoLift } from './pveEnvironment.mjs';
 import {createTempleEnvironment} from './templeEnvironment.mjs';
 import {createSpaceEnvironment} from './spaceEnvironment.mjs';
 import {createAirportEnvironment} from './airportEnvironment.mjs';
+import {createRedVaultEnvironment} from './strikeEnvironment.mjs';
 import { createElevatorModel, poseElevator, elevatorDisplay } from './elevator.mjs';
 import { updateCharacterMotion } from './characterMotion.mjs';
 import { createOgreModel, poseOgre } from './ogre.mjs';
@@ -29,6 +30,235 @@ const WALL_HEIGHT = 3.1;
 const WEAPON_SWAP_SECONDS = 0.36;
 const DAMAGE_FLASH_COLOR = new THREE.Color('#ff3030');
 const world = (x, y, height = 0, target = new THREE.Vector3()) => target.set((x - 450) * SCALE, height, (y - 300) * SCALE);
+const WARDEN_FINISHED_STATES=new Set(['complete','completed','done','ended','idle','cooldown','cancelled']);
+const STRIKE_SPAWN_SECONDS=1.2;
+
+export function createStrikeSpawnArrival() {
+  const group=new THREE.Group();group.name='strike-enemy-arrival';
+  const red=new THREE.MeshBasicMaterial({color:0xff334c,transparent:true,opacity:0,
+    depthWrite:false,blending:THREE.AdditiveBlending,toneMapped:false,side:THREE.DoubleSide});
+  const hot=new THREE.MeshBasicMaterial({color:0xffb071,transparent:true,opacity:0,
+    depthWrite:false,blending:THREE.AdditiveBlending,toneMapped:false,side:THREE.DoubleSide});
+  const beam=new THREE.Mesh(new THREE.CylinderGeometry(.16,.48,2.8,10,1,true),red);
+  beam.name='strike-arrival-beam';beam.position.y=1.4;beam.renderOrder=4;group.add(beam);
+  const ring=new THREE.Mesh(new THREE.RingGeometry(.32,.42,28),hot);
+  ring.name='strike-arrival-ring';ring.rotation.x=-Math.PI/2;ring.position.y=.035;ring.renderOrder=5;group.add(ring);
+  const crown=new THREE.Mesh(new THREE.TorusGeometry(.36,.035,6,24),red.clone());
+  crown.name='strike-arrival-crown';crown.rotation.x=Math.PI/2;crown.position.y=2.55;crown.renderOrder=5;group.add(crown);
+  return{group,beam,ring,crown,materials:[red,hot,crown.material]};
+}
+
+export function finiteMetricTree(value) {
+  if(typeof value==='number')return Number.isFinite(value);
+  if(Array.isArray(value))return value.every(finiteMetricTree);
+  if(value&&typeof value==='object')return Object.values(value).every(finiteMetricTree);
+  // Metric records include descriptive ids; only numeric leaves need a
+  // finiteness check.
+  return true;
+}
+
+function captureMaterialization(group,excluded) {
+  const seen=new Set(),result=[];
+  group.traverse(object=>{
+    if(object===excluded||excluded?.getObjectById?.(object.id))return;
+    const materials=Array.isArray(object.material)?object.material:[object.material];
+    for(const material of materials)if(material&&!seen.has(material)) {
+      seen.add(material);result.push({material,opacity:material.opacity??1,
+        transparent:!!material.transparent,depthWrite:material.depthWrite!==false});
+    }
+  });
+  return result;
+}
+
+export function poseStrikeSpawnArrival(record,nowMs) {
+  if(!record.spawnArrival)return false;
+  const end=record.spawnRevealAt,start=end-STRIKE_SPAWN_SECONDS*1000;
+  const progress=Math.max(0,Math.min(1,(nowMs-start)/(end-start)));
+  if(progress>=1) {
+    if(!record.spawnRestored)for(const entry of record.spawnMaterials) {
+      entry.material.opacity=entry.opacity;entry.material.transparent=entry.transparent;
+      entry.material.depthWrite=entry.depthWrite;entry.material.needsUpdate=true;
+    }
+    record.spawnRestored=true;record.spawnArrival.group.visible=false;return false;
+  }
+  record.spawnRestored=false;record.spawnArrival.group.visible=true;
+  const body=Math.max(0,Math.min(1,(progress-.24)/.62));
+  const bodyEase=body*body*(3-2*body);
+  for(const entry of record.spawnMaterials) {
+    entry.material.transparent=true;entry.material.depthWrite=false;
+    entry.material.opacity=entry.opacity*bodyEase;entry.material.needsUpdate=true;
+  }
+  const pulse=.5+.5*Math.sin(nowMs*.035),collapse=1-progress;
+  record.spawnArrival.beam.material.opacity=.2+.28*collapse+.16*pulse;
+  record.spawnArrival.beam.scale.set(.72+collapse*.75,1,.72+collapse*.75);
+  record.spawnArrival.ring.material.opacity=.55+.35*pulse;
+  record.spawnArrival.ring.scale.setScalar(.8+progress*2.2);
+  record.spawnArrival.ring.rotation.z+=.035;
+  record.spawnArrival.crown.material.opacity=.3+.5*collapse;
+  record.spawnArrival.crown.position.y=2.55-progress*1.9;
+  record.spawnArrival.crown.rotation.z-=.045;
+  return true;
+}
+
+// The boss presentation is built once with a small, fixed mesh budget. The
+// animation below only changes existing transforms/material values; pressure
+// attacks never allocate particles, geometry or temporary scene objects.
+export function createWardenPresentation() {
+  const group=new THREE.Group();group.name='warden-presentation';group.visible=false;
+  const pressureMaterial=new THREE.MeshBasicMaterial({color:0xff3b32,transparent:true,opacity:0,
+    blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,toneMapped:false});
+  const sweepMaterial=new THREE.MeshBasicMaterial({color:0xffd17b,transparent:true,opacity:0,
+    blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,toneMapped:false});
+  const overdriveMaterial=new THREE.MeshBasicMaterial({color:0xff263f,transparent:true,opacity:0,
+    blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,toneMapped:false});
+  const hotMaterial=new THREE.MeshStandardMaterial({color:0x4a050c,emissive:0xff384b,emissiveIntensity:0,
+    metalness:.35,roughness:.22,transparent:true,opacity:0,depthWrite:false});
+
+  const ground=new THREE.Group();ground.name='warden-pressure-field';ground.position.y=.035;group.add(ground);
+  const pulseGeometry=new THREE.RingGeometry(.91,1.02,48);
+  const pulseRings=[];
+  for(let index=0;index<3;index++) {
+    const ring=new THREE.Mesh(pulseGeometry,pressureMaterial.clone());
+    ring.name=`warden-pressure-pulse-${index}`;ring.rotation.x=-Math.PI/2;ring.renderOrder=4;
+    ground.add(ring);pulseRings.push(ring);
+  }
+  const boundary=new THREE.Mesh(new THREE.RingGeometry(4.05,4.24,64),pressureMaterial.clone());
+  boundary.name='warden-pressure-boundary';boundary.rotation.x=-Math.PI/2;boundary.renderOrder=4;ground.add(boundary);
+  const sweepPivot=new THREE.Group();sweepPivot.name='warden-pressure-sweep';ground.add(sweepPivot);
+  const sweep=new THREE.Mesh(new THREE.RingGeometry(.66,4.22,48,1,-.36,.72),sweepMaterial);
+  sweep.rotation.x=-Math.PI/2;sweep.renderOrder=5;sweepPivot.add(sweep);
+  // The Warden begins in the four-metre-deep Vault well. Two vertical radial
+  // curtains carry the same warning through the upper command floor instead
+  // of letting that floor occlude the only telegraph players can see.
+  const sweepWalls=[];
+  for(const side of [-1,1]) {
+    const pivot=new THREE.Group();sweepPivot.add(pivot);
+    const wall=new THREE.Mesh(new THREE.PlaneGeometry(3.56,5.25),sweepMaterial.clone());
+    wall.name=side<0?'warden-sweep-leading-edge':'warden-sweep-trailing-edge';
+    wall.position.set(2.44,2.625,0);wall.renderOrder=5;pivot.add(wall);
+    sweepWalls.push({pivot,wall,side});
+  }
+
+  const overdrive=new THREE.Group();overdrive.name='warden-overdrive';overdrive.visible=false;group.add(overdrive);
+  const aura=new THREE.Mesh(new THREE.IcosahedronGeometry(.56,1),hotMaterial);
+  aura.name='warden-overdrive-core';aura.position.set(0,1.43,-.34);aura.renderOrder=5;overdrive.add(aura);
+  const bodyRings=[];
+  for(const [index,height] of [1.04,1.52,2.05].entries()) {
+    const ring=new THREE.Mesh(new THREE.TorusGeometry(.7+index*.13,.025+index*.006,6,28),overdriveMaterial.clone());
+    ring.name=`warden-overdrive-ring-${index}`;ring.position.y=height;ring.rotation.x=Math.PI/2;
+    ring.renderOrder=5;overdrive.add(ring);bodyRings.push(ring);
+  }
+  const spikes=[];
+  for(let index=0;index<6;index++) {
+    const angle=index*Math.PI/3,spike=new THREE.Mesh(new THREE.ConeGeometry(.075,.82,6),hotMaterial.clone());
+    spike.name=`warden-overdrive-spike-${index}`;
+    spike.position.set(Math.cos(angle)*.82,1.38,Math.sin(angle)*.82);
+    spike.rotation.z=Math.cos(angle)*.16;spike.rotation.x=Math.sin(angle)*.16;
+    spike.renderOrder=5;overdrive.add(spike);spikes.push(spike);
+  }
+  return{group,ground,pulseRings,boundary,sweepPivot,sweep,sweepWalls,overdrive,aura,bodyRings,spikes,
+    phase:1,phaseChangedAt:0};
+}
+
+function wardenAttackProgress(attack,time) {
+  const provided=Number(attack?.progress??attack?.chargeProgress??attack?.telegraphProgress??attack?.sweepProgress);
+  if(Number.isFinite(provided))return Math.max(0,Math.min(1,provided));
+  const sweeping=(attack?.attackPhase??attack?.phase)==='sweep';
+  const duration=Math.max(120,Number(attack?.durationMs??attack?.chargeMs??
+    (sweeping?attack?.sweepMs:attack?.windupMs))||1800)/1000;
+  const started=Number(attack?.localReceivedAt);
+  return Number.isFinite(started)?Math.max(0,Math.min(1,(time-started)/duration)):0;
+}
+
+export function poseWardenPresentation(model,phase,attack,time,healthRatio=1) {
+  if(!model)return;
+  const defeated=healthRatio<=0||attack?.defeated===true;
+  model.group.visible=!defeated&&phase>=2;
+  if(!model.group.visible)return;
+  if(model.phase!==phase){model.phase=phase;model.phaseChangedAt=time;}
+  const state=String(attack?.state??attack?.attackPhase??attack?.phase??'').toLowerCase();
+  const explicit=!!attack&&attack.active!==false&&!WARDEN_FINISHED_STATES.has(state);
+  const progress=wardenAttackProgress(attack,time);
+  const transition=Math.max(0,1-Math.max(0,time-model.phaseChangedAt)/1.15);
+  const pressure=phase===2,overdrive=phase>=3;
+  const radiusUnits=Number(attack?.radius??attack?.outerRadius??attack?.range);
+  // Warden character geometry is scaled to 1.34 for its boss silhouette; undo
+  // that parent scale so the warning edge still matches the server radius.
+  const radius=Number.isFinite(radiusUnits)?Math.max(3.2,Math.min(16,radiusUnits*SCALE/1.34)):4.25;
+  const urgency=explicit?Math.max(.18,progress):.18;
+  model.ground.visible=pressure||explicit;
+  model.boundary.scale.setScalar(radius/4.24);
+  model.boundary.material.opacity=(explicit?.48:.13)+transition*.28;
+  for(let index=0;index<model.pulseRings.length;index++) {
+    const ring=model.pulseRings[index],cycle=(time*(explicit?1.25:.42)+index/model.pulseRings.length)%1;
+    ring.scale.setScalar(radius*(.23+cycle*.75));
+    ring.material.opacity=(explicit?.52:.12)*(1-cycle)*(1-cycle)+transition*.18;
+  }
+  const attackPhase=attack?.attackPhase??attack?.phase;
+  const startAngle=Number(attack?.startAngle),direction=Number(attack?.direction)<0?-1:1;
+  const liveAngle=Number(attack?.sweepAngle??attack?.angle);
+  const authoredAngle=Number.isFinite(liveAngle)?liveAngle:Number.isFinite(startAngle)?
+    startAngle+(attackPhase==='sweep'?direction*Math.PI*2*progress:0):NaN;
+  const parentYaw=model.group.parent?.rotation.y||0;
+  model.sweepPivot.rotation.y=Number.isFinite(authoredAngle)?-authoredAngle-parentYaw:time*(explicit?2.15:.62);
+  model.sweepPivot.scale.set(radius/4.22,1,radius/4.22);
+  model.sweep.material.opacity=(explicit?.72:.18)+urgency*.16+transition*.18;
+  const arcWidth=Math.max(.18,Math.min(Math.PI,Number(attack?.arcWidth)||.72));
+  const sweeping=attackPhase==='sweep';
+  for(const edge of model.sweepWalls) {
+    edge.pivot.rotation.y=edge.side*arcWidth/2;
+    edge.wall.material.opacity=explicit ? (sweeping ? 0.56 : 0.24) : 0.07;
+  }
+
+  model.overdrive.visible=overdrive;
+  if(!overdrive)return;
+  const pulse=.5+.5*Math.sin(time*10.5),surge=.72+transition*.75;
+  model.aura.scale.setScalar(1.05+pulse*.24+transition*.35);
+  model.aura.material.opacity=.2+pulse*.14+transition*.2;
+  model.aura.material.emissiveIntensity=4.6+pulse*4+transition*5;
+  for(let index=0;index<model.bodyRings.length;index++) {
+    const ring=model.bodyRings[index],direction=index%2?1:-1;
+    ring.rotation.y=time*(1.4+index*.38)*direction;
+    ring.rotation.z=time*.35*direction;
+    ring.scale.setScalar(surge+pulse*.12+index*.06);
+    ring.material.opacity=.38+pulse*.22+transition*.24;
+  }
+  for(let index=0;index<model.spikes.length;index++) {
+    const spike=model.spikes[index],wave=.5+.5*Math.sin(time*9+index*1.23);
+    spike.position.y=1.25+wave*.42;spike.scale.y=.72+wave*.7+transition*.35;
+    spike.material.opacity=.3+wave*.5;spike.material.emissiveIntensity=3.8+wave*4.5;
+  }
+}
+
+export function arenaFloorRectangles(map) {
+  const rectangles=[{x:0,y:0,width:map.width,height:map.height,main:true}];
+  const add=(x,y,width,height)=>{if(width>0&&height>0)rectangles.push({x,y,width,height});};
+  for(const pocket of map.walkablePockets||[]) {
+    const right=pocket.x+pocket.width,far=pocket.y+pocket.height;
+    if(pocket.x<0)add(pocket.x,pocket.y,Math.min(-pocket.x,pocket.width),pocket.height);
+    if(right>map.width)add(Math.max(map.width,pocket.x),pocket.y,right-Math.max(map.width,pocket.x),pocket.height);
+    const clippedX=Math.max(0,pocket.x),clippedRight=Math.min(map.width,right);
+    if(pocket.y<0)add(clippedX,pocket.y,clippedRight-clippedX,Math.min(-pocket.y,pocket.height));
+    if(far>map.height)add(clippedX,Math.max(map.height,pocket.y),clippedRight-clippedX,far-Math.max(map.height,pocket.y));
+  }
+  return rectangles;
+}
+
+function arenaFloorGeometry(rectangles,height=0) {
+  const positions=[],normals=[],indices=[];
+  for(const rect of rectangles) {
+    const offset=positions.length/3,x0=(rect.x-450)*SCALE,x1=(rect.x+rect.width-450)*SCALE;
+    const z0=(rect.y-300)*SCALE,z1=(rect.y+rect.height-300)*SCALE;
+    positions.push(x0,height,z0,x0,height,z1,x1,height,z1,x1,height,z0);
+    normals.push(0,1,0,0,1,0,0,1,0,0,1,0);
+    indices.push(offset,offset+1,offset+2,offset,offset+2,offset+3);
+  }
+  const geometry=new THREE.BufferGeometry();
+  geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+  geometry.setAttribute('normal',new THREE.Float32BufferAttribute(normals,3));
+  geometry.setIndex(indices);geometry.computeBoundingSphere();
+  return geometry;
+}
 
 function roundedGeometry(w,h,d,x,y,z,radius=0.08) {
   const geometry=new RoundedBoxGeometry(w,h,d,2,Math.min(radius,w/3,h/3,d/3));
@@ -289,6 +519,7 @@ export class Arena3D {
     this.tracerPool=[];this.freeTracers=[];
     this.grenades=new Map();
     this.guardianProjectiles=new Map();
+    this.wardenAttacks=new Map();
     this.corpses=[];this.remains=[];this.pickups=new Map();this.deadIds=new Set();this.deathShake=0;
     this.raycaster = new THREE.Raycaster();
     this.raycaster.layers.set(1);
@@ -297,8 +528,11 @@ export class Arena3D {
     this.activeIds=new Set();
     this.labels = document.getElementById('health-labels');
     this.map = document.getElementById('minimap').getContext('2d');
+    const strikeWaypoint=document.getElementById('strike-world-waypoint');
     this.ui={healthText:document.getElementById('local-health-text'),healthBar:document.getElementById('local-health-bar'),
-      healthFill:document.getElementById('local-health-fill'),crosshair:document.getElementById('crosshair')};
+      healthFill:document.getElementById('local-health-fill'),crosshair:document.getElementById('crosshair'),
+      strikeWaypoint,strikeWaypointLabel:strikeWaypoint?.querySelector('strong'),
+      strikeWaypointDistance:strikeWaypoint?.querySelector('span')};
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(canvas.parentElement);
   }
@@ -352,6 +586,7 @@ export class Arena3D {
     this.tracerPool=[];this.freeTracers=[];
     this.grenades.clear();
     this.guardianProjectiles.clear();
+    this.wardenAttacks.clear();
     this.corpses=[];this.remains=[];this.pickups.clear();this.deadIds.clear();this.deathShake=0;
     this.clearObject(this.viewWeapon); this.viewWeaponKey = null; this.weaponRecoil = 0;this.weaponSwitchTimes.clear();
     this.viewMuzzleFlash = null;
@@ -359,12 +594,14 @@ export class Arena3D {
     this.labels.replaceChildren(); this.walls = walls;
     this.mapConfig = map;
     this.minimapCache=null;
-    const pve=map.mode==='pve',areas=planAreaLighting(map,walls);
+    const pve=map.mode==='pve',strike=map.mode==='strike'||map.activity==='strike';
     const palette=map.palette||{};
     const temple=map.style==='temple',orbital=map.style==='orbital',airport=map.style==='airport';
+    const areas=strike?[]:planAreaLighting(map,walls);
     this.zoneUniforms=ambientZoneUniforms(planAmbientZones(map),map);
     this.scene.background.set(palette.sky||'#9ebbc9');
     this.scene.fog=null;
+    this.camera.far=strike?230:140;this.camera.updateProjectionMatrix();
     this.ambient.color.set(palette.ambient||'#e3f3ff');
     this.ambient.groundColor.set(palette.ground||'#73878b');
     this.sun.color.set(palette.sun||'#ffe7c4');
@@ -372,7 +609,7 @@ export class Arena3D {
     this.ambient.intensity=palette.ambientIntensity??(pve?1.9:3.2);
     this.sun.intensity=palette.sunIntensity??(pve?1.5:3.5);
     this.rim.intensity=palette.rimIntensity??(pve?0.65:2);
-    this.cargoModels=[];
+    this.cargoModels=[];this.strikeEnvironment=null;this.strikeMissionState=null;
     this.liftRise=0;this.liftSway=0;this.elevatorModel=null;this.arrivalModel=null;
     const width = map.width*SCALE, depth = map.height*SCALE;
     const center = world(map.width/2,map.height/2);
@@ -381,18 +618,22 @@ export class Arena3D {
     const extent = Math.max(width,depth)*0.7;
     Object.assign(this.sun.shadow.camera,{left:-extent,right:extent,top:extent,bottom:-extent,far:180});
     this.sun.shadow.camera.updateProjectionMatrix();
-    this.reflectionSolids=[...walls,...map.terrain.filter(s => s.kind !== 'ramp' && s.kind !== 'tree' && s.kind !== 'exitDoor')];
+    this.reflectionSolids=strike?[]:[...walls,...map.terrain.filter(s => !s.nonSolid&&s.kind !== 'heightfield'&&s.kind !== 'ramp' && s.kind !== 'tree' && s.kind !== 'exitDoor')];
     this.floor = floorMaterial(this.reflectionSolids,areas,pve,this.zoneUniforms,palette,map);
     this.viewFootHeight=null;
     this.floor.uniforms.reflections.value = document.getElementById('raytracing-toggle').checked;
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), this.floor);
-    floor.position.copy(center);
-    floor.rotation.x = -Math.PI / 2; this.stage.add(floor);
-    const shadowMaterial=new THREE.ShadowMaterial({opacity:0.20,depthWrite:false});
-    shadowMaterial.polygonOffset=true;shadowMaterial.polygonOffsetFactor=-1;shadowMaterial.polygonOffsetUnits=-1;
-    const shadow = new THREE.Mesh(new THREE.PlaneGeometry(width, depth),shadowMaterial);
-    shadow.position.copy(center);
-    shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.006; shadow.receiveShadow = true; this.stage.add(shadow);
+    // The arena and every recessed room are rendered in one floor draw. Using
+    // separate coplanar planes exposed their shared raster edge as a line at
+    // each shop entrance even though their material and height matched.
+    const floorRectangles=arenaFloorRectangles(map),floorGeometry=arenaFloorGeometry(floorRectangles);
+    if(!strike) {
+      const floor = new THREE.Mesh(floorGeometry, this.floor);
+      floor.name='arena-floor';this.stage.add(floor);
+      const shadowMaterial=new THREE.ShadowMaterial({opacity:0.20,depthWrite:false});
+      shadowMaterial.polygonOffset=true;shadowMaterial.polygonOffsetFactor=-1;shadowMaterial.polygonOffsetUnits=-1;
+      const shadow = new THREE.Mesh(arenaFloorGeometry(floorRectangles,.006),shadowMaterial);
+      shadow.receiveShadow = true;shadow.name='arena-floor-shadow';this.stage.add(shadow);
+    } else floorGeometry.dispose();
     if(orbital) {
       const space=createSpaceEnvironment();space.position.copy(center);this.stage.add(space);
     }
@@ -402,9 +643,15 @@ export class Arena3D {
     const glowColor=palette.glow||'#69e8df';
     const glow = new THREE.MeshStandardMaterial({ color: glowColor, emissive: glowColor,
       emissiveIntensity:temple?0.08:1.5,roughness:temple?0.92:0.4 });
-    this.box(this.stage, width+0.5, 0.45, depth+0.5, center.x, -0.26, center.z, dark, 0.15);
+    if(!strike) {
+      this.box(this.stage, width+0.5, 0.45, depth+0.5, center.x, -0.26, center.z, dark, 0.15);
+      for(const extension of floorRectangles.slice(1)) {
+        const p=world(extension.x+extension.width/2,extension.y+extension.height/2);
+        this.box(this.stage,extension.width*SCALE+.05,.45,extension.height*SCALE+.05,p.x,-.26,p.z,dark,.08);
+      }
+    }
     const wallGeometry={body:[],cap:[],panel:[],glow:[]};
-    for (const wall of walls) {
+    for (const wall of strike?[]:walls) {
       // Temple collision is deliberately invisible; a dedicated architectural
       // model below replaces the shared arena wall language completely.
       if(wall.kind==='cabin'||temple||airport) continue;
@@ -478,8 +725,8 @@ export class Arena3D {
         proxy.layers.set(1);this.stage.add(proxy);this.wallOccluders.push(proxy);
       }
     }
-    for (const solid of map.terrain) {
-      if(solid.kind==='exitDoor')continue;
+    for (const solid of strike?[]:map.terrain) {
+      if(solid.kind==='exitDoor'||solid.kind==='heightfield'||solid.collisionOnly)continue;
       const model = createTerrainModel(solid);
       const position=world(solid.x,solid.y,solid.kind==='rail'?0:solid.bottom||0);
       if(solid.kind==='lift'||solid.liftId) {
@@ -487,7 +734,7 @@ export class Arena3D {
         model.traverse(mesh=>{if(mesh.isMesh){mesh.layers.enable(1);this.wallOccluders.push(mesh);}});
       } else {
         collectStaticModel(model,position,terrainBatches);
-        if(!['tree','templeTree','templePool'].includes(solid.kind)) {
+        if(!solid.nonSolid&&!['tree','templeTree','templePool'].includes(solid.kind)) {
           const bottom=solid.bottom||0,top=solid.top??WALL_HEIGHT;
           const proxy=new THREE.Mesh(new THREE.BoxGeometry(solid.width*SCALE,Math.max(0.02,top-bottom),solid.height*SCALE),occluderMaterial);
           proxy.position.copy(world(solid.x+solid.width/2,solid.y+solid.height/2,(top+bottom)/2));
@@ -499,7 +746,7 @@ export class Arena3D {
       const mesh=mergedMesh(batch.geometries,batch.material,{castShadow:batch.castShadow,receiveShadow:batch.receiveShadow});
       if(mesh)this.stage.add(mesh);
     }
-    if(map.ceiling&&map.roof!==false) {
+    if(map.ceiling&&map.roof!==false&&!strike) {
       const ceilingMat=this.material('#b5c7c6',0.12,0.8);
       this.box(this.stage,width,0.2,depth,center.x,map.ceiling+0.1,center.z,ceilingMat);
       // Broad emissive luminaires and inset beams; no costly per-fixture lights.
@@ -512,6 +759,13 @@ export class Arena3D {
         const p=world(map.width/2,y,map.ceiling-0.15);
         this.box(this.stage,width,0.3,0.22,p.x,p.y,p.z,panel);
       }
+    }
+    if(strike) {
+      this.strikeEnvironment=createRedVaultEnvironment(map);
+      this.stage.add(this.strikeEnvironment);
+      for(const mesh of this.strikeEnvironment.userData.occluders||[])this.wallOccluders.push(mesh);
+      const metrics=this.strikeEnvironment.userData.metrics?.();
+      if(metrics&&!finiteMetricTree(metrics))throw new Error('Non-finite Red Vault render metrics');
     }
     this.areaLights=createAreaLighting(areas,world);
     this.areaLightObjects=[];
@@ -536,8 +790,10 @@ export class Arena3D {
       this.arrivalModel.traverse(m=>{if(m.isMesh){m.layers.enable(1);this.wallOccluders.push(m);}});
       poseElevator(this.arrivalModel,{door:1,rise:0});
     }
-    for (const z of [-depth/2, depth/2]) this.box(this.stage, width, 0.05, 0.08, center.x, 0.035, center.z+z, glow, 0.01);
-    for (const x of [-width/2, width/2]) this.box(this.stage, 0.08, 0.05, depth, center.x+x, 0.035, center.z, glow, 0.01);
+    if(!strike) {
+      for (const z of [-depth/2, depth/2]) this.box(this.stage, width, 0.05, 0.08, center.x, 0.035, center.z+z, glow, 0.01);
+      for (const x of [-width/2, width/2]) this.box(this.stage, 0.08, 0.05, depth, center.x+x, 0.035, center.z, glow, 0.01);
+    }
     if(pve)applyAmbientZones(this.stage,this.zoneUniforms);
     // Establish static matrixWorld values once. The renderer handles moving
     // actors; forcing the entire room dirty every frame was redundant.
@@ -551,7 +807,8 @@ export class Arena3D {
 
   createCharacter(player, localId) {
     const group = new THREE.Group();
-    const dread=player.botType==='dread',captain=dread&&player.botRank==='captain';
+    const warden=player.botType==='warden';
+    const dread=player.botType==='dread'||warden,captain=dread&&(player.botRank==='captain'||warden);
     const armor = this.material(dread?(captain?'#d52836':'#8e1724'):(player.color || '#59daca'), dread?0.7:0.45, dread?0.24:0.32);
     const undersuit = this.material(dread?'#17090d':'#182a35', dread?0.55:0.1, dread?0.42:0.65);
     const white = this.material(dread?'#382329':'#d9e4de', dread?0.72:0.4, dread?0.28:0.35);
@@ -578,7 +835,7 @@ export class Arena3D {
       this.box(arm, 0.20, 0.22, 0.57, -side*0.04, -0.2, -0.23, undersuit, 0.08, bodySegments);
       this.box(arm, 0.18, 0.19, 0.18, -side*0.07, -0.2, -0.51, white, 0.08, bodySegments);
     }
-    let dreadCore=null,dreadTelegraph=null;
+    let dreadCore=null,dreadTelegraph=null,wardenPresentation=null;
     if(dread) {
       // A sharper, top-heavy silhouette reads immediately as a new enemy even
       // through smoke or at the far side of a room. Red belongs to Dreads;
@@ -598,6 +855,23 @@ export class Arena3D {
         new THREE.LineBasicMaterial({color:captain?0xff4558:0xff1d38,transparent:true,opacity:.8,
           blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false}));
       dreadTelegraph.name='dread-charge-beam';dreadTelegraph.visible=false;dreadTelegraph.frustumCulled=false;group.add(dreadTelegraph);
+      if(warden) {
+        // The Warden is not a scaled captain. A split crown, broad floating
+        // gorget and asymmetric forge shield give it a readable boss outline
+        // from both command balconies and the lower crucible well.
+        for(const side of [-1,1]) {
+          const horn=new THREE.Mesh(new THREE.ConeGeometry(.13,.78,7),armor);
+          horn.position.set(side*.28,2.42,.03);horn.rotation.z=side*.34;horn.castShadow=true;group.add(horn);
+          this.box(group,.23,.92,.18,side*.56,1.66,.08,white,.055);
+        }
+        const gorget=new THREE.Mesh(new THREE.TorusGeometry(.57,.105,8,20,Math.PI*1.55),armor);
+        gorget.position.set(0,1.62,.12);gorget.rotation.set(Math.PI/2,0,.78);group.add(gorget);
+        this.box(group,.16,1.18,.7,-.68,1.28,.04,armor,.065);
+        const bossHalo=new THREE.Mesh(new THREE.TorusGeometry(.48,.045,7,24),coreMaterial);
+        bossHalo.name='warden-halo';bossHalo.position.set(0,2.16,.21);bossHalo.rotation.x=Math.PI/2;group.add(bossHalo);
+        wardenPresentation=createWardenPresentation();group.add(wardenPresentation.group);
+        group.scale.setScalar(1.34);
+      }
     }
     const weapon = new THREE.Group(); group.add(weapon);
     const skin = WEAPON_SKINS[player.weapon]?.find(s => s.key === player.weaponSkinKey);
@@ -654,17 +928,27 @@ export class Arena3D {
     if(!ogreModel&&!guardianModel)mergeRigidMeshes(group,new Set([dreadCore]));
     // A character can contain dozens of cosmetic meshes. Only the largest
     // silhouette pieces need to render into shadow maps.
-    limitShadowCasters(group,player.botType==='ogre'?10:player.botType==='guardian'?6:8);
+    limitShadowCasters(group,player.botType==='ogre'?10:player.botType==='guardian'?6:warden?12:8);
+    let spawnArrival=null,spawnMaterials=[];
+    if(player.isBot&&(this.mapConfig.mode==='strike'||this.mapConfig.activity==='strike')&&
+      Number.isFinite(player.spawnRevealAt)&&player.spawnRevealAt>performance.now()-250) {
+      // Capture the actual character before attaching the additive arrival
+      // meshes, so only the body fades in while its warning column stays vivid.
+      spawnMaterials=captureMaterialization(group);
+      spawnArrival=createStrikeSpawnArrival();group.add(spawnArrival.group);
+    }
     const label = document.createElement('div'); label.className = 'character-health';
     const name = document.createElement('span'); name.textContent = player.name;
     const value = document.createElement('strong');
     const bar = document.createElement('i'); const fill = document.createElement('b'); bar.append(fill);
     label.append(name, value, bar); this.labels.append(label); this.stage.add(group);
     if(this.mapConfig.mode==='pve')applyAmbientZones(group,this.zoneUniforms);
-    const record = { group, legs, arms, weapon, ogreModel, guardianModel, dread, dreadCore, dreadTelegraph, label, value, fill, x: player.x, y: player.y, phase: 0, recoil: 0,
+    const record = { group, legs, arms, weapon, ogreModel, guardianModel, dread, warden, wardenPresentation,
+      dreadCore, dreadTelegraph, label, value, fill, x: player.x, y: player.y, phase: 0, recoil: 0,
       weaponKey:player.weapon,weaponSwitchAt:this.weaponSwitchTimes?.get(player.id)??-Infinity,
       weaponSkinKey:skin?.key,muzzleBaseX:0.27,muzzleBarrelOffset:length*0.062,
-      health: player.health ?? player.maxHealth ?? 101, damageFlash: 0, flashMaterials: this.captureFlashMaterials(group) };
+      health: player.health ?? player.maxHealth ?? 101, damageFlash: 0, flashMaterials: this.captureFlashMaterials(group),
+      spawnArrival,spawnMaterials,spawnRevealAt:player.spawnRevealAt,spawnRestored:false };
     record.muzzleFlash = createMuzzleFlash(0.1*muzzleFlashScaleForWeapon(player.weapon));
     record.muzzleFlash.position.set(0.27, 1.34 + length * heavyWeaponMuzzleYOffset(skin?.key),
       -0.45 - muzzleLength * heavyWeaponMuzzleDepth(skin?.key));
@@ -745,7 +1029,7 @@ export class Arena3D {
     const style=shotgunMuzzleStyle(state?.weaponSkinKey,shot.shotgunBarrel);
     flash.position.x=(state?.muzzleBaseX??flash.position.x)+(style?.barrel||0)*(state?.muzzleBarrelOffset||0);
     const skinColor=state?.weaponSkinKey==='pistol_pocket_dragon'?'#ff8426':
-      state?.weaponSkinKey==='sniper_kintsugi'?'#ffc857':null;
+      ['sniper_kintsugi','pistol_kintsugi'].includes(state?.weaponSkinKey)?'#ffc857':null;
     triggerMuzzleFlash(flash,Math.random,state?.dread?'#ff263f':style?.color||skinColor);
   }
 
@@ -863,6 +1147,14 @@ export class Arena3D {
     this.stage.add(group);this.effects.push({group,time:EXPLOSION_DURATION,duration:EXPLOSION_DURATION,explosion:true});
   }
 
+  strikeReactorExplosion(state) {
+    const existing=this.effects.filter(fx=>fx.explosion);
+    if(existing.length>=6){const oldest=existing[0];this.stage.remove(oldest.group);this.clearObject(oldest.group);this.effects.splice(this.effects.indexOf(oldest),1);}
+    const group=createGrenadeExplosion();group.position.copy(world(state.x,state.y,state.height));
+    group.scale.setScalar(1.28);poseGrenadeExplosion(group,0,this.camera.quaternion);
+    this.stage.add(group);this.effects.push({group,time:EXPLOSION_DURATION,duration:EXPLOSION_DURATION,explosion:true});
+  }
+
   acquireTracer() {
     let item=this.freeTracers.pop();
     if(item)return item;
@@ -891,7 +1183,7 @@ export class Arena3D {
     const barrelStyle=shotgunMuzzleStyle(skinKey,shot.shotgunBarrel);
     for(const pellet of shot.pellets||[shot]) {
     const start = world(pellet.x, pellet.y, pellet.height ?? 1.84), end = world(pellet.endX, pellet.endY, pellet.endHeight ?? 1.84);
-    const pelletColor=dread?0xff253d:skinKey==='sniper_kintsugi'?0xf2b94f:
+    const pelletColor=dread?0xff253d:['sniper_kintsugi','pistol_kintsugi'].includes(skinKey)?0xf2b94f:
       shotgunPelletColor(skinKey,shot.shotgunBarrel,pellet.hit==='player');
     const tracer=this.acquireTracer(),positions=tracer.line.geometry.attributes.position;
     positions.setXYZ(0,start.x,start.y,start.z);positions.setXYZ(1,end.x,end.y,end.z);positions.needsUpdate=true;
@@ -900,16 +1192,79 @@ export class Arena3D {
     tracer.spark.position.copy(end);tracer.group.visible=true;
     this.effects.push({group:tracer.group,time:.11,duration:.11,tracer});
     }
+    if(shot.strikeTargetId)this.strikeEnvironment?.userData?.hitDestructible?.(shot.strikeTargetId,shot);
     const pistolShot=character?.weaponKey==='pistol'||
       (shot.playerId===this.localId&&this.viewWeaponKey?.startsWith('pistol:'));
-    if (character) { character.recoil = shot.pellets?0.22:pistolShot?0.18:0.13;character.shotAt=this.renderTime;
+    if (character) { character.recoil = shot.pellets?Math.min(0.4,(character.recoil||0)+0.22):pistolShot?0.18:0.13;character.shotAt=this.renderTime;
       if(shot.pellets)triggerShotgunChamber(character.weapon,shot.shotgunBarrel,this.renderTime);
       triggerHeavyWeaponSkin(character.weapon,this.renderTime);
       this.triggerWeaponFlash(character.muzzleFlash,character,shot); }
-    if (shot.playerId === this.localId) { this.weaponRecoil = shot.pellets?0.2:pistolShot?0.16:0.1;this.viewShotAt=this.renderTime;
+    if (shot.playerId === this.localId) { this.weaponRecoil = shot.pellets?Math.min(0.36,(this.weaponRecoil||0)+0.2):pistolShot?0.16:0.1;this.viewShotAt=this.renderTime;
       if(shot.pellets)triggerShotgunChamber(this.viewWeapon,shot.shotgunBarrel,this.renderTime);
       triggerHeavyWeaponSkin(this.viewWeapon,this.renderTime);
       this.triggerWeaponFlash(this.viewMuzzleFlash,this.viewMuzzleState,shot); }
+  }
+
+  setMissionState(state) {
+    this.strikeMissionState=state||null;
+    this.strikeEnvironment?.userData?.setMissionState?.(state);
+    const nested=state?.wardenAttack??state?.bossAttack??state?.bossState?.wardenAttack??state?.bossState?.attack;
+    if(nested)this.setWardenAttack({...nested,id:nested.id??state?.bossId??state?.bossState?.id});
+    if(state?.bossDefeated||state?.bossState?.defeated) {
+      const id=state?.bossId??state?.bossState?.id;if(id!=null)this.wardenAttacks.delete(id);
+    }
+  }
+
+  updateStrikeWorldWaypoint(viewed) {
+    const marker=this.ui.strikeWaypoint,target=this.strikeMissionState?.objectiveBeacon;
+    const active=marker&&viewed&&target&&this.strikeMissionState?.phase!=='complete'&&
+      (this.mapConfig.mode==='strike'||this.mapConfig.activity==='strike');
+    marker?.classList.toggle('hidden',!active);
+    if(!active)return;
+    const targetHeight=Number(target.height??target.bottom??0)+2.7;
+    const targetWorld=world(target.x,target.y,targetHeight,this.temp.waypointWorld||=
+      new THREE.Vector3());
+    const cameraSpace=(this.temp.waypointCamera||=new THREE.Vector3()).copy(targetWorld)
+      .applyMatrix4(this.camera.matrixWorldInverse);
+    const projected=this.temp.projected.copy(targetWorld).project(this.camera);
+    let nx=projected.x,ny=projected.y;
+    if(!Number.isFinite(nx)||!Number.isFinite(ny)){nx=0;ny=.72;}
+    const behind=cameraSpace.z>=-.05;
+    if(behind){nx=-nx;ny=-ny;if(Math.abs(nx)+Math.abs(ny)<.05)ny=.8;}
+    const limitX=.78,limitY=.72;
+    const offscreen=behind||Math.abs(nx)>limitX||Math.abs(ny)>limitY||projected.z<-1||projected.z>1;
+    if(offscreen) {
+      const scale=Math.min(limitX/Math.max(.001,Math.abs(nx)),limitY/Math.max(.001,Math.abs(ny)));
+      nx*=scale;ny*=scale;
+    }
+    const x=(nx*.5+.5)*this.canvas.clientWidth,y=(-ny*.5+.5)*this.canvas.clientHeight;
+    marker.style.transform=`translate3d(${x.toFixed(1)}px,${y.toFixed(1)}px,0) translate(-50%,-50%)`;
+    marker.classList.toggle('offscreen',offscreen);
+    if(offscreen) {
+      const angle=Math.atan2(-ny,nx)*180/Math.PI+45;
+      marker.style.setProperty('--waypoint-angle',`${angle.toFixed(1)}deg`);
+    }
+    const dx=(target.x-viewed.x)*SCALE,dz=(target.y-viewed.y)*SCALE,
+      dy=Number(target.height??0)-(viewed.height||0),distance=Math.hypot(dx,dz,dy);
+    const label=this.ui.strikeWaypointLabel,readout=this.ui.strikeWaypointDistance;
+    const labelText=String(target.label||this.strikeMissionState.objective||'OBJECTIVE').toUpperCase();
+    const distanceText=`${distance>=10?Math.round(distance):distance.toFixed(1)} m${dy>1.5?' ▲':dy< -1.5?' ▼':''}`;
+    if(label?.textContent!==labelText)label.textContent=labelText;
+    if(readout?.textContent!==distanceText)readout.textContent=distanceText;
+  }
+
+  setWardenAttack(event) {
+    const attack=event?.wardenAttack??event?.bossAttack??event?.attack??event;
+    const id=attack?.id??attack?.bossId??event?.id??event?.bossId??this.strikeMissionState?.bossId;
+    if(id==null||!attack)return;
+    const state=String(attack.state??attack.attackPhase??attack.phase??'').toLowerCase();
+    const transition=String(attack.event??'').toLowerCase();
+    if(attack.active===false||attack.cancelled||attack.complete||WARDEN_FINISHED_STATES.has(state)||
+      transition==='end'||transition==='cancel') {
+      this.wardenAttacks.delete(id);return;
+    }
+    this.wardenAttacks.set(id,{...attack,id,phase:attack.attackPhase??attack.phase,
+      localReceivedAt:performance.now()/1000});
   }
 
   animateElevator(state, now) {
@@ -979,6 +1334,14 @@ export class Arena3D {
     this.localId = localId;
     const local = players.find(p => p.id === localId);
     const viewed = local?.alive ? local : players.find(p => p.alive);
+    this.strikeEnvironment?.userData?.update?.(this.renderTime,viewed,this.scene);
+    const strikeLighting=this.strikeEnvironment?.userData?.getLighting?.();
+    if(strikeLighting&&Number.isFinite(strikeLighting.ambient)) {
+      // Districts retain their warm/cool contrast, but never fall back to the
+      // near-black baseline that made routes and floor edges unreadable.
+      const target=Math.max(1.35,strikeLighting.ambient);
+      this.ambient.intensity+=(target-this.ambient.intensity)*(1-Math.exp(-3.2*dt));
+    }
     if (viewed) {
       const viewPitch = viewed.id === localId ? pitch : 0;
       const foot=viewed.height||0;
@@ -993,6 +1356,7 @@ export class Arena3D {
       this.camera.position.y+=Math.sin(this.renderTime*65)*this.deathShake;
       this.camera.updateMatrixWorld();
     }
+    this.updateStrikeWorldWaypoint(viewed);
     const localMaxHealth=local?.maxHealth??101;
     const localHealth = local?.alive ? Math.max(0, Math.min(localMaxHealth, local.health ?? localMaxHealth)) : 0;
     const healthText=local?.alive?`${Math.ceil(localHealth)} / ${localMaxHealth} HP`:`SPECTATING${viewed?' / '+viewed.name:''}`;
@@ -1013,7 +1377,7 @@ export class Arena3D {
       crosshair.classList.toggle('sniper',!!local?.alive&&local.weapon==='sniper');}
     this.activeIds.clear();for(const player of players)this.activeIds.add(player.id);
     for (const [id, c] of this.characters) if (!this.activeIds.has(id)) {
-      this.stage.remove(c.group); this.clearObject(c.group); c.label.remove(); this.characters.delete(id);
+      this.stage.remove(c.group); this.clearObject(c.group); c.label.remove(); this.characters.delete(id);this.wardenAttacks.delete(id);
     }
     for (const player of players) {
       if(!player.alive){
@@ -1032,6 +1396,7 @@ export class Arena3D {
       c.damageFlash = currentHealth < c.health ? 0.22 : Math.max(0, c.damageFlash - dt);
       c.health = currentHealth;
       if(c.damageFlash>0||previousFlash>0)this.applyDamageFlash(c.flashMaterials,c.damageFlash);
+      const materializing=poseStrikeSpawnArrival(c,performance.now());
       updateMuzzleFlash(c.muzzleFlash, dt);
       if(player.weapon==='shotgun')poseShotgun(c.weapon,this.renderTime-(c.shotAt??-10),this.renderTime);
       poseHeavyWeaponSkin(c.weapon,this.renderTime);
@@ -1065,6 +1430,25 @@ export class Arena3D {
           c.dreadCore.scale.setScalar(1+charge*.25);
         }
       }
+      if(c.wardenPresentation) {
+        const bossState=this.strikeMissionState?.bossState||this.strikeMissionState?.wardenState;
+        const matchesBoss=!this.strikeMissionState?.bossId||this.strikeMissionState.bossId===player.id||
+          bossState?.id===player.id;
+        const bossPhase=matchesBoss?(bossState?.combatPhase??bossState?.phase??
+          this.strikeMissionState?.bossCombatPhase??this.strikeMissionState?.bossPhase):undefined;
+        const phase=Math.max(1,Math.min(3,Number(player.wardenPhase??bossPhase??1)||1));
+        const healthRatio=Math.max(0,Math.min(1,currentHealth/Math.max(1,player.maxHealth||
+          this.strikeMissionState?.bossMaxHealth||currentHealth)));
+        const attack=player.wardenAttack??this.wardenAttacks.get(player.id)??
+          (matchesBoss?(bossState?.wardenAttack??bossState?.attack??this.strikeMissionState?.wardenAttack??
+            this.strikeMissionState?.bossAttack):null);
+        poseWardenPresentation(c.wardenPresentation,phase,attack,this.renderTime,healthRatio);
+        if(c.dreadCore&&phase>=3) {
+          const pulse=.5+.5*Math.sin(this.renderTime*11);
+          c.dreadCore.material.emissiveIntensity=6.5+pulse*4.5;
+          c.dreadCore.scale.setScalar(1.22+pulse*.18);
+        }
+      }
       c.recoil = Math.max(0, c.recoil - dt); c.weapon.position.z = c.recoil;
       const remoteSwap=Math.max(0,Math.min(1,(this.renderTime-c.weaponSwitchAt)/WEAPON_SWAP_SECONDS));
       c.weapon.position.y=-0.22*Math.sin(Math.PI*remoteSwap);
@@ -1081,7 +1465,7 @@ export class Arena3D {
         c.nextLabelCheck=this.renderTime+0.12+(Number(player.id.replace(/\D/g,''))%4||0)*0.01;
       }
       if(!inView)c.nextLabelCheck=0;
-      const labelHidden=!inView||c.labelOccluded;
+      const labelHidden=materializing||!inView||c.labelOccluded;
       syncCharacterLabelVisibility(c,labelHidden);
       if(!labelHidden) {
         const labelX=(p.x*.5+.5)*this.canvas.clientWidth,labelY=(-p.y*.5+.5)*this.canvas.clientHeight;
@@ -1091,7 +1475,8 @@ export class Arena3D {
       }
       const health = Math.max(0, player.health ?? player.maxHealth ?? 101), percent=100*health/(player.maxHealth||101);
       const value=String(Math.ceil(health)),width=`${Math.min(100,percent)}%`;
-      const color=player.botType==='guardian'?'#a950ef':player.botType==='dread'?'#ef3048':percent<30?'#ff7878':percent<60?'#ffd48b':'#7bf0c4';
+      const color=player.botType==='guardian'?'#a950ef':player.botType==='warden'?'#ffb02e':
+        player.botType==='dread'?'#ef3048':percent<30?'#ff7878':percent<60?'#ffd48b':'#7bf0c4';
       if(c.labelValue!==value){c.labelValue=value;c.value.textContent=value;}
       if(c.fillWidth!==width){c.fillWidth=width;c.fill.style.width=width;}
       if(c.fillColor!==color){c.fillColor=color;c.fill.style.background=color;}
@@ -1146,13 +1531,95 @@ export class Arena3D {
     }
   }
 
+  drawStrikeMinimap(player) {
+    const ctx=this.map,width=180,height=120,sectors=this.mapConfig.strikeSectors||[],foot=player?.height||0;
+    const candidates=sectors.filter(sector=>{const b=sector.bounds||sector;
+      return player&&player.x>=b.x&&player.x<=b.x+b.width&&player.y>=b.y&&player.y<=b.y+b.height&&
+        foot>=(b.bottom??-Infinity)-.45&&foot<=(b.top??Infinity)+.45;});
+    // Inclines legitimately sit between a sector's nominal floor bands. Rank
+    // every 2D-containing sector by vertical distance instead of falling all
+    // the way back to Freight while the player is halfway up a stair.
+    const sector=candidates.sort((a,b)=>{
+      const score=sector=>{const bounds=sector.bounds||sector,min=sector.floorMin??bounds.bottom??-Infinity,
+        max=sector.floorMax??bounds.top??Infinity,vertical=foot<min?min-foot:foot>max?foot-max:0;
+        return vertical*1e6+bounds.width*bounds.height;};
+      return score(a)-score(b);
+    })[0]||sectors.find(sector=>sector.id===this.minimapCache?.sectorId)||sectors[0];
+    if(!sector){ctx.clearRect(0,0,width,height);return;}
+    const bounds=sector.bounds||sector,pad=24,minX=bounds.x-pad,minY=bounds.y-pad,
+      spanX=bounds.width+pad*2,spanY=bounds.height+pad*2;
+    const scale=Math.min((width-8)/spanX,(height-8)/spanY),ox=(width-spanX*scale)/2-minX*scale,
+      oy=(height-spanY*scale)/2-minY*scale;
+    const assigned=solid=>{const id=solid.strikeSector??solid.sectorId;
+      return id==null||Array.isArray(id)?id==null||id.includes(sector.id):id===sector.id;};
+    const levelVisible=solid=>{
+      const bottom=solid.bottom??0,top=solid.top??3.1;
+      if(solid.walkable||solid.platform||solid.kind==='ramp')return assigned(solid)&&foot>=bottom-1.1&&foot<=top+1.1;
+      return bottom<foot+2.05&&top>foot+.1;
+    };
+    const stateKey=`${sector.id}:${Math.round(foot*2)}:${(this.strikeMissionState?.openedIds||[]).join(',')}`;
+    if(this.minimapCache?.key!==stateKey) {
+      const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
+      const base=canvas.getContext('2d');base.fillStyle='#100c11';base.fillRect(0,0,width,height);
+      base.save();base.translate(ox,oy);
+      for(const solid of this.mapConfig.terrain||[])if(!solid.nonPlayable&&levelVisible(solid)) {
+        base.fillStyle=solid.kind==='ramp'?'#86644c':solid.kind==='lift'?'#c54c4e':'#3b3b40';
+        base.fillRect(solid.x*scale,solid.y*scale,Math.max(1.2,solid.width*scale),Math.max(1.2,solid.height*scale));
+      }
+      for(const solid of this.walls||[])if(!solid.nonSolid&&levelVisible(solid)) {
+        base.fillStyle=solid.kind==='strikeDoor'?'#d35358':'#7f343d';
+        base.fillRect(solid.x*scale,solid.y*scale,Math.max(1,solid.width*scale),Math.max(1,solid.height*scale));
+      }
+      base.restore();this.minimapCache={key:stateKey,canvas,sx:scale,sy:scale,ox,oy,sectorId:sector.id};
+    }
+    const cache=this.minimapCache;ctx.clearRect(0,0,width,height);ctx.drawImage(cache.canvas,0,0);
+    const encounter=(this.mapConfig.strikeEncounters||this.mapConfig.encounters||[])[this.strikeMissionState?.encounterIndex||0];
+    const target=this.strikeMissionState?.objectiveBeacon||
+      (this.strikeMissionState?.phase==='objective'?(encounter?.objectiveTrigger||encounter?.interaction?.trigger):
+        encounter?.objectivePoint||encounter?.trigger);
+    const activeGuides=new Set(this.strikeMissionState?.activeRouteGuideIds||[]);
+    if(activeGuides.size) {
+      ctx.save();ctx.fillStyle='#ff565d';ctx.globalAlpha=.72;
+      for(const guide of this.mapConfig.routeGuides||[])if(activeGuides.has(guide.id)) {
+        const gx=guide.x*cache.sx+cache.ox,gy=guide.y*cache.sy+cache.oy;
+        if(gx<3||gx>width-3||gy<3||gy>height-3)continue;
+        ctx.save();ctx.translate(gx,gy);ctx.rotate(guide.angle||0);
+        ctx.beginPath();ctx.moveTo(3,0);ctx.lineTo(-2.5,-2);ctx.lineTo(-1,0);ctx.lineTo(-2.5,2);
+        ctx.closePath();ctx.fill();ctx.restore();
+      }
+      ctx.restore();
+    }
+    if(target) {
+      const tx=(target.x+(target.width||0)/2)*cache.sx+cache.ox,
+        ty=(target.y+(target.width?target.height||0:0)/2)*cache.sy+cache.oy;
+      const inset=7,cx=Math.max(inset,Math.min(width-inset,tx)),cy=Math.max(inset,Math.min(height-inset,ty));
+      const offscreen=Math.abs(cx-tx)>.01||Math.abs(cy-ty)>.01;
+      ctx.save();ctx.translate(cx,cy);
+      if(offscreen) {
+        const angle=Math.atan2(ty-cy,tx-cx);ctx.rotate(angle);ctx.fillStyle='#ff6a62';
+        ctx.beginPath();ctx.moveTo(6,0);ctx.lineTo(-4,-4);ctx.lineTo(-2,0);ctx.lineTo(-4,4);ctx.closePath();ctx.fill();
+      } else {
+        ctx.rotate(Math.PI/4);ctx.strokeStyle='#ff8b72';ctx.lineWidth=2;
+        ctx.strokeRect(-4,-4,8,8);
+      }
+      ctx.restore();
+    }
+    if(!player)return;
+    ctx.save();ctx.translate(cache.ox+player.x*cache.sx,cache.oy+player.y*cache.sy);ctx.rotate(player.angle);
+    ctx.fillStyle=player.alive?'#f2f1e8':'#92979a';ctx.beginPath();ctx.moveTo(5,0);ctx.lineTo(-3,-3);
+    ctx.lineTo(-2,0);ctx.lineTo(-3,3);ctx.closePath();ctx.fill();ctx.restore();
+  }
+
   drawMinimap(player) {
+    if(this.mapConfig.mode==='strike'||this.mapConfig.activity==='strike')return this.drawStrikeMinimap(player);
     const ctx = this.map;
     if(!this.minimapCache) {
       const canvas=document.createElement('canvas');canvas.width=180;canvas.height=120;
       const base=canvas.getContext('2d');
-      const sx=Math.min(180/this.mapConfig.width,120/this.mapConfig.height),sy=sx;
-      const ox=(180-this.mapConfig.width*sx)/2,oy=(120-this.mapConfig.height*sy)/2;
+      const bounds=this.mapConfig.worldBounds||{minX:0,minY:0,maxX:this.mapConfig.width,maxY:this.mapConfig.height};
+      const worldWidth=bounds.maxX-bounds.minX,worldHeight=bounds.maxY-bounds.minY;
+      const sx=Math.min(180/worldWidth,120/worldHeight),sy=sx;
+      const ox=(180-worldWidth*sx)/2-bounds.minX*sx,oy=(120-worldHeight*sy)/2-bounds.minY*sy;
       base.fillStyle='#0b1a24';base.fillRect(0,0,180,120);base.fillStyle='#55727e';
       base.save();base.translate(ox,oy);
       for(const w of this.walls)base.fillRect(w.x*sx,w.y*sy,w.width*sx,w.height*sy);
@@ -1166,6 +1633,7 @@ export class Arena3D {
         base.lineTo((left?0:this.mapConfig.width)*sx,edgeY*sy);base.stroke();
       }
       for(const s of this.mapConfig.terrain) {
+        if(s.kind==='heightfield'||s.collisionOnly)continue;
         base.fillStyle=s.kind==='lift'?'#f3c35d':s.kind==='ramp'?'#c3a974':
           (s.kind==='tree'||s.kind==='templeTree'||s.kind==='templeRoot')?'#60965e':
           s.kind==='templePool'?'#438b88':s.kind==='waterfall'?'#70bdb6':'#7b9498';

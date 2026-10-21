@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import maps from '../public/arenaMap.js';
 import floors from '../public/floors.js';
 import movement from '../public/movement.js';
+import inputMovement from '../public/inputMovement.js';
 import combat from '../game/hitscan.js';
 import server from '../game/gameServer.js';
 import awareness from '../game/botAwareness.js';
@@ -18,7 +19,7 @@ const { createPveMap, moveOnTerrain, groundHeight, canOccupy, regeneratePlayers 
 const { startJump, advanceJump } = movement;
 const { traceShot } = combat;
 
-test('enemy hit reactions scale force by weapon and enemy type without minigun stacking',()=>{
+test('enemy hit reactions scale force by weapon and throttle rapid minigun stacking',()=>{
   const source={id:'p',x:100,y:200,angle:0};
   const make=(botType='soldier',maxHealth=100)=>({id:botType,isBot:true,alive:true,botType,
     x:200,y:200,health:maxHealth,maxHealth,botState:{}});
@@ -35,6 +36,23 @@ test('enemy hit reactions scale force by weapon and enemy type without minigun s
   assert.ok(Math.hypot(pistol.knockback.vx,pistol.knockback.vy)<Math.hypot(sniper.knockback.vx,sniper.knockback.vy));
   assert.ok(Math.hypot(ogre.knockback.vx,ogre.knockback.vy)<Math.hypot(pistol.knockback.vx,pistol.knockback.vy),
     'the Ogre mass heavily resists even a sniper impact');
+});
+
+test('impact velocity is residual, additive, accelerated and does not lock movement',()=>{
+  const map={width:1000,height:600,terrain:[],ceiling:7.5};
+  const player={alive:true,x:300,y:300,height:0,groundHeight:0};
+  maps.addKnockbackImpulse(player,100,0,1000,'guardianBurst');
+  maps.advanceKnockback(player,1050,map,[]);
+  const residual=player.knockback.vx,afterFirst=player.x;
+  assert.ok(residual>0&&residual<100);assert.equal(player.knockback.ax,-maps.IMPACT_MOTION.deceleration);
+  maps.addKnockbackImpulse(player,80,0,1050,'guardianBurst');
+  assert.ok(Math.abs(player.knockback.vx-(residual+80))<1e-9,'the second hit adds to remaining velocity');
+  const beforeInput=player.x;
+  inputMovement.applyMovementInput(player,{dx:-1,dy:0,dt:.05,jump:false},map,[],1050);
+  assert.ok(player.x<beforeInput,'players retain directional control while momentum remains');
+  maps.advanceKnockback(player,2000,map,[]);
+  assert.ok(player.x>afterFirst,'stacked residual velocity still carries the player');
+  assert.equal(player.knockback,null);
 });
 
 test('recent burst damage scares enemies into a type-specific retreat and attack pause',()=>{
@@ -514,7 +532,12 @@ test('every terrain model has finite geometry and ramp/deck bounds match physics
 
 test('authored PvP machinery, catwalks, tunnels and lifts render finite geometry',()=>{
   for(const id of ['foundry','tower','orbital','airport'])for(const s of maps.createPvpMap(0,id).map.terrain) {
-    const model=createTerrainModel(s),bounds=new THREE.Box3().setFromObject(model);
+    const model=createTerrainModel(s);
+    if(s.collisionOnly) {
+      assert.equal(model.children.length,0,`${id} ${s.kind} stays an invisible geometry-matched collision primitive`);
+      continue;
+    }
+    const bounds=new THREE.Box3().setFromObject(model);
     for(const value of [...bounds.min.toArray(),...bounds.max.toArray()])
       assert.ok(Number.isFinite(value),`${id} ${s.kind} has finite bounds`);
     assert.ok(model.children.length>0,`${id} ${s.kind} has visible geometry`);
@@ -536,6 +559,26 @@ test('Terminal 7 has a finite bespoke shell, runway, aircraft and jet bridge',()
   assert.ok(meshes>100,'terminal shell includes architectural and airside detail');
   assert.ok(transparent>4,'curtain walls use real transparent glazing');
   assert.ok(emissive>10,'signage, ceiling fixtures, and runway lights are luminous');
+  assert.equal(model.getObjectByName('terminal-aircraft-fuselage')?.geometry?.type,'LatheGeometry',
+    'aircraft uses one smooth tapered fuselage rather than joined primitive blocks');
+  const named=name=>{const found=[];model.traverse(o=>{if(o.name===name)found.push(o);});return found;};
+  assert.equal(named('terminal-aircraft-wing').length,2);
+  assert.equal(named('terminal-aircraft-engine').length,2);
+  assert.equal(named('terminal-aircraft-wheel').length,3);
+  assert.ok(model.getObjectByName('terminal-jet-bridge'),'jet bridge meets the forward aircraft door');
+  assert.ok(model.getObjectByName('terminal-aircraft-radome'),'the main aircraft has an identifiable forward radome');
+  assert.equal(model.children.filter(o=>o.name==='terminal-roof-shell').length,5,
+    'five curved canopy bays replace the former flat ceiling slab');
+  assert.equal(model.children.filter(o=>o.name==='terminal-skylight').length,4,
+    'curved skylight ribbons sit between canopy bays');
+  assert.equal(named('terminal-entrance-vestibule').length,2,
+    'two detailed passenger vestibules replace the old row of loading doors');
+  assert.equal(named('terminal-service-door').length,1,'one restrained industrial door serves the western staff route');
+  assert.equal(named('terminal-gate-portal').length,3,'each gate lounge terminates in a boarding portal');
+  assert.equal(named('terminal-checkin-canopy').length,2,'each check-in island has a coherent overhead identity band');
+  assert.equal(named('terminal-security-header').length,1,'screening lanes share one architectural threshold');
+  assert.equal(named('terminal-market-art').length,3,'the marketplace has one coordinated suspended art installation');
+  assert.equal(named('terminal-wayfinding').length,3,'wayfinding appears only at the three major processing thresholds');
   model.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});
 });
 
@@ -547,6 +590,81 @@ test('Terminal 7 carpet renders above the terrazzo without adding a collision st
     'visible carpet pile is separated from the floor instead of being coplanar');
   assert.ok(bounds.min.y+(carpet.bottom||0)>=-1e-6,'carpet geometry does not sink through the floor');
   model.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});
+});
+
+test('Terminal 7 market court and lively wall-integrated shops have detailed finite models',()=>{
+  const {map}=maps.createPvpMap(0,'airport'),terrain=map.terrain;
+  const market=createTerrainModel(terrain.find(s=>s.kind==='airportMarketIsland'));
+  assert.equal(market.name,'terminal-market-island');
+  const marketBounds=new THREE.Box3().setFromObject(market);
+  assert.ok([marketBounds.min,marketBounds.max].flatMap(v=>v.toArray()).every(Number.isFinite));
+  for(const shop of terrain.filter(s=>s.kind==='airportShop')) {
+    const model=createTerrainModel(shop),bounds=new THREE.Box3().setFromObject(model);
+    assert.equal(model.name,`terminal-shop-${shop.shop}`);
+    assert.equal(model.getObjectsByProperty('name','terminal-shop-pendant').length,3,
+      `${shop.shop} has a complete pendant-lighting scheme`);
+    assert.ok(model.getObjectByName(`terminal-shop-feature-${shop.shop}`),`${shop.shop} has a recessed art/menu wall`);
+    assert.equal(model.getObjectByName('terminal-shop-floor'),undefined,
+      `${shop.shop} uses the continuous terminal floor instead of drawing a seam across the old boundary`);
+    assert.ok([bounds.min,bounds.max].flatMap(v=>v.toArray()).every(Number.isFinite));
+    model.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});
+  }
+  assert.equal(terrain.filter(s=>s.kind==='airportShopRoof').length,4,'each walk-in shop has a real low ceiling');
+  const fixtures=terrain.filter(s=>s.kind==='airportShopFixture');
+  assert.ok(fixtures.length>=12,'shop interiors contain counters, shelves, displays, tables and merchandise');
+  for(const fixture of fixtures) {
+    const model=createTerrainModel(fixture),bounds=new THREE.Box3().setFromObject(model);
+    assert.ok([bounds.min,bounds.max].flatMap(v=>v.toArray()).every(Number.isFinite));
+    if(fixture.shop==='coffee'&&fixture.fixture==='counter')
+      assert.equal(model.getObjectsByProperty('name','terminal-coffee-cup').length,3);
+    model.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});
+  }
+  market.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});
+});
+
+test('Terminal 7 puts departures boards on the landside wall and restores compact bag-drop belts',()=>{
+  const {map}=maps.createPvpMap(0,'airport');
+  const boards=map.terrain.filter(s=>s.kind==='airportFlightBoard');
+  assert.equal(boards.length,2);
+  for(const board of boards) {
+    assert.equal(board.wallMounted,true);
+    assert.ok(board.y+board.height>map.height-15,'departures board is mounted against the wall opposite the apron');
+    assert.ok(board.top<=0,'wall display has no floor-standing collision volume');
+    const model=createTerrainModel(board);
+    assert.equal(model.name,'terminal-wall-flight-board');
+    const bounds=new THREE.Box3().setFromObject(model);
+    assert.ok(bounds.min.y>2.5&&bounds.max.y<4.75,'board reads as a wall display rather than a black floor box');
+    model.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});
+  }
+  const belts=map.terrain.filter(s=>s.kind==='airportBaggage');
+  assert.equal(belts.length,2,'both check-in islands have a small baggage roller area');
+  for(const belt of belts) {
+    const model=createTerrainModel(belt);
+    assert.equal(model.name,'terminal-baggage-belt');
+    assert.ok(model.getObjectsByProperty('name','terminal-baggage-roller').length>=5);
+    assert.equal(model.getObjectsByProperty('name','terminal-baggage-case').length,3);
+    model.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});
+  }
+});
+
+test('Terminal 7 keeps stair flights open and landing balustrades clear of both openings',()=>{
+  const {map}=maps.createPvpMap(0,'airport');
+  const stairs=map.terrain.filter(s=>s.kind==='ramp'&&s.stairs);
+  const rails=map.terrain.filter(s=>s.kind==='rail'&&s.style==='airport');
+  assert.equal(stairs.length,2);
+  assert.equal(rails.filter(item=>item.axis).length,0,'glass walls no longer run along either side of the stair flights');
+  for(const stair of stairs) {
+    const landingY=stair.reverse?stair.y:stair.y+stair.height;
+    const landingRails=rails.filter(rail=>
+      rail.width>rail.height&&landingY>=rail.y-0.001&&landingY<=rail.y+rail.height+0.001);
+    assert.ok(landingRails.length>=2,'each stair landing is guarded on both sides');
+    const clearance=15;
+    for(const rail of landingRails) {
+      const overlapsOpening=rail.x+rail.width>stair.x-clearance&&
+        rail.x<stair.x+stair.width+clearance;
+      assert.equal(overlapsOpening,false,'rail end posts and collision padding stay outside the stair path');
+    }
+  }
 });
 
 test('Orbital Station has a finite single-draw starfield and distant planetary backdrop',()=>{

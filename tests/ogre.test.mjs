@@ -8,18 +8,21 @@ import * as THREE from 'three';
 import maps from '../public/arenaMap.js';
 import server from '../game/gameServer.js';
 const {floorDifficulty,tickOgre}=difficulty;
+const {killCoinReward}=server;
 const {DREAD_COMBAT,tickDreadCarbine,recordDreadShot}=dreadCombat;
 const map={width:1800,height:1200,terrain:[],ceiling:7.5};
 const setup=(x=400)=>({bot:{id:'ogre',botType:'ogre',x:100,y:100,height:0,alive:true,isBot:true,botState:{}},
   target:{id:'human',x,y:100,height:0,alive:true}});
-test('difficulty rises gently, then floor 21 starts a bounded ten-enemy elite phase',()=>{
+test('difficulty rises gently, then elite floors preserve the floor-20 wave size',()=>{
   assert.deepEqual(floorDifficulty(1),{count:4,health:80,speed:1,ogres:0});
   assert.equal(floorDifficulty(4).ogres,0);assert.equal(floorDifficulty(5).ogres,1);
   assert.equal(floorDifficulty(8).ogres,2);
   assert.deepEqual(floorDifficulty(20),{count:23,health:156,speed:1.3,ogres:4});
-  assert.deepEqual(floorDifficulty(21),{count:10,health:220,speed:1.3,ogres:4});
-  assert.deepEqual(floorDifficulty(37),{count:10,health:300,speed:1.3,ogres:4});
-  assert.deepEqual(floorDifficulty(1000),{count:13,health:300,speed:1.3,ogres:4,guardians:3});
+  assert.deepEqual(floorDifficulty(21),{count:23,health:220,speed:1.3,ogres:4});
+  assert.deepEqual(floorDifficulty(37),{count:23,health:300,speed:1.3,ogres:4});
+  assert.deepEqual(floorDifficulty(1000),{count:23,health:300,speed:1.3,ogres:4,guardians:3});
+  assert.equal(floorDifficulty(20,10).count,24);
+  assert.equal(floorDifficulty(21,10).count,24,'large parties retain their own floor-20 cap too');
 });
 test('Dread carbine telegraphs, fires three spaced shots, recovers and cancels behind cover',()=>{
   const bot={id:'dread',botType:'dread',botState:{}},target={id:'human'};
@@ -40,7 +43,7 @@ test('Dread carbine telegraphs, fires three spaced shots, recovers and cancels b
   assert.ok(bot.dreadAttack);assert.equal(tickDreadCarbine(bot,target,false,true,now+DREAD_COMBAT.recoveryMs+10),false);
   assert.equal(bot.dreadAttack,null,'cover cancels the warning and pending burst');
 });
-test('floor 21 server fields ten enemies and applies the Dread carbine as a 27-damage burst',t=>{
+test('floor 21 keeps a large wave with three coin-rich Dread Captains',t=>{
   let tick,connect,now=100000;
   t.mock.method(global,'setInterval',fn=>{tick=fn;return 0;});t.mock.method(Date,'now',()=>now);
   const handlers={},events=[],io={on(_,fn){connect=fn;},emit(name,data){events.push({name,data});},socketsLeave(){},to(){return this;}};
@@ -51,8 +54,11 @@ test('floor 21 server fields ten enemies and applies the Dread carbine as a 27-d
   try {
     const human=game.activePlayers.find(p=>!p.isBot),bots=game.activePlayers.filter(p=>p.isBot);
     const dread=bots.find(p=>p.botType==='dread');
-    assert.equal(bots.length,10);assert.equal(bots.filter(p=>p.botType==='ogre').length,4);
-    assert.equal(bots.filter(p=>p.botType==='dread').length,6);
+    assert.equal(bots.length,23);assert.equal(bots.filter(p=>p.botType==='ogre').length,4);
+    const dreads=bots.filter(p=>p.botType==='dread');
+    assert.equal(dreads.length,3);assert.ok(dreads.every(p=>p.botRank==='captain'));
+    assert.ok(dreads.every(p=>killCoinReward(p)===35));
+    assert.equal(bots.filter(p=>p.botType==='soldier').length,16);
     handlers.shoot({angle:Math.PI}); // Explicitly begin this focused combat scenario.
     bots.filter(p=>p!==dread).forEach(p=>p.alive=false);
     game.gameWalls.length=0;game.gameMap.terrain.length=0;
@@ -147,6 +153,8 @@ test('tracking freezes behind cover or on death and never switches to another pl
   for(let now=50;now<=1600;now+=50)tickOgre(bot,null,[target],[wall],map,now,()=>assert.fail('cover must block damage'));
   assert.equal(bot.ogreAttack.angle,initial);assert.equal(bot.ogreAttack.pitch,initialPitch);
   assert.equal(bot.ogreAttack.beam.hit,'wall');
+  assert.equal(bot.ogreAttack.beam.endX,wall.x,'the visible beam terminates on the near wall face');
+  assert.ok(bot.ogreAttack.beam.endY>=wall.y&&bot.ogreAttack.beam.endY<=wall.y+wall.height);
   target.alive=false;
   const other={...target,id:'other',alive:true,y:300};
   tickOgre(bot,other,[target,other],[],map,1650,()=>{});
@@ -176,21 +184,23 @@ test('no target means no attack; big bodies are hittable above normal player hei
   assert.equal(combat.traceShot({...bot,eyeHeight:3.3},0,[],[ogre],()=>true,0,map).targetId,ogre.id);
   assert.equal(combat.traceShot({...bot,eyeHeight:3.3},0,[],[target],()=>true,0,map).targetId,null);
 });
-test('slam knockback decays consistently, stops at walls, and spares jumping targets',()=>{
+test('slam knockback retains velocity, decelerates consistently, stops at walls, and spares jumping targets',()=>{
+  const expected=175+320*320/(2*maps.IMPACT_MOTION.deceleration);
   for(const step of [10,50,90]) {
     const {bot,target}=setup(175);
     tickOgre(bot,target,[target],[],map,0,()=>{});
     tickOgre(bot,target,[target],[],map,1000,()=>{});
     assert.ok(target.knockback.vx>0);
-    for(let now=1000+step;now<1450;now+=step)maps.advanceKnockback(target,now,map,[]);
-    maps.advanceKnockback(target,1450,map,[]);
-    assert.ok(Math.abs(target.x-247)<1e-8);assert.equal(target.knockback,null);
+    assert.ok(target.knockback.ax<0&&target.knockback.ay===0);
+    for(let now=1000+step;now<1600;now+=step)maps.advanceKnockback(target,now,map,[]);
+    maps.advanceKnockback(target,1600,map,[]);
+    assert.ok(Math.abs(target.x-expected)<1e-8);assert.equal(target.knockback,null);
   }
   const {bot,target}=setup(175);
   tickOgre(bot,target,[target],[],map,0,()=>{});
   tickOgre(bot,target,[target],[],map,1000,()=>{});
   const wall={x:220,y:0,width:20,height:400,top:5};
-  maps.advanceKnockback(target,1450,map,[wall]);
+  maps.advanceKnockback(target,1600,map,[wall]);
   assert.ok(target.x>175&&target.x<=204.1,'push cannot tunnel through a wall');
   const jumping=setup(175);
   tickOgre(jumping.bot,jumping.target,[jumping.target],[],map,0,()=>{});

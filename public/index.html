@@ -125,8 +125,8 @@
                                 <button class="mode-choice" data-mode="pve">
                                     <strong>Endless PvE</strong><small>Co-op floor survival</small>
                                 </button>
-                                <button class="mode-choice unavailable" disabled>
-                                    <strong>Strikes</strong><small>Coming later</small>
+                                <button class="mode-choice" data-mode="strike">
+                                    <strong>Strikes</strong><small>Authored co-op missions</small>
                                 </button>
                             </div>
                             <button id="play-btn" class="play-button"><i>PLAY</i></button>
@@ -148,6 +148,10 @@
                         <div class="lobby-group">
                             <div class="lobby-group-title"><span>Endless PvE</span><i></i></div>
                             <div id="pve-lobby-list" class="lobby-list"></div>
+                        </div>
+                        <div class="lobby-group">
+                            <div class="lobby-group-title"><span>The Red Vault</span><i></i></div>
+                            <div id="strike-lobby-list" class="lobby-list"></div>
                         </div>
                     </aside>
                 </div>
@@ -219,10 +223,27 @@
                 <div class="game-shell">
                     <div id="arena-viewport">
                         <canvas id="game-canvas" aria-label="3D multiplayer arena"></canvas>
-                        <div class="minimap-panel"><span>TACTICAL MAP</span><canvas id="minimap" width="180" height="120" aria-label="Arena map showing only your position"></canvas><small>YOU ONLY <i></i></small></div>
+                        <div class="minimap-panel"><span>TACTICAL MAP</span><canvas id="minimap" width="180" height="120" aria-label="Arena map showing your position and current objective"></canvas><small><span id="minimap-legend">YOU ONLY</span><i></i></small></div>
                         <div id="arena-label">SECTOR / 01 <span>LIVE ARENA</span></div>
+                        <section id="strike-objective" class="strike-objective hidden" aria-live="polite">
+                            <div class="strike-objective-meta"><span id="strike-act">ACT 1 / 5</span><span id="strike-phase">ADVANCE</span></div>
+                            <strong id="strike-objective-text">Enter the foundry</strong>
+                            <div class="strike-objective-route"><span id="strike-route-arrow">↑</span><span id="strike-route-label">FOLLOW ROUTE BEACON</span><em id="strike-route-distance">--</em></div>
+                            <div class="strike-objective-track" aria-hidden="true"><i id="strike-objective-fill"></i></div>
+                        </section>
+                        <section id="strike-boss" class="strike-boss hidden" aria-live="polite">
+                            <div><strong id="strike-boss-name">DREAD WARDEN</strong><span id="strike-boss-phase">PHASE 1</span></div>
+                            <div class="strike-boss-track" role="progressbar" aria-label="Boss health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><i id="strike-boss-fill"></i></div>
+                        </section>
                         <div id="health-labels"></div>
+                        <div id="strike-world-waypoint" class="strike-world-waypoint hidden" aria-hidden="true">
+                            <i></i><strong>OBJECTIVE</strong><span>-- m</span>
+                        </div>
                         <div id="crosshair" aria-hidden="true"><span class="standard-crosshair">+</span><span class="shotgun-reticle"></span><span class="sniper-reticle"><i></i><i></i><i></i><i></i></span></div>
+                        <div id="strike-interact" class="strike-interact hidden" role="progressbar" aria-label="Objective interaction" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                            <span class="strike-interact-ring"><b>E</b></span>
+                            <strong id="strike-interact-label">HOLD E · ACTIVATE</strong>
+                        </div>
                         <div id="minigun-spool-track" role="progressbar" aria-label="Minigun spin-up" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden><div id="minigun-spool-fill"></div></div>
                         <div id="grenade-charge-track" role="progressbar" aria-label="Grenade throw charge" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden><div id="grenade-charge"></div></div>
                         <div id="look-prompt">CLICK TO PLAY <small>WASD to move · Space to jump · E to swap weapons · Mouse to look · Esc to release</small></div>

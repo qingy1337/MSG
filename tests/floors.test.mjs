@@ -201,37 +201,107 @@ test('Orbital Station is open to space with two distinct floors, opposite stairs
     'spawns reinforce the two-floor combat structure');
 });
 
-test('Terminal 7 is a connected airport with distinct public, security, gate, mezzanine and baggage spaces',()=>{
+test('Terminal 7 is a connected full-scale departures terminal with processing, market, gates and mezzanine',()=>{
   const {map,walls}=maps.createPvpMap(0,'airport'),terrain=map.terrain,solids=[...walls,...terrain];
   assert.equal(map.name,'Terminal 7');assert.equal(map.style,'airport');
-  assert.equal(map.palette.groundStyle,'airport');assert.ok(map.width<=1100&&map.height<=800);
-  for(const kind of ['airportCheckin','airportScanner','airportSeats','airportGateDesk','airportBaggage',
-    'airportLuggageCart','airportFlightBoard','airportKiosk','airportPlanter'])
+  assert.equal(map.palette.groundStyle,'airport');
+  assert.ok(map.width>=1300&&map.height>=900,'terminal has a genuinely roomy international-airport footprint');
+  assert.ok(map.ceiling>=10.5,'the enlarged departure hall also gains vertical breathing room');
+  for(const kind of ['airportCheckin','airportScanner','airportSeats','airportGateDesk',
+    'airportLuggageCart','airportFlightBoard','airportKiosk','airportPlanter','airportShop','airportShopRoof',
+    'airportShopFixture','airportMarketIsland'])
     assert.ok(terrain.some(s=>s.kind===kind),`terminal includes ${kind}`);
-  assert.equal(terrain.filter(s=>s.kind==='airportScanner').length,3,'security has three playable screening lanes');
-  assert.ok(terrain.filter(s=>s.kind==='airportBaggage').length>=3,'staff route contains a complete baggage system');
-  assert.ok(walls.filter(s=>s.airportWall==='service').length>=5,'baggage hall has multiple staff entrances');
-  assert.ok(walls.filter(s=>s.airportWall==='glass').length>=4,'security is shaped by glazed partitions');
+  assert.deepEqual([...new Set(terrain.filter(s=>s.kind==='airportShop').map(s=>s.shop))].sort(),
+    ['books','coffee','restaurant','travel'],'the marketplace has four distinct perimeter tenants');
+  for(const shop of terrain.filter(s=>s.kind==='airportShop')) {
+    assert.equal(shop.top,0,'shop floor marker does not fill its walkable interior with collision');
+    const enclosure=walls.filter(w=>w.airportWall==='shop'&&w.shop===shop.shop);
+    assert.equal(enclosure.length,3,`${shop.shop} has two side returns and its own terminating back wall`);
+    assert.equal(enclosure.filter(w=>w.shopBack).length,1,`${shop.shop} is a self-contained room`);
+    assert.ok(shop.front==='east'||shop.front==='west','shops are recessed into the long perimeter walls');
+    assert.ok(Math.abs(shop.width-237.6)<1e-6&&Math.abs(shop.height-149.6)<1e-6,
+      'moving the store through the shell does not change its original dimensions');
+    assert.ok(shop.x<0||shop.x+shop.width>map.width,`${shop.shop} extends beyond the main terminal footprint`);
+    const entry={x:shop.x+shop.width/2,y:shop.y+shop.height/2,height:0};
+    if(shop.front==='north')entry.y=shop.y+12;
+    if(shop.front==='south')entry.y=shop.y+shop.height-12;
+    if(shop.front==='west')entry.x=shop.x+12;
+    if(shop.front==='east')entry.x=shop.x+shop.width-12;
+    assert.ok(maps.canOccupy(entry.x,entry.y,0,solids),`${shop.shop} has a physically open, walkable entrance`);
+  }
+  assert.equal(map.walkablePockets.length,4,'movement expands only inside the four enclosed stores');
+  const shopOverheads=walls.filter(w=>w.airportWall==='shop-overhead');
+  assert.equal(shopOverheads.length,4,'the terminal shell remains continuous above all four shop openings');
+  assert.ok(shopOverheads.every(w=>Math.abs(w.bottom-3.4)<1e-6&&w.top===map.ceiling),
+    'shop openings stop at the storefront roof instead of erasing the wall up to the terminal ceiling');
+  for(const side of ['west','east']) {
+    const shops=terrain.filter(s=>s.kind==='airportShop'&&(side==='west'?s.x<0:s.x+s.width>map.width));
+    assert.ok(shops.some(shop=>{
+      const x=side==='west'?-8:map.width+8;
+      for(let y=shop.y+20;y<shop.y+shop.height-20;y+=4)
+        if(maps.canOccupy(x,y,0,solids))return true;
+      return false;
+    }),`a player can stand beyond the main ${side} wall inside a store`);
+  }
+  const checkinY=Math.max(...terrain.filter(s=>s.kind==='airportCheckin').map(s=>s.y));
+  const securityY=Math.max(...terrain.filter(s=>s.kind==='airportScanner').map(s=>s.y));
+  const gateY=Math.max(...terrain.filter(s=>s.kind==='airportGateDesk'&&!s.bottom).map(s=>s.y));
+  assert.ok(checkinY>securityY&&securityY>gateY,'departures flow coherently from check-in through security to gates');
+  const scanners=terrain.filter(s=>s.kind==='airportScanner'),scannerColliders=terrain.filter(s=>s.kind==='airportScannerCollider');
+  assert.equal(scanners.length,4,'security has four full-scale screening lanes');
+  assert.equal(scannerColliders.length,12,'scanner collision follows two uprights and one belt per lane');
+  for(const scanner of scanners) {
+    assert.equal(scanner.nonSolid,true,'the scanner authoring rectangle is visual only');
+    const cy=scanner.y+scanner.height/2;
+    assert.ok(maps.canOccupy(scanner.x+scanner.width*.30,cy,0,solids),
+      'the blue scanner field is a genuinely walkable opening');
+    assert.equal(maps.canOccupy(scanner.x+scanner.width*.10,cy,0,solids),false,
+      'the visible white scanner upright remains solid');
+    assert.equal(maps.canOccupy(scanner.x+scanner.width*.80,cy,0,solids),false,
+      'the visible baggage belt remains solid');
+  }
+  const carpets=terrain.filter(s=>s.kind==='airportCarpet');
+  const carpetCoverage=carpets.reduce((sum,s)=>sum+s.width*s.height,0)/(map.width*map.height);
+  assert.ok(carpets.length>=5&&carpetCoverage<.20,
+    'carpet is confined to gate lounges and entrance mats rather than color-blocking whole concourses');
+  assert.ok(walls.filter(s=>s.airportWall==='glass').length>=4,'gate bays and security use aligned glazed partitions');
+  const market=terrain.find(s=>s.kind==='airportMarketIsland');
+  assert.ok(market.width>map.width*.25&&market.height>map.height*.08,
+    'the market court is a substantial social landmark rather than a loose prop cluster');
   const decks=terrain.filter(s=>s.kind==='airportDeck'&&s.walkable),stairs=terrain.filter(s=>s.kind==='ramp'&&s.style==='airport');
-  assert.equal(decks.length,3);assert.equal(stairs.length,2);
-  assert.ok(decks.every(s=>s.top===3.35&&s.bottom===3.08));
+  assert.equal(decks.length,4);assert.equal(stairs.length,2);
+  assert.equal(terrain.filter(s=>s.kind==='rail'&&s.style==='airport'&&s.axis).length,0,
+    'stair flights stay open instead of being squeezed between glass walls');
+  const galleryScreens=walls.filter(w=>w.airportWall==='glass'&&w.zone==='gallery-support');
+  assert.equal(galleryScreens.length,2,'the displaced glass becomes two aligned supports beneath the upper platforms');
+  assert.equal(walls.filter(w=>w.zone==='security').length,0,
+    'no tall glass partition remains beside either terminal staircase');
+  for(const [index,stair] of stairs.entries()) {
+    const support=galleryScreens[index],stairCenter=stair.x+stair.width/2;
+    assert.ok(support.width<support.height,'support runs parallel to the north-south stair axis');
+    assert.ok(Math.abs(support.x+support.width/2-stairCenter)<1e-6,'support continues the stair centre line');
+    assert.ok(Math.abs(support.y+support.height-stair.y)<1e-6,'support stops where the stair flight begins');
+    assert.equal(support.top,3.84,'support meets the underside of the upper platform');
+  }
+  assert.ok(decks.every(s=>s.top===4.1&&s.bottom===3.84));
   const graph=new navigation.NavigationGraph(map,walls);
   for(const deck of decks) {
     const goal={x:deck.x+deck.width/2,y:deck.y+deck.height/2,height:deck.top};
     assert.ok(graph.find(map.spawns[0],goal).length,'both terminal staircases connect to the full mezzanine');
   }
   const publicSpawn=map.spawns.find(s=>s.height===0&&s.y<map.height*.7);
-  const baggageSpawn=map.spawns.find(s=>s.height===0&&s.y>map.height*.75);
-  assert.ok(publicSpawn&&baggageSpawn&&graph.find(publicSpawn,baggageSpawn).length,
-    'the public terminal and baggage flank belong to one circulation graph');
-  assert.ok(map.spawns.filter(s=>s.height===3.35).length>=4,'upstairs combat has dedicated spawns');
+  const landsideSpawn=map.spawns.find(s=>s.height===0&&s.y>map.height*.75);
+  assert.ok(publicSpawn&&landsideSpawn&&graph.find(publicSpawn,landsideSpawn).length,
+    'the gate hall, market, security, and landside hall belong to one circulation graph');
+  assert.ok(map.spawns.filter(s=>s.height===4.1).length>=6,'upstairs combat has dedicated spawns around the gallery circuit');
   for(const spawn of map.spawns)assert.ok(maps.canOccupy(spawn.x,spawn.y,spawn.height,solids));
 });
 
 test('every PvP map is compact and stays inside the shared sightline budget',()=>{
   for(const id of pvpMaps.PVP_MAP_IDS)for(let variant=0;variant<3;variant++) {
     const layout=maps.createPvpMap(variant,id),metrics=pvpMaps.pvpSightlineMetrics(layout);
-    assert.ok(layout.map.width<=1520&&layout.map.height<=1040,`${id} has a compact combat footprint`);
+    const sizeLimit=id==='airport'?[1600,1120]:[1520,1040];
+    assert.ok(layout.map.width<=sizeLimit[0]&&layout.map.height<=sizeLimit[1],`${id} has a compact combat footprint`);
     assert.ok(metrics.p90<=820,`${id} p90 sightline ${metrics.p90.toFixed(0)} exceeds the budget`);
     assert.ok(metrics.max<=1450,`${id} maximum sightline ${metrics.max.toFixed(0)} exceeds the budget`);
   }
@@ -293,13 +363,12 @@ test('only authenticated qing starting from the lobby can select a PvE floor',t=
       if(!scenario.pvp) {
         assert.equal(game.gameMap.floor,scenario.expected);
         const bots=game.activePlayers.filter(p=>p.isBot);
-        assert.equal(bots.length,scenario.expected>20?10:Math.min(24,4+scenario.expected-1));
+        assert.equal(bots.length,Math.min(24,4+Math.min(scenario.expected,20)-1));
         assert.equal(bots.filter(p=>p.botType==='ogre').length,scenario.expected<5?0:Math.min(4,1+Math.floor((scenario.expected-5)/3)));
         if(scenario.expected>20) {
           const dreads=bots.filter(p=>p.botType==='dread');
-          assert.equal(dreads.length,6);assert.equal(dreads.filter(p=>p.botRank==='captain').length,2);
+          assert.equal(dreads.length,3);assert.equal(dreads.filter(p=>p.botRank==='captain').length,3);
           assert.ok(dreads.every(p=>p.color.startsWith('#')&&!p.color.toLowerCase().includes('purple')));
-          assert.ok(dreads.filter(p=>p.botRank!=='captain').every(p=>p.health===Math.min(300,220+(scenario.expected-21)*5)));
           assert.ok(dreads.filter(p=>p.botRank==='captain').every(p=>p.health===Math.min(300,220+(scenario.expected-21)*5)+40));
         }
         assert.equal(events.find(e=>e.name==='floorState').data.floor,scenario.expected);

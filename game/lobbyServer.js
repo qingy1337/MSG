@@ -8,6 +8,7 @@ const {
 const MODES = Object.freeze({
   pvp: { id: 'pvp', name: 'Arena PvP', maxPlayers: 8 },
   pve: { id: 'pve', name: 'Endless PvE', maxPlayers: 4 },
+  strike: { id: 'strike', name: 'The Red Vault', maxPlayers: 4 },
 });
 
 function scopedEmitter(io, roomName) {
@@ -241,7 +242,8 @@ function createLobbyServer(io) {
       return reply?.({ ok: false, error: 'PvP needs at least two players.' });
     }
     const options = {
-      enableBots: lobby.mode === 'pve',
+      enableBots: lobby.mode !== 'pvp',
+      strikeId:lobby.mode==='strike'?(payload?.strikeId||'red-vault'):undefined,
       startFloor: payload?.startFloor,
       pvpMap: payload?.pvpMap,
       debugDouble: qingDebug,

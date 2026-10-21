@@ -30,6 +30,8 @@ function setActiveScreen(target) {
     }
   }
   document.body.classList.toggle('in-game', target === gameScreen);
+  document.body.classList.toggle('in-shop', target === shopScreen);
+  document.documentElement.classList.toggle('in-shop', target === shopScreen);
   if (target !== homeScreen && loadoutDrawerLayer && !loadoutDrawerLayer.classList.contains('hidden')) {
     loadoutDrawerLayer.classList.add('hidden');
     document.body.classList.remove('loadout-open');
@@ -66,6 +68,7 @@ const closeLoadoutBtn = document.getElementById('close-loadout-btn');
 const doneLoadoutBtn = document.getElementById('done-loadout-btn');
 const pvpLobbyListEl = document.getElementById('pvp-lobby-list');
 const pveLobbyListEl = document.getElementById('pve-lobby-list');
+const strikeLobbyListEl = document.getElementById('strike-lobby-list');
 const onlineLobbyCountEl = document.getElementById('online-lobby-count');
 const lobbyStatusEl = document.getElementById('lobby-status');
 const lobbyTitleEl = document.getElementById('lobby-title');
@@ -1005,12 +1008,13 @@ function startGame() {
 function updateStartButtonState() {
   const isOwner = currentLobby?.ownerId === socket.id;
   const isPve = currentLobby?.mode === 'pve';
+  const isCoop = isPve || currentLobby?.mode === 'strike';
   startFloorRow?.classList.toggle('hidden',currentUser?.username!=='qing'||!isPve||!isOwner);
-  pvpDebugRow?.classList.toggle('hidden',currentUser?.username!=='qing'||isPve||!isOwner);
+  pvpDebugRow?.classList.toggle('hidden',currentUser?.username!=='qing'||currentLobby?.mode!=='pvp'||!isOwner);
   if (!startBtn) return;
   const humanCount = currentLobby?.players?.length || 0;
-  const debugReady = !isPve&&currentUser?.username==='qing'&&pvpDebugDouble?.checked&&humanCount>=1;
-  const canStart = isOwner && (isPve ? humanCount >= 1 : humanCount >= 2 || debugReady);
+  const debugReady = currentLobby?.mode==='pvp'&&currentUser?.username==='qing'&&pvpDebugDouble?.checked&&humanCount>=1;
+  const canStart = isOwner && (isCoop ? humanCount >= 1 : humanCount >= 2 || debugReady);
   startBtn.disabled = !canStart;
   if (lobbyLeaderNoteEl) {
     lobbyLeaderNoteEl.textContent = isOwner
@@ -1074,6 +1078,7 @@ function renderLobbyBrowser() {
   };
   renderMode('pvp', pvpLobbyListEl);
   renderMode('pve', pveLobbyListEl);
+  renderMode('strike', strikeLobbyListEl);
 }
 
 // Socket event handlers

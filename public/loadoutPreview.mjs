@@ -3,7 +3,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { createAutoRifle } from './autoRifle.mjs';
 import { createPistol } from './pistol.mjs';
 import { createShotgun } from './shotgun.mjs';
-import { createHeavyWeapon } from './heavyWeapons.mjs';
+import { createHeavyWeapon,poseHeavyWeaponSkin } from './heavyWeapons.mjs';
 import { createMarioPipe } from './marioPipe.mjs';
 
 const canvas = document.getElementById('loadout-weapon-preview');
@@ -301,6 +301,10 @@ if (canvas) {
       lastFrame = time;
       turntable.rotation.y += (rotationTargetY - turntable.rotation.y) * 0.16;
       turntable.rotation.x += (rotationTargetX - turntable.rotation.x) * 0.16;
+      if(model) {
+        poseHeavyWeaponSkin(model.userData.primary,time/1000);
+        poseHeavyWeaponSkin(model.userData.pistol,time/1000);
+      }
       renderer.render(scene, camera);
     }
     requestAnimationFrame(frame);

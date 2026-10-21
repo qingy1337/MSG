@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import {attachKintsugiFlow} from './heavyWeapons.mjs';
 
 export const PISTOL_MODEL_SCALE = 0.85;
 
@@ -9,6 +10,7 @@ export function createPistol(skinKey, length) {
   const blue = skinKey === 'pistol_basicBlue';
   const cyber = skinKey === 'pistol_cybernetic';
   const dragon = skinKey === 'pistol_pocket_dragon';
+  const kintsugi = skinKey === 'pistol_kintsugi';
   const material = (color, metalness = 0.45, roughness = 0.4) =>
     new THREE.MeshStandardMaterial({ color, metalness, roughness });
   const lacquer = dragon ? new THREE.MeshPhysicalMaterial({
@@ -28,6 +30,10 @@ export function createPistol(skinKey, length) {
   const tube = (points, radius, mat, name) => add(
     new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points.map(point => new THREE.Vector3(...point))), 18, radius, 5, false),
     mat, 0, 0, 0, name);
+  if (kintsugi) {
+    addKintsugiPistol(group, {add, box, tube});
+    return group;
+  }
   box(0.33, 0.28, 0.94, 0, 0.04, -0.48, slide, 'slide');
   box(0.28, 0.10, 0.72, 0, -0.14, -0.4, dark, 'lower-frame');
   box(0.14, 0.018, 0.2, 0.055, 0.19, -0.38, steel, 'ejection-port');
@@ -66,6 +72,90 @@ export function createPistol(skinKey, length) {
   bore.rotation.y = Math.PI;
   if (dragon) addDragonHead(group, {add,box,tube,red:slide,dark,gold:accent,bronze:steel});
   return group;
+}
+
+function addKintsugiPistol(group, {add, box, tube}) {
+  const ceramic = new THREE.MeshPhysicalMaterial({
+    name:'Kintsugi charcoal ceramic',color:'#18191c',metalness:0.08,roughness:0.2,
+    clearcoat:0.82,clearcoatRoughness:0.12,
+  });
+  const raised = new THREE.MeshPhysicalMaterial({
+    name:'Kintsugi raised ceramic',color:'#29272b',metalness:0.12,roughness:0.24,
+    clearcoat:0.68,clearcoatRoughness:0.15,
+  });
+  const dark = new THREE.MeshStandardMaterial({
+    name:'Kintsugi dark fittings',color:'#08090b',metalness:0.35,roughness:0.24,
+  });
+  const gold = new THREE.MeshStandardMaterial({
+    name:'Kintsugi molten gold',color:'#e3ad42',metalness:0.88,roughness:0.16,
+    emissive:'#9c5000',emissiveIntensity:0.24,
+  });
+  const amber = new THREE.MeshStandardMaterial({
+    name:'Kintsugi amber sight',color:'#ffcb55',metalness:0.45,roughness:0.14,
+    emissive:'#b75b00',emissiveIntensity:0.65,
+  });
+  const flowCurves=[];
+  const seam=(points,radius=0.012,name='kintsugi-pistol-seam')=>{
+    const curve=new THREE.CatmullRomCurve3(points.map(point=>new THREE.Vector3(...point)));
+    flowCurves.push(curve);
+    return add(new THREE.TubeGeometry(curve,Math.max(10,points.length*5),radius,7,false),gold,0,0,0,name);
+  };
+
+  // A purpose-built ceramic dueling-pistol silhouette: stepped receiver,
+  // narrow nose and integrated chassis instead of a recolored stock slide.
+  box(0.305,0.295,0.58,0,0.045,-0.39,ceramic,'kintsugi-pistol-receiver');
+  box(0.268,0.242,0.38,0,0.025,-0.79,ceramic,'kintsugi-pistol-nose');
+  box(0.282,0.252,0.2,0,0.03,-0.085,raised,'kintsugi-pistol-tail');
+  box(0.224,0.035,0.69,0,0.205,-0.43,raised,'kintsugi-pistol-ridge');
+  box(0.232,0.102,0.58,0,-0.145,-0.39,dark,'kintsugi-pistol-chassis');
+  box(0.246,0.052,0.16,0,-0.208,-0.075,gold,'kintsugi-pistol-grip-joint');
+
+  // Raised side shells create a shallow waist, so its profile remains unique
+  // even when it is small in another player's hand.
+  for (const side of [-1,1]) {
+    const panel=box(0.025,0.19,0.46,side*0.157,0.035,-0.4,raised,'kintsugi-side-panel');
+    panel.rotation.z=side*0.035;
+    for(let index=0;index<3;index++) {
+      const serration=box(0.012,0.145,0.018,side*0.148,0.045,-0.115-index*0.052,dark,'slide-serration');
+      serration.rotation.z=side*0.08;
+    }
+    const x=side*0.171;
+    seam([[x,0.105,-0.11],[x,0.045,-0.23],[x,0.105,-0.36],[x,-0.015,-0.5],[x,0.035,-0.62]]);
+    seam([[x,0.045,-0.23],[x,-0.035,-0.285],[x,-0.055,-0.35]],
+      0.0085,'kintsugi-pistol-branch');
+    seam([[side*0.15,0.075,-0.03],[side*0.15,0.015,-0.09],[side*0.15,0.07,-0.17]],
+      0.0085,'kintsugi-pistol-tail-seam');
+    const noseX=side*0.145;
+    seam([[noseX,0.03,-0.62],[noseX,-0.025,-0.72],[noseX,0.05,-0.82],[noseX,-0.01,-0.94]]);
+    seam([[noseX,0.05,-0.82],[noseX,0.095,-0.86],[noseX,0.085,-0.915]],
+      0.0085,'kintsugi-pistol-branch');
+  }
+
+  // The open ceramic trigger bow nests over the shared character hand rather
+  // than being a flat painted mark on the receiver.
+  const triggerBow=add(new THREE.TorusGeometry(0.092,0.017,7,22),raised,0,-0.235,-0.16,'kintsugi-trigger-bow');
+  triggerBow.rotation.y=Math.PI/2;triggerBow.scale.y=0.78;
+  const trigger=box(0.025,0.105,0.028,0,-0.22,-0.19,gold,'kintsugi-trigger');
+  trigger.rotation.x=-0.24;
+
+  box(0.132,0.018,0.19,0.056,0.211,-0.39,dark,'ejection-port');
+  for(const side of [-1,1])box(0.055,0.052,0.05,side*0.077,0.242,-0.115,raised,'kintsugi-rear-sight');
+  const muzzle=add(new THREE.TorusGeometry(0.082,0.018,7,20),gold,0,0.025,-0.971,'muzzle-ring');
+  muzzle.rotation.z=Math.PI/4;
+  const bore=add(new THREE.CircleGeometry(0.06,18),dark,0,0.025,-0.973,'muzzle-bore');
+  bore.rotation.y=Math.PI;
+
+  const topCrack=new THREE.CatmullRomCurve3([
+    new THREE.Vector3(-0.075,0.224,-0.2),new THREE.Vector3(0.018,0.225,-0.31),
+    new THREE.Vector3(-0.052,0.225,-0.43),new THREE.Vector3(0.064,0.224,-0.56),
+  ]);
+  flowCurves.push(topCrack);
+  add(new THREE.TubeGeometry(topCrack,20,0.009,7,false),gold,0,0,0,'kintsugi-pistol-top-seam');
+  group.name='kintsugi-pistol';
+  group.userData.kintsugiGold=gold;
+  group.userData.kintsugiBaseGlow=0.24;
+  group.userData.kintsugiShotAt=-10;
+  attachKintsugiFlow(group,flowCurves,0.009);
 }
 
 function addDragonHead(group, {add, box, tube, red, dark, gold, bronze}) {

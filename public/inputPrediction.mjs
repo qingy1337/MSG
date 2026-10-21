@@ -15,7 +15,10 @@ export class InputPrediction {
     const epoch=authoritative.movementEpoch||0;
     this.pending=this.pending.filter(p=>p.seq>ack&&p.epoch===epoch);
     this.time=serverNow;
-    if(!authoritative.alive||authoritative.knockback||(predicted?.movementEpoch||0)!==epoch){this.pending=[];return;}
+    // A new impact epoch invalidates commands authored before the impulse, but
+    // residual velocity no longer locks movement. Once epochs agree, replay
+    // fresh directional input alongside the authoritative impact motion.
+    if(!authoritative.alive||(predicted?.movementEpoch||0)!==epoch){this.pending=[];return;}
     // Moving terrain must be sampled at the client's current platform phase,
     // before replay. An old lift height against a newer collider creates a fall.
     prepare(authoritative);

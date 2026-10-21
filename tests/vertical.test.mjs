@@ -76,6 +76,18 @@ test('PvE lighting follows architecture with a fixed budget and clear ceiling fi
   assert.deepEqual(planAreaLighting(maps.createPvpMap(731).map),[],'PvP lighting stays unchanged');
 });
 
+test('Terminal 7 lights each real processing zone without extra shadow maps',()=>{
+  const {map,walls}=maps.createPvpMap(0,'airport'),plan=planAreaLighting(map,walls);
+  assert.equal(plan.length,6);
+  assert.deepEqual(plan.map(p=>p.kind),['airport-checkin','airport-security','airport-market',
+    'airport-gates-west','airport-gates-east','airport-gallery']);
+  assert.ok(plan.every(p=>p.color.startsWith('#')&&p.sourceHeight<map.ceiling&&p.castsShadow===false));
+  const group=createAreaLighting(plan,(x,y,h)=>new THREE.Vector3(x*.05,h,y*.05));
+  assert.equal(group.children.filter(o=>o.isLight).length,6);
+  assert.equal(group.children.filter(o=>o.isLight&&o.castShadow).length,0);
+  group.traverse(o=>{o.geometry?.dispose();o.material?.dispose();o.shadow?.dispose();});
+});
+
 const fixture=seed=>{
   let layout=maps.createPveMap(seed);
   for(let i=1;!layout.map.terrain.some(s=>s.kind==='lift');i++)layout=maps.createPveMap(seed+i*7919);

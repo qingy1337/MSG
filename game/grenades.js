@@ -1,4 +1,5 @@
 const {rayBox}=require('./hitscan');
+const {sampleHeightfield}=require('../public/arenaMap');
 const R=2.4; // 12 cm, in horizontal arena units
 function throwGrenade(player,angle,pitch,charge,now,id) {
   const speed=110+400*Math.min(1,Math.max(0,charge/1200));
@@ -8,12 +9,13 @@ function throwGrenade(player,angle,pitch,charge,now,id) {
 }
 function geometry(map,walls) {
   return [...walls,...map.terrain,...[map.elevator,map.arrivalElevator].filter(Boolean)
-    .map(e=>({...e,bottom:e.ceiling,top:e.ceiling+.12}))];
+    .map(e=>({...e,bottom:e.ceiling,top:e.ceiling+.12}))].filter(s=>!s.nonSolid);
 }
 function stepGrenade(g,now,map,walls) {
-  const end=Math.min(now,g.expiresAt),solids=geometry(map,walls).map(s=>({...s,
+  const bounds=map.worldBounds||{minX:0,minY:0,maxX:map.width,maxY:map.height};
+  const end=Math.min(now,g.expiresAt),solids=geometry(map,walls).map(s=>s.kind==='heightfield'?s:{...s,
     x:s.x-R,y:s.y-R,width:s.width+2*R,height:s.height+2*R,
-    bottom:(s.bottom??0)-R*.05,top:(s.top??3.1)+R*.05}));
+    bottom:(s.bottom??0)-R*.05,top:(s.top??3.1)+R*.05});
   let remaining=Math.max(0,(end-g.updatedAt)/1000);
   while(remaining>1e-8) {
     const dt=Math.min(remaining,1/120);remaining-=dt;g.vz-=360*dt;
@@ -27,8 +29,10 @@ function stepGrenade(g,now,map,walls) {
         const hit=rayBox(g.x,g.y,axis==='x'?delta:0,axis==='y'?delta:0,box,g.height,axis==='height'?delta:0);
         if(hit>=0&&hit<=fraction)fraction=Math.max(0,hit-1e-5);
       }
-      const lo=axis==='height'?R*.05:R;
-      const hi=axis==='height'?(map.ceiling??100)-R*.05:map[axis==='x'?'width':'height']-R;
+      const field=map.terrain?.find(s=>s.kind==='heightfield');
+      const terrainFloor=field?sampleHeightfield(field,g.x,g.y):0;
+      const lo=axis==='height'?terrainFloor+R*.05:(axis==='x'?bounds.minX:bounds.minY)+R;
+      const hi=axis==='height'?(map.ceiling??100)-R*.05:(axis==='x'?bounds.maxX:bounds.maxY)-R;
       const next=g[axis]+delta*fraction;
       g[axis]=Math.max(lo,Math.min(hi,next));
       if(fraction<1||next<lo||next>hi) {
