@@ -55,6 +55,8 @@ let pitch = 0;
 function hydrateSpawnTiming(player) {
   if(player&&Number.isFinite(player.spawnReadyAt)&&!Number.isFinite(player.spawnRevealAt))
     player.spawnRevealAt=performance.now()+Math.max(0,player.spawnReadyAt-(Date.now()+floorClockOffset));
+  if(player&&Number.isFinite(player.spawnShieldUntil)&&!Number.isFinite(player.spawnShieldEndsAt))
+    player.spawnShieldEndsAt=performance.now()+Math.max(0,player.spawnShieldUntil-(Date.now()+floorClockOffset));
   return player;
 }
 const lookPrompt = document.getElementById('look-prompt');
@@ -258,8 +260,9 @@ function releaseMouse() {
   if (locked()) document.exitPointerLock();
 }
 
-window.initGame = function initGame(gamePlayers, gameWalls, map = DEFAULT_MAP) {
+window.initGame = function initGame(gamePlayers, gameWalls, map = DEFAULT_MAP, serverNow) {
   stop(); clearTimeout(returnTimer); clearTimeout(messageTimer);
+  if(Number.isFinite(serverNow))floorClockOffset=serverNow-Date.now();
   players = gamePlayers.map(hydrateSpawnTiming); walls = gameWalls; localPlayer = players.find(p => p.id === socket.id);
   snapshotMotion.clear();lastSnapshotSequence=0;
   inputPrediction.reset(Date.now());jumpRequested=false;
@@ -572,6 +575,13 @@ function applyFloorState(state) {
     state.phase==='opening'?`Floor ${state.floor} · Doors opening`:localPlayer?.alive?'':eliminatedMessage();
   updateGameInfo();
 }
+window.initLatePveJoin=function initLatePveJoin(data) {
+  if(!data?.map||!Array.isArray(data.players)||!Array.isArray(data.walls))return;
+  window.initGame(data.players,data.walls,data.map,data.state?.serverNow);
+  if(data.state)applyFloorState(data.state);
+  gameMessage.textContent=`Fireteam joined · Deploying on floor ${data.spawnFloor||((data.map.floor||1)+1)}`;
+  lookPrompt.hidden=true;
+};
 socket.on('floorState',applyFloorState);
 socket.on('floorStarting',data=>{
   const angle=localPlayer?.angle,wasAlive=localPlayer?.alive;

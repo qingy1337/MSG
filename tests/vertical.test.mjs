@@ -100,18 +100,18 @@ const fixture=seed=>{
   return {map,walls,lift,deck,center,v:{x:dx/len,y:dy/len},solids:[...walls,...map.terrain]};
 };
 
-test('cargo cycle has three-second boarding pauses and smooth, repeatable travel',()=>{
+test('cargo cycle is brisk, smoothly eased, and repeatable',()=>{
   const lift={maxTop:3};
   assert.deepEqual(maps.cargoLiftSample(lift,0),{height:0,phase:'boarding'});
-  assert.equal(maps.cargoLiftSample(lift,2999).height,0);
-  assert.equal(maps.cargoLiftSample(lift,5000).height,1.5);
-  assert.equal(maps.cargoLiftSample(lift,7000).height,3);
-  assert.equal(maps.cargoLiftSample(lift,9999).height,3);
-  assert.equal(maps.cargoLiftSample(lift,12000).height,1.5);
-  assert.equal(maps.cargoLiftSample(lift,14000).height,0);
-  assert.ok(maps.cargoLiftSample(lift,3001).height<1e-8);
-  assert.ok(3-maps.cargoLiftSample(lift,6999).height<1e-8);
-  assert.deepEqual(maps.cargoLiftSample(lift,5000),maps.cargoLiftSample(lift,105000,100000));
+  assert.equal(maps.cargoLiftSample(lift,1599).height,0);
+  assert.equal(maps.cargoLiftSample(lift,2800).height,1.5);
+  assert.equal(maps.cargoLiftSample(lift,4000).height,3);
+  assert.equal(maps.cargoLiftSample(lift,5599).height,3);
+  assert.equal(maps.cargoLiftSample(lift,6800).height,1.5);
+  assert.equal(maps.cargoLiftSample(lift,8000).height,0);
+  assert.ok(maps.cargoLiftSample(lift,1601).height<1e-8);
+  assert.ok(3-maps.cargoLiftSample(lift,3999).height<1e-8);
+  assert.deepEqual(maps.cargoLiftSample(lift,2800),maps.cargoLiftSample(lift,102800,100000));
 });
 
 test('all orientations allow boarding, riding, walking off, and returning by stairs',()=>{
@@ -119,11 +119,11 @@ test('all orientations allow boarding, riding, walking off, and returning by sta
     const {map,lift,deck,center,v,solids}=fixture(seed*7919);
     const p={x:center.x-v.x*84,y:center.y-v.y*84,height:0,alive:true};
     assert.ok(maps.moveOnTerrain(p,center.x,center.y,map,solids,100000),'clear ground boarding approach');
-    for(let t=0;t<=7000;t+=50)maps.updateCargoLifts(map,[p],100000+t);
+    for(let t=0;t<=4000;t+=50)maps.updateCargoLifts(map,[p],100000+t);
     assert.equal(p.height,lift.maxTop);
     assert.equal(p.jumpStartedAt,undefined);
-    assert.ok(maps.moveOnTerrain(p,center.x+v.x*105,center.y+v.y*105,map,solids,107000),'flush upper exit');
-    maps.updateCargoLifts(map,[p],112000);
+    assert.ok(maps.moveOnTerrain(p,center.x+v.x*105,center.y+v.y*105,map,solids,104000),'flush upper exit');
+    maps.updateCargoLifts(map,[p],106800);
     assert.equal(p.height,deck.top,'walking off detaches from descending platform');
     assert.equal(p.platformId,null);
     const stair=map.terrain.find(s=>s.stairs&&s.connector),vertical=stair.axis==='y';
@@ -131,7 +131,7 @@ test('all orientations allow boarding, riding, walking off, and returning by sta
     const point=t=>({x:stair.x+(vertical?stair.width/2:t*stair.width),y:stair.y+(vertical?t*stair.height:stair.height/2)});
     Object.assign(p,point(high),{height:deck.top,jumpStartedAt:null});
     const end=point(low+(low===0?-0.15:0.15));
-    assert.ok(maps.moveOnTerrain(p,end.x,end.y,map,solids,112000));
+    assert.ok(maps.moveOnTerrain(p,end.x,end.y,map,solids,106800));
     assert.equal(p.height,0);
     assert.equal(p.jumpStartedAt,null,'actual stair risers never trigger a fall');
   }
@@ -164,9 +164,9 @@ test('lift passengers can jump; raised shaft cannot be entered from underneath',
 
 test('a passenger overlapping the landing is not pulled through it as the lift descends',()=>{
   const {map,lift,center,v,deck}=fixture(0),p={...center,height:0,alive:true};
-  maps.updateCargoLifts(map,[p],107000);
+  maps.updateCargoLifts(map,[p],104000);
   p.x+=v.x*52;p.y+=v.y*52;
-  maps.updateCargoLifts(map,[p],112000);
+  maps.updateCargoLifts(map,[p],106800);
   assert.equal(p.height,deck.top);
   assert.equal(p.platformId,null);
   assert.ok(lift.top<deck.top);
@@ -174,7 +174,7 @@ test('a passenger overlapping the landing is not pulled through it as the lift d
 
 test('partial boarding uses the full player footprint so a rising deck does not clip through feet',()=>{
   const {map,lift,center,v}=fixture(0),p={x:center.x-v.x*70,y:center.y-v.y*70,height:0,alive:true};
-  maps.updateCargoLifts(map,[p],105000);
+  maps.updateCargoLifts(map,[p],102800);
   assert.equal(p.height,lift.top);
   assert.equal(p.platformId,lift.id);
 });
@@ -306,9 +306,9 @@ test('server carries stationary humans without accepting a client-supplied heigh
   try {
     const lift=game.gameMap.terrain.find(s=>s.kind==='lift'),p=game.activePlayers.find(p=>!p.isBot);
     Object.assign(p,{x:lift.x+lift.width/2,y:lift.y+lift.height/2,height:0});
-    now+=7000;tick();assert.equal(p.height,lift.maxTop);
+    now+=4000;tick();assert.equal(p.height,lift.maxTop);
     handlers.playerUpdate({x:p.x,y:p.y,angle:0,height:100});assert.equal(p.height,lift.maxTop);
-    now+=7000;tick();assert.equal(p.height,0);
+    now+=4000;tick();assert.equal(p.height,0);
   } finally {game.close();}
 });
 

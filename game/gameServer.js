@@ -21,6 +21,7 @@ const { DEFAULT_MAP, createPveMap, createPvpMap, moveOnTerrain, regeneratePlayer
   groundHeight, supportHeight, authoredSupportAt, canOccupy } = require('../public/arenaMap');
 const {PVP_MAPS}=require('../public/pvpMaps');
 const { LIFT_TIMING, inElevator, floorSpawn, updateExitDoor } = require('../public/floors');
+const PVP_SPAWN_SHIELD_MS=6000;
 const {
   usersByUsername,
   getUserFromCookieHeader,
@@ -82,7 +83,10 @@ function createGameServer(io, options = {}) {
   function publishSnapshot(){
     // One replaceable packet for all moving entities. A separate reliable
     // grenade packet here makes the transport busy and drops this snapshot.
-    const humanRooms=activePlayers.filter(player=>!player.isBot&&!player.debugCloneOf).map(player=>player.id);
+    const humanRooms=[...new Set([
+      ...activePlayers.filter(player=>!player.isBot&&!player.debugCloneOf).map(player=>player.id),
+      ...waitingPlayers.map(player=>player.id),
+    ])];
     const channel=humanRooms.length&&typeof io.to==='function'?io.to(humanRooms):io;
     (channel.volatile||channel).emit('gameState',activePlayers.map(playerFrame),{
       serverNow:Date.now(),sequence:++snapshotSequence,
@@ -156,6 +160,9 @@ function createGameServer(io, options = {}) {
     // materialization finishes. This prevents either side damaging an enemy
     // that is still only a warning silhouette.
     if(b?.spawnReadyAt>Date.now())return false;
+    // PvP opens with a brief synchronized setup window. The deadline is
+    // server-owned, so latency or a modified client can never bypass it.
+    if(gameMap.mode==='pvp'&&(b?.spawnShieldUntil||0)>Date.now())return false;
     return cooperative() ? !!a.isBot !== !!b.isBot : !(a.isBot && isBotAllyPlayer(b));
   };
   // Simple server-side bot config (step 0: scripted bots)
@@ -313,6 +320,43 @@ function createGameServer(io, options = {}) {
     return factory(strikeId);
   }
 
+  function activateHumanPlayer(player, spawnPosition, now) {
+    const cooperativeMatch=cooperative();
+    const height=spawnPosition.height||0;
+    return {
+      ...player,
+      x:spawnPosition.x,
+      y:spawnPosition.y,
+      angle:0,
+      alive:true,
+      health:MAX_HEALTH,
+      maxHealth:MAX_HEALTH,
+      grenades:3,
+      team:cooperativeMatch?'players':player.id,
+      color:cooperativeMatch?'#49cdb5':player.color,
+      height,
+      groundHeight:height,
+      ceilingHeight:cooperativeMatch?(gameMap.elevator?.ceiling||gameMap.ceiling):gameMap.ceiling,
+      zone:spawnPosition.zone??spawnPosition.sectorId,
+      sectorId:spawnPosition.sectorId??spawnPosition.zone,
+      grenadeChargeAt:null,
+      jumpStartedAt:null,
+      jumpBase:height,
+      jumpVelocity:0,
+      jumpInputSeq:null,
+      jumpPlatformId:null,
+      platformId:null,
+      groundPlatformId:null,
+      knockback:null,
+      movementEpoch:(player.movementEpoch||0)+1,
+      inputBudget:0.25,
+      inputBudgetAt:now,
+      lastShotAt:0,
+      shotgunShotsRemaining:WEAPONS.shotgun.shotsPerReload,
+      shotgunReloadUntil:0,
+    };
+  }
+
   function handleStartGame(socket, options) {
     if (gameInProgress.status) return;
 
@@ -393,11 +437,12 @@ function createGameServer(io, options = {}) {
         grenades: 3,
         team: enableBots ? 'players' : player.id,
         color: enableBots ? '#49cdb5' : player.color,
-        height: enableBots ? (spawnPosition.height || 0) : (spawnPosition.height || 0),
-        groundHeight: enableBots ? (spawnPosition.height || 0) : (spawnPosition.height || 0),
+        height: spawnPosition.height || 0,
+        groundHeight: spawnPosition.height || 0,
         ceilingHeight: enableBots ? (gameMap.elevator?.ceiling||gameMap.ceiling) : gameMap.ceiling,
         zone:spawnPosition.zone??spawnPosition.sectorId,
         sectorId:spawnPosition.sectorId??spawnPosition.zone,
+        spawnShieldUntil:enableBots?undefined:matchStartedAt+PVP_SPAWN_SHIELD_MS,
       };
       if(strikeId)activePlayer.strikeLastSafe={x:activePlayer.x,y:activePlayer.y,
         height:activePlayer.height,groundHeight:activePlayer.groundHeight,angle:activePlayer.angle,
@@ -418,7 +463,8 @@ function createGameServer(io, options = {}) {
       createBotsForCurrentMatch(botCount);
     }
 
-    io.emit("gameStarting", { players: activePlayers.map(playerSnapshot), walls, map: gameMap });
+    io.emit("gameStarting", { players: activePlayers.map(playerSnapshot), walls, map: gameMap,
+      serverNow:matchStartedAt });
     if(enableBots&&!strikeId) publishFloorState();
     if(strikeId)publishStrikeState();
     if (options.manageRooms !== false) io.socketsLeave("waiting");
@@ -755,6 +801,29 @@ function createGameServer(io, options = {}) {
       secondaryWeapon:SECONDARY_WEAPON_KEY,
       secondaryWeaponSkinKey,
     };
+  }
+
+  function latePveJoinState() {
+    if(!gameInProgress.status||gameMap.mode!=='pve'||gameMap.activity==='strike')return null;
+    return {
+      players:activePlayers.map(playerSnapshot),
+      walls:gameWalls,
+      map:gameMap,
+      state:{...floorState,serverNow:Date.now()},
+      spawnFloor:(gameMap.floor||floorState.floor||1)+1,
+    };
+  }
+
+  function queueLatePveJoin(socket,payload) {
+    const state=latePveJoinState();
+    if(!state||!socket?.user||activePlayers.some(player=>player.id===socket.id))return null;
+    handleJoin(socket,payload);
+    if(!waitingPlayers.some(player=>player.id===socket.id))return null;
+    // A queued operative is already participating in this match lifecycle:
+    // include them in wipe/reset delivery even though combat authority begins
+    // only when the next floor packet promotes them into activePlayers.
+    matchParticipantIds.add(socket.id);
+    return state;
   }
 
   function scheduleGameOver(winner) {
@@ -3602,6 +3671,26 @@ function createGameServer(io, options = {}) {
     updateExitDoor(gameMap,floorState,now);publishFloorState();return true;
   }
 
+  function promoteLatePveJoiners(now) {
+    if(!waitingPlayers.length)return 0;
+    const queued=waitingPlayers.splice(0,waitingPlayers.length);
+    for(let index=0;index<queued.length;index++) {
+      const slots=Array.from({length:12},(_,offset)=>floorSpawn(gameMap,false,index+offset));
+      const spawn=slots.find(candidate=>activePlayers.every(other=>other.isBot||!other.alive||
+        Math.hypot(other.x-candidate.x,other.y-candidate.y)>=32))||slots[0];
+      const player=activateHumanPlayer(queued[index],spawn,now);
+      player.ceilingHeight=gameMap.arrivalElevator?.ceiling||gameMap.elevator?.ceiling||gameMap.ceiling;
+      activePlayers.push(player);
+      matchParticipantIds.add(player.id);
+    }
+    // Scale only future waves to the enlarged fireteam. The wave they joined
+    // during was deliberately left untouched.
+    const humanCount=activePlayers.filter(player=>!player.isBot&&!player.debugCloneOf).length;
+    floorBotCount=Math.min(BOT_CONFIG.maxPerMatch,Math.max(floorBotCount,4,humanCount*2));
+    io.to('waiting').emit('updateWaitingList',waitingPlayers);
+    return queued.length;
+  }
+
   function advanceFloor(now) {
     updateExitDoor(gameMap,floorState,now);
     const humans = activePlayers.filter(p => !p.isBot && p.alive);
@@ -3633,6 +3722,7 @@ function createGameServer(io, options = {}) {
           movementEpoch:(p.movementEpoch||0)+1,inputBudget:0.25,inputBudgetAt:now,lastShotAt:0,
           shotgunShotsRemaining:WEAPONS.shotgun.shotsPerReload,shotgunReloadUntil:0});
       }
+      promoteLatePveJoiners(now);
       gameMap.platformEpoch=now;
       for(const p of activePlayers)if(!p.isBot)p.grenades=3;
       gameWalls.splice(0,gameWalls.length,...next.walls);
@@ -3758,6 +3848,8 @@ function createGameServer(io, options = {}) {
     connectSocket,
     registerSocketHandlers,
     handleJoin,
+    queueLatePveJoin,
+    latePveJoinState,
     handleStartGame,
     handleDisconnect,
     rebuildNavigation() { navigation.configure(gameMap,gameWalls); },
@@ -3770,4 +3862,4 @@ function createGameServer(io, options = {}) {
   };
 }
 
-module.exports = { createGameServer,killCoinReward };
+module.exports = { createGameServer,killCoinReward,PVP_SPAWN_SHIELD_MS };

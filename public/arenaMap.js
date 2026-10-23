@@ -163,14 +163,18 @@ function overlapsSolid(s,x,y,footHeight,radius,stepAllowance,bodyHeight) {
     bottomHeight(s,cx,cy)<footHeight+bodyHeight-0.001;
 }
 
-// Shared server-clock cycle: generous boarding pauses and zero end velocity.
+const CARGO_LIFT_TIMING=Object.freeze({boarding:1600,travel:2400,upper:1600,descending:2400,total:8000});
+
+// Shared server-clock cycle: brisk boarding pauses with smooth zero-velocity
+// arrivals. Every authored and procedural cargo platform uses this clock.
 function cargoLiftSample(lift,now,epoch=0) {
-  const t=((now-epoch+(lift.phaseOffset||0))%14000+14000)%14000;
+  const timing=CARGO_LIFT_TIMING,t=((now-epoch+(lift.phaseOffset||0))%timing.total+timing.total)%timing.total;
   const ease=x=>x*x*x*(x*(x*6-15)+10),low=lift.minTop??0,travel=lift.maxTop-low;
-  if(t<3000)return {height:low,phase:'boarding'};
-  if(t<7000)return {height:low+travel*ease((t-3000)/4000),phase:'rising'};
-  if(t<10000)return {height:lift.maxTop,phase:'upper'};
-  return {height:low+travel*(1-ease((t-10000)/4000)),phase:'descending'};
+  if(t<timing.boarding)return {height:low,phase:'boarding'};
+  if(t<timing.boarding+timing.travel)
+    return {height:low+travel*ease((t-timing.boarding)/timing.travel),phase:'rising'};
+  if(t<timing.boarding+timing.travel+timing.upper)return {height:lift.maxTop,phase:'upper'};
+  return {height:low+travel*(1-ease((t-timing.boarding-timing.travel-timing.upper)/timing.descending)),phase:'descending'};
 }
 
 function updateCargoLifts(map,players,now) {
@@ -199,6 +203,33 @@ function updateCargoLifts(map,players,now) {
       rail.top=next+(rail.liftTopOffset??1);
     }
   }
+}
+
+// A belt carries only a grounded body whose feet are actually supported by
+// its visible top. Speed is authored as belt cycles per second, which keeps
+// physical travel locked to the emissive markers rendered on that same belt.
+function conveyorVelocityAt(player,solids,radius=16) {
+  if(!player?.alive||player.jumpStartedAt!=null)return null;
+  const foot=player.height||0;
+  for(const belt of solids||[]) {
+    if(belt.kind!=='vaultConveyor'||!Number.isFinite(belt.speed)||belt.speed===0)continue;
+    if(horizontalClearance(belt,player.x,player.y)>=radius-.1)continue;
+    if(Math.abs(walkingHeight(belt,player.x,player.y)-foot)>.035)continue;
+    const alongX=belt.width>=belt.height,direction=belt.direction===-1?-1:1;
+    const velocity=(alongX?belt.width:belt.height)*belt.speed*direction;
+    return {x:alongX?velocity:0,y:alongX?0:velocity,belt};
+  }
+  return null;
+}
+
+function advanceConveyor(player,map,solids,seconds,now) {
+  if(!(seconds>0))return false;
+  const velocity=conveyorVelocityAt(player,solids,player.botType==='ogre'?30:player.botType==='guardian'?28:16);
+  if(!velocity)return false;
+  const beforeX=player.x,beforeY=player.y;
+  if(velocity.x)moveOnTerrain(player,player.x+velocity.x*seconds,player.y,map,solids,now);
+  if(velocity.y)moveOnTerrain(player,player.x,player.y+velocity.y*seconds,map,solids,now);
+  return Math.hypot(player.x-beforeX,player.y-beforeY)>.001;
 }
 
 function groundHeight(x, y, solids) {
@@ -265,6 +296,11 @@ function movementBoundsAt(map,x,y,radius=16) {
     }
   }
   return {minX,maxX,minY,maxY};
+}
+
+function withinPlayableFootprint(map,x,y,radius=0) {
+  if(!Array.isArray(map?.floorPolygon)||map.floorPolygon.length<3)return true;
+  return polygonClearance(map.floorPolygon,x,y)<=-Math.max(0,radius-.1);
 }
 
 // Landing support uses the same footprint as side collision. A character whose
@@ -358,6 +394,7 @@ function moveOnTerrain(player, x, y, map, solids, now) {
       const projected=projectRoundedCollision(s,nx,ny,radius);
       if(projected){nx=projected.x;ny=projected.y;}
     }
+    if(!withinPlayableFootprint(map,nx,ny,radius))return false;
     const floor = supportHeight(nx,ny,foot,nearby,allowance);
     if ((player.botType==='ogre'||player.botType==='guardian') && Math.max(collisionFoot,floor+(player.hoverOffset||0))+player.bodyHeight>(map.ceiling||Infinity)) return false;
     const testFoot=(grounded&&onRamp?Math.max(foot,floor):foot)+(player.hoverOffset||0);
@@ -489,4 +526,4 @@ function regeneratePlayers(players, seconds) {
 }
 
 if (typeof module !== 'undefined' && module.exports)
-  module.exports = { DEFAULT_MAP, IMPACT_MOTION, sampleHeightfield, surfaceHeight, walkingHeight, bottomHeight, rampStepAllowance, horizontalClearance, cargoLiftSample, updateCargoLifts, groundHeight, ceilingHeightAt, authoredSupportAt, supportHeight, canOccupy, movementBoundsAt, moveOnTerrain, addKnockbackImpulse, advanceKnockback, createPveMap, createPvpMap, regeneratePlayers };
+  module.exports = { DEFAULT_MAP, IMPACT_MOTION, CARGO_LIFT_TIMING, sampleHeightfield, surfaceHeight, walkingHeight, bottomHeight, rampStepAllowance, horizontalClearance, cargoLiftSample, updateCargoLifts, conveyorVelocityAt, advanceConveyor, groundHeight, ceilingHeightAt, authoredSupportAt, supportHeight, canOccupy, movementBoundsAt, withinPlayableFootprint, moveOnTerrain, addKnockbackImpulse, advanceKnockback, createPveMap, createPvpMap, regeneratePlayers };

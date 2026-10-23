@@ -12,6 +12,15 @@
   ];
   const wall=(x,y,width,height,top=3.1)=>({x,y,width,height,top});
   const terrain=(kind,x,y,width,height,top,extra={})=>({kind,x,y,width,height,top,...extra});
+  const pointInPolygon=(points,x,y)=>{
+    let inside=false;
+    for(let i=0,j=points.length-1;i<points.length;j=i++) {
+      const a=points[i],b=points[j];
+      if((a.y>y)!==(b.y>y)&&x<(b.x-a.x)*(y-a.y)/(b.y-a.y)+a.x)inside=!inside;
+    }
+    return inside;
+  };
+  const insideFootprint=(map,x,y)=>!map.floorPolygon||pointInPolygon(map.floorPolygon,x,y);
   const airportScanner=(x,y)=>[
     terrain('airportScanner',x,y,125,58,2.4,{nonSolid:true}),
     terrain('airportScannerCollider',x+7,y+8,11,42,2.4,{collisionOnly:true,scannerPart:'arch-left'}),
@@ -194,6 +203,139 @@
         [80,920],[430,920],[950,920],[1470,920],[1820,920],
       ],
     },
+    vaultAnnex:{
+      id:'vaultAnnex',name:'Vault Annex',
+      description:'A bright Red Vault reactor annex with stacked control galleries, twin bridges, and heavy machinery.',
+      width:1400,height:1000,ceiling:11.8,scale:.78,style:'redVault',accent:'#ef3347',
+      palette:{sky:'#8d969b',wall:'#302a2e',panel:'#85898c',cap:'#b8b0a9',glow:'#ff2944',
+        floorLow:'#343235',floorHigh:'#625c5f',reflection:'#62595d',reflectionGlow:'#ff4058',
+        ambient:'#fff3e3',ground:'#7f898b',sun:'#fff0d2',rim:'#ff6972',
+        ambientIntensity:2.85,sunIntensity:3.25,rimIntensity:1.9},
+      // The annex is an assembled industrial complex, not a rectangle. Five
+      // non-overlapping floor volumes form a reactor hall with offset command,
+      // processing, receiving, and service wings.
+      floorRects:[
+        {x:250,y:150,width:900,height:700},
+        {x:60,y:260,width:190,height:480},
+        {x:1150,y:100,width:210,height:380},
+        {x:700,y:850,width:520,height:150},
+        {x:380,y:40,width:340,height:110},
+      ],
+      floorPolygon:[
+        {x:380,y:40},{x:720,y:40},{x:720,y:150},{x:1150,y:150},
+        {x:1150,y:100},{x:1360,y:100},{x:1360,y:480},{x:1150,y:480},
+        {x:1150,y:850},{x:1220,y:850},{x:1220,y:1000},{x:700,y:1000},
+        {x:700,y:850},{x:250,y:850},{x:250,y:740},{x:60,y:740},
+        {x:60,y:260},{x:250,y:260},{x:250,y:150},{x:380,y:150},
+      ],
+      perimeter:[
+        {...wall(380,40,340,16,11.8),kind:'boundary'},
+        {...wall(704,56,16,94,11.8),kind:'boundary'},
+        {...wall(720,134,430,16,11.8),kind:'boundary'},
+        {...wall(1134,100,16,34,11.8),kind:'boundary'},
+        {...wall(1150,100,194,16,11.8),kind:'boundary'},
+        {...wall(1344,116,16,348,11.8),kind:'boundary'},
+        {...wall(1150,464,210,16,11.8),kind:'boundary'},
+        {...wall(1134,480,16,370,11.8),kind:'boundary'},
+        {...wall(1150,850,54,16,11.8),kind:'boundary'},
+        {...wall(1204,866,16,118,11.8),kind:'boundary'},
+        {...wall(700,984,520,16,11.8),kind:'boundary'},
+        {...wall(700,850,16,134,11.8),kind:'boundary'},
+        {...wall(250,834,450,16,11.8),kind:'boundary'},
+        {...wall(234,740,16,94,11.8),kind:'boundary'},
+        {...wall(76,724,158,16,11.8),kind:'boundary'},
+        {...wall(60,276,16,448,11.8),kind:'boundary'},
+        {...wall(76,260,158,16,11.8),kind:'boundary'},
+        {...wall(234,166,16,94,11.8),kind:'boundary'},
+        {...wall(250,150,130,16,11.8),kind:'boundary'},
+        {...wall(380,56,16,94,11.8),kind:'boundary'},
+      ],
+      walls:[
+        // Walls grow from the shell into functional bays: the north service
+        // vestibule, a three-sided reactor blast enclosure, and the freight
+        // receiving throat. Openings are placed on actual circulation lines.
+        wall(470,150,24,100,3.5),wall(620,350,24,100,5.2),
+        wall(850,400,24,120,5.2),
+        wall(1060,700,24,100,5.2),
+        {...wall(260,440,24,120,7.2),bottom:4},
+        {...wall(1110,260,24,120,7.2),bottom:4},
+      ],
+      terrain:[
+        // The upper works follow the building shape: a west command room, a
+        // north turbine bridge, and an east processing gallery. They are rooms
+        // with purpose, not mirrored platforms dropped into an empty arena.
+        terrain('catwalk',100,276,360,448,4,{bottom:3.75,walkable:true,style:'redVault',vaultZone:'command'}),
+        terrain('catwalk',460,220,500,100,4,{bottom:3.75,walkable:true,bridge:true,style:'redVault',vaultZone:'turbine-bridge'}),
+        terrain('catwalk',960,150,300,314,4,{bottom:3.75,walkable:true,style:'redVault',vaultZone:'processing'}),
+        // These are the same smooth, constant-depth structural inclines used
+        // by the Strike—not generic block stairs painted red.
+        terrain('ramp',460,560,240,120,4,{axis:'x',reverse:true,walkable:true,platform:true,
+          structureDepth:.72,style:'redVault',industrial:'command-stair'}),
+        terrain('ramp',990,480,120,220,4,{axis:'y',reverse:true,walkable:true,platform:true,
+          structureDepth:.72,style:'redVault',industrial:'refinery-stair'}),
+
+        // Armored guards trace only genuine exposed edges and include sloped
+        // side panels on both stair assemblies.
+        terrain('rail',93,276,7,448,5.15,{style:'redVault',bottom:4}),
+        terrain('rail',100,276,360,7,5.15,{style:'redVault',bottom:4}),
+        terrain('rail',100,717,360,7,5.15,{style:'redVault',bottom:4}),
+        terrain('rail',460,327,7,233,5.15,{style:'redVault',bottom:4}),
+        terrain('rail',460,687,7,53,5.15,{style:'redVault',bottom:4}),
+        terrain('rail',460,213,493,7,5.15,{style:'redVault',bottom:4}),
+        terrain('rail',467,320,486,7,5.15,{style:'redVault',bottom:4}),
+        terrain('rail',960,150,300,7,5.15,{style:'redVault',bottom:4}),
+        terrain('rail',1260,150,7,314,5.15,{style:'redVault',bottom:4}),
+        terrain('rail',960,457,30,7,5.15,{style:'redVault',bottom:4}),
+        terrain('rail',1110,457,40,7,5.15,{style:'redVault',bottom:4}),
+        terrain('rail',953,150,7,70,5.15,{style:'redVault',bottom:4}),
+        terrain('rail',953,327,7,137,5.15,{style:'redVault',bottom:4}),
+        terrain('rail',460,553,240,7,1.15,{style:'redVault',bottom:0,axis:'x',rise:4,reverse:true}),
+        terrain('rail',460,680,240,7,1.15,{style:'redVault',bottom:0,axis:'x',rise:4,reverse:true}),
+        terrain('rail',983,480,7,220,1.15,{style:'redVault',bottom:0,axis:'y',rise:4,reverse:true}),
+        terrain('rail',1110,480,7,220,1.15,{style:'redVault',bottom:0,axis:'y',rise:4,reverse:true}),
+
+        // Machinery is assigned to real production zones. The turbine sits
+        // below its inspection bridge; three live belts run through processing
+        // and receiving; racks hug their storage walls.
+        terrain('reactorCore',680,350,160,160,6.2,{collisionShape:'circle',collisionRadius:62}),
+        terrain('turbine',560,230,300,70,2.72,{collisionShape:'capsule',collisionRadius:25}),
+        terrain('vaultConveyor',1200,190,55,130,1.18,{speed:.52,direction:1}),
+        terrain('vaultConveyor',760,870,300,45,1.15,{speed:.68,direction:1}),
+        terrain('vaultConveyor',760,930,300,45,1.15,{speed:.58,direction:-1}),
+        terrain('storageRack',265,760,155,62,2.72),
+        terrain('storageRack',1170,385,150,55,2.72),
+        terrain('consoleBank',130,330,210,60,5.25,{bottom:4}),
+        terrain('consoleBank',1030,200,180,58,5.25,{bottom:4}),
+        terrain('ventStack',530,700,82,82,3.05,{collisionShape:'circle',collisionRadius:32}),
+
+        // A deliberate structural grid: four columns carry the galleries and
+        // two full-height piers carry the crane runway and roof.
+        terrain('vaultColumn',125,320,44,44,3.75,{collisionShape:'circle',collisionRadius:17}),
+        terrain('vaultColumn',385,680,44,44,3.75,{collisionShape:'circle',collisionRadius:17}),
+        terrain('vaultColumn',985,180,44,44,3.75,{collisionShape:'circle',collisionRadius:17}),
+        terrain('vaultColumn',1280,250,44,44,3.75,{collisionShape:'circle',collisionRadius:17}),
+        terrain('vaultColumn',545,395,54,54,10.9,{collisionShape:'circle',collisionRadius:21}),
+        terrain('vaultColumn',900,560,54,54,10.9,{collisionShape:'circle',collisionRadius:21}),
+        terrain('crane',430,520,520,34,9.6,{bottom:8.65}),
+
+        terrain('ceilingPanel',390,55,320,54,11.72,{bottom:11.28,nonSolid:true,style:'redVault'}),
+        terrain('ceilingPanel',300,165,350,48,11.72,{bottom:11.28,nonSolid:true,style:'redVault'}),
+        terrain('ceilingPanel',760,165,350,48,11.72,{bottom:11.28,nonSolid:true,style:'redVault'}),
+        terrain('ceilingPanel',1160,118,185,48,11.72,{bottom:11.28,nonSolid:true,style:'redVault'}),
+        terrain('ceilingPanel',730,955,460,35,11.72,{bottom:11.28,nonSolid:true,style:'redVault'}),
+      ],
+      variants:[
+        [terrain('generator',275,180,125,68,1.8),terrain('generator',900,750,120,68,1.8)],
+        [terrain('cover',280,600,110,40,1.15),terrain('cover',900,700,110,40,1.15)],
+        [terrain('pipe',430,85,190,40,.95,{collisionShape:'capsule',collisionRadius:15}),
+          terrain('pipe',750,700,150,40,.95,{collisionShape:'capsule',collisionRadius:15})],
+      ],
+      spawns:[
+        [430,190],[800,190],[1280,140],[1300,330],[600,810],[650,800],
+        [800,780],[1125,950],[1180,950],[110,500],
+        [200,450,4],[350,650,4],[700,270,4],[1040,350,4],[1190,300,4],
+      ],
+    },
     tower:{
       id:'tower',name:'Tower',description:'A compact vertical arena of wall walks, switchback stairs, and cargo lifts.',
       width:900,height:900,ceiling:15.5,scale:0.92,accent:'#ffd166',
@@ -233,7 +375,7 @@
         terrain('rail',210,643,90,7,1,{style:'industrial',liftId:'tower-lift-west'}),
         terrain('rail',210,740,90,7,1,{style:'industrial',liftId:'tower-lift-west'}),
         terrain('rail',203,650,7,90,1,{style:'industrial',liftId:'tower-lift-west'}),
-        terrain('lift',540,335,90,90,0,{id:'tower-lift-core',maxTop:9,phaseOffset:7000}),
+        terrain('lift',540,335,90,90,0,{id:'tower-lift-core',maxTop:9,phaseOffset:4000}),
         terrain('rail',540,328,90,7,1,{style:'industrial',liftId:'tower-lift-core'}),
         terrain('rail',540,425,90,7,1,{style:'industrial',liftId:'tower-lift-core'}),
         terrain('rail',630,335,7,90,1,{style:'industrial',liftId:'tower-lift-core'}),
@@ -377,12 +519,9 @@
         terrain('templeTowerDeck',70,900,55,80,7.2,{bottom:6.92,walkable:true,liftServed:'temple-watch-lift'}),
         terrain('templeTowerDeck',205,900,55,80,7.2,{bottom:6.92,walkable:true,liftServed:'temple-watch-lift'}),
         terrain('templeTowerDeck',125,980,80,40,7.2,{bottom:6.92,walkable:true,liftServed:'temple-watch-lift'}),
-        terrain('lift',125,900,80,80,0,{id:'temple-watch-lift',maxTop:7.2,style:'temple',phaseOffset:3500}),
-        // Three moving rails make the lift safe without closing its southern
-        // landing edge. The top parapet is broken into firing apertures.
-        terrain('rail',125,893,80,7,1,{style:'temple',liftId:'temple-watch-lift'}),
-        terrain('rail',118,900,7,80,1,{style:'temple',liftId:'temple-watch-lift'}),
-        terrain('rail',205,900,7,80,1,{style:'temple',liftId:'temple-watch-lift'}),
+        terrain('lift',125,900,80,80,0,{id:'temple-watch-lift',maxTop:7.2,style:'temple',phaseOffset:2000}),
+        // The watch lift is deliberately open-sided. The surrounding tower
+        // deck keeps its masonry parapet, but the moving platform has no cage.
         terrain('rail',70,843,60,7,8.2,{style:'temple',bottom:7.2}),
         terrain('rail',200,843,60,7,8.2,{style:'temple',bottom:7.2}),
         terrain('rail',63,850,7,60,8.2,{style:'temple',bottom:7.2}),
@@ -680,7 +819,7 @@
     const points=[];
     for(let row=1;row<7;row++)for(let col=1;col<9;col++) {
       const p={x:map.width*col/9,y:map.height*row/7};
-      if(!solids.some(s=>collides(p.x,p.y,s,20)))points.push(p);
+      if(insideFootprint(map,p.x,p.y)&&!solids.some(s=>collides(p.x,p.y,s,20)))points.push(p);
     }
     const blocks=(a,b,s)=>{
       if(s.nonSolid)return false;
@@ -738,6 +877,7 @@
     for(const [index,p] of (map?.spawns||[]).entries()) {
       if(!Number.isFinite(p.x)||!Number.isFinite(p.y)||p.x<20||p.y<20||p.x>map.width-20||p.y>map.height-20)
         errors.push(`invalid spawn ${index}`);
+      else if(!insideFootprint(map,p.x,p.y))errors.push(`spawn outside footprint ${index}`);
       else if(solids.some(s=>collides(p.x,p.y,s,17,p.height||0)))errors.push(`blocked spawn ${index}`);
     }
     // Ground-level flood fill catches accidental sealed regions before an
@@ -747,7 +887,7 @@
       const step=10,cols=Math.floor(map.width/step),rows=Math.floor(map.height/step),open=new Uint8Array(cols*rows);
       for(let row=0;row<rows;row++)for(let col=0;col<cols;col++) {
         const x=col*step+step/2,y=row*step+step/2;
-        open[row*cols+col]=solids.some(s=>collides(x,y,s))?0:1;
+        open[row*cols+col]=!insideFootprint(map,x,y)||solids.some(s=>collides(x,y,s))?0:1;
       }
       const cell=p=>Math.max(0,Math.min(rows-1,Math.floor(p.y/step)))*cols+
         Math.max(0,Math.min(cols-1,Math.floor(p.x/step)));
@@ -812,11 +952,13 @@
       palette:{...source.palette},spawns:source.spawns.map(([x,y,height=0])=>({x:x*scale,y:y*scale,height})),
       terrain:[...source.terrain,...source.variants[variant]].map(s=>resize({...s,accent:s.accent||accent})),
     };
+    if(source.floorRects)map.floorRects=source.floorRects.map(resize);
+    if(source.floorPolygon)map.floorPolygon=source.floorPolygon.map(point=>({x:point.x*scale,y:point.y*scale}));
     if(source.worldBounds)map.worldBounds={minX:source.worldBounds.minX*scale,minY:source.worldBounds.minY*scale,
       maxX:source.worldBounds.maxX*scale,maxY:source.worldBounds.maxY*scale};
     if(source.walkablePockets)map.walkablePockets=source.walkablePockets.map(resize);
     const boundaryHeight=source.boundaryTop??source.ceiling??CEILING;
-    let perimeter=boundary(width,height,boundaryHeight,EDGE*scale);
+    let perimeter=source.perimeter?source.perimeter.map(resize):boundary(width,height,boundaryHeight,EDGE*scale);
     if(source.sideOpenings?.length) {
       const edge=EDGE*scale,openings=source.sideOpenings.map(([start,end])=>[start*scale,end*scale]);
       const side=x=>{

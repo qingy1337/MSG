@@ -1,5 +1,5 @@
 // Explicit wire contract. Never serialize bot brains, account identifiers, or paths.
-const FIELDS=['id','name','displayName','color','weapon','weaponSkinKey','primaryWeapon','primaryWeaponSkinKey','secondaryWeapon','secondaryWeaponSkinKey','weaponSwapUntil','x','y','angle','alive','health','maxHealth',
+const FIELDS=['id','name','displayName','color','weapon','weaponSkinKey','primaryWeapon','primaryWeaponSkinKey','secondaryWeapon','secondaryWeaponSkinKey','weaponSwapUntil','spawnShieldUntil','x','y','angle','alive','health','maxHealth',
   'isBot','team','botType','botRank','strikeEncounterId','wardenPhase','spawnReadyAt','bodyHeight','hoverOffset','height','groundHeight','ceilingHeight','jumpStartedAt','jumpBase','jumpVelocity','jumpInputSeq','jumpPlatformId','groundPlatformId','platformId','lastProcessedInput','movementEpoch','shotgunShotsRemaining','shotgunReloadUntil','grenades'];
 // Static identity/loadout data is sent by gameStarting/floorStarting. At 20 Hz,
 // repeating names, colors, teams and both loadout slots for every bot wastes a

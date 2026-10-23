@@ -81,6 +81,72 @@ test('independent fireteams launch isolated PvE matches in parallel', t => {
   }
 });
 
+test('active Endless PvE fireteams accept reinforcements for the next floor only',t=>{
+  t.mock.method(global,'setInterval',()=>1);
+  t.mock.method(global,'clearInterval',()=>{});
+  const io=fakeIo(),manager=lobbyModule.createLobbyServer(io);
+  const leader=new FakeSocket('leader','leader'),late=new FakeSocket('late','reinforcement');
+  io.connect(leader);io.connect(late);
+  try {
+    const created=request(leader,'lobby:create',{mode:'pve',weapon:'sniper'});
+    assert.equal(request(leader,'lobby:start').ok,true);
+    const result=request(late,'lobby:join',{lobbyId:created.lobby.id,weapon:'shotgun'});
+    const lobby=manager.lobbies.get(created.lobby.id);
+    assert.equal(result.ok,true);
+    assert.equal(result.lobby.joinable,true);
+    assert.equal(result.lobby.floor,1);
+    assert.equal(result.lobby.players.find(player=>player.id==='late').joiningNextFloor,true);
+    assert.equal(result.lateJoin.spawnFloor,2);
+    assert.equal(result.lateJoin.players.some(player=>player.id==='late'),false,
+      'reinforcement is not inserted into the live floor snapshot');
+    assert.equal(lobby.engine.activePlayers.some(player=>player.id==='late'),false);
+    assert.equal(lobby.engine.waitingPlayers.some(player=>player.id==='late'),true);
+    assert.ok(result.lateJoin.players.some(player=>player.id==='leader'&&player.alive),
+      'late joiner receives the current run for spectating');
+  } finally {manager.close();}
+});
+
+test('full waiting fireteams are not advertised as joinable',t=>{
+  t.mock.method(global,'setInterval',()=>1);
+  t.mock.method(global,'clearInterval',()=>{});
+  const io=fakeIo(),manager=lobbyModule.createLobbyServer(io);
+  const sockets=Array.from({length:5},(_,index)=>new FakeSocket(`p${index}`,`player-${index}`));
+  sockets.forEach(socket=>io.connect(socket));
+  try {
+    const created=request(sockets[0],'lobby:create',{mode:'pve'});
+    let joined;
+    for(let index=1;index<4;index++) {
+      joined=request(sockets[index],'lobby:join',{lobbyId:created.lobby.id});
+      assert.equal(joined.ok,true);
+    }
+    const fullLobby=joined.lobby;
+    assert.equal(fullLobby.players.length,4);
+    assert.equal(fullLobby.joinable,false);
+    const rejected=request(sockets[4],'lobby:join',{lobbyId:created.lobby.id});
+    assert.equal(rejected.ok,false);
+    assert.match(rejected.error,/full/i);
+  } finally {manager.close();}
+});
+
+test('launched PvP and Strike activities remain closed to late joining',t=>{
+  t.mock.method(global,'setInterval',()=>1);
+  t.mock.method(global,'clearInterval',()=>{});
+  for(const mode of ['pvp','strike']) {
+    const io=fakeIo(),manager=lobbyModule.createLobbyServer(io);
+    const leader=new FakeSocket(`${mode}-leader`,`${mode}-leader`);
+    const teammate=new FakeSocket(`${mode}-mate`,`${mode}-mate`);
+    const late=new FakeSocket(`${mode}-late`,`${mode}-late`);
+    io.connect(leader);io.connect(teammate);io.connect(late);
+    try {
+      const created=request(leader,'lobby:create',{mode,weapon:'autoRifle'});
+      if(mode==='pvp')assert.equal(request(teammate,'lobby:join',{lobbyId:created.lobby.id}).ok,true);
+      assert.equal(request(leader,'lobby:start').ok,true);
+      const result=request(late,'lobby:join',{lobbyId:created.lobby.id});
+      assert.equal(result.ok,false);assert.match(result.error,/cannot be joined/i);
+    } finally {manager.close();}
+  }
+});
+
 test('lobbies use the authenticated username and only their leader can launch', t => {
   t.mock.method(global, 'setInterval', () => 1);
   t.mock.method(global, 'clearInterval', () => {});

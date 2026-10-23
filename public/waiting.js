@@ -425,6 +425,11 @@ function joinFireteam(lobbyId) {
   window.cancelPendingGameReturn?.();
   emitLobbyAction('lobby:join', { lobbyId, weapon: selectedWeaponKey }, result => {
     currentLobby = result.lobby;
+    if(result.lateJoin) {
+      setActiveScreen(gameScreen);
+      window.initLatePveJoin?.(result.lateJoin);
+      return;
+    }
     renderCurrentLobby();
     setActiveScreen(lobbyScreen);
   });
@@ -1044,8 +1049,15 @@ function renderCurrentLobby() {
 }
 
 function renderLobbyBrowser() {
-  const open = knownLobbies.filter(lobby => lobby.status === 'open');
-  if (onlineLobbyCountEl) onlineLobbyCountEl.textContent = `${open.length} OPEN`;
+  const canJoinLobby = lobby => {
+    if (typeof lobby.joinable === 'boolean') return lobby.joinable;
+    const supportsJoining = lobby.status === 'open' ||
+      (lobby.mode === 'pve' && lobby.status === 'active');
+    const visiblePlayers = Array.isArray(lobby.players) ? lobby.players.length : 0;
+    return supportsJoining && visiblePlayers < Number(lobby.maxPlayers || 0);
+  };
+  const available = knownLobbies.filter(canJoinLobby);
+  if (onlineLobbyCountEl) onlineLobbyCountEl.textContent = `${available.length} JOINABLE`;
   const renderMode = (mode, container) => {
     if (!container) return;
     container.replaceChildren();
@@ -1059,18 +1071,22 @@ function renderLobbyBrowser() {
     }
     lobbies.forEach(lobby => {
       const card = document.createElement('article');
-      card.className = `lobby-card ${lobby.status}`;
+      const canJoin = canJoinLobby(lobby);
+      const lateJoin=lobby.mode==='pve'&&lobby.status==='active'&&canJoin;
+      card.className = `lobby-card ${lobby.status}${lateJoin?' late-join':''}`;
       const copy = document.createElement('div');
       copy.className = 'lobby-card-copy';
       const names = lobby.players.map(player => player.username).join(', ');
       copy.innerHTML = `<strong></strong><span></span><small></small>`;
       copy.querySelector('strong').textContent = lobby.name;
       copy.querySelector('span').textContent = names || 'Empty';
-      copy.querySelector('small').textContent = lobby.status === 'active' ? 'MATCH IN PROGRESS' : `${lobby.players.length} / ${lobby.maxPlayers} READY`;
+      copy.querySelector('small').textContent = lateJoin?
+        `FLOOR ${lobby.floor||1} · DEPLOY NEXT FLOOR`:
+        lobby.status === 'active' ? 'MATCH IN PROGRESS' : `${lobby.players.length} / ${lobby.maxPlayers} READY`;
       const action = document.createElement('button');
       action.className = 'lobby-join';
-      action.textContent = lobby.status === 'active' ? 'LIVE' : 'JOIN';
-      action.disabled = lobby.status !== 'open' || lobby.players.length >= lobby.maxPlayers;
+      action.textContent = lateJoin ? 'JOIN NEXT' : lobby.status === 'active' ? 'LIVE' : 'JOIN';
+      action.disabled = !canJoin;
       action.addEventListener('click', () => joinFireteam(lobby.id));
       card.append(copy, action);
       container.appendChild(card);
@@ -1100,7 +1116,7 @@ socket.on("gameStarting", (gameData) => {
   setActiveScreen(gameScreen);
 
   // Initialize game
-  initGame(gameData.players, gameData.walls, gameData.map);
+  initGame(gameData.players, gameData.walls, gameData.map, gameData.serverNow);
 });
 
 socket.on("resetGame", () => {

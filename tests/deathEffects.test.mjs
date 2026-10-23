@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import deaths from '../game/deathEffects.js';
 import server from '../game/gameServer.js';
 import weapons from '../public/weapons.js';
-import {Arena3D,syncCharacterLabelVisibility} from '../public/arena3d.js';
+import {Arena3D,syncCharacterLabelVisibility,createPvpSpawnShieldOutline} from '../public/arena3d.js';
 import {createCorpse,poseCorpse,createDeathRemains,poseDeathRemains,MAX_CORPSES,MAX_REMAINS} from '../public/deathEffects.mjs';
 
 const map={width:900,height:900,terrain:[]},target={id:'bot',isBot:true,x:300,y:300,height:0,angle:0};
@@ -31,6 +31,20 @@ test('wall-occluded character labels cannot be revived by a stale DOM write',()=
   assert.equal(syncCharacterLabelVisibility(character,true),false);
   assert.equal(syncCharacterLabelVisibility(character,false),true);
   assert.equal(character.label.hidden,false);
+});
+
+test('PvP spawn protection uses a thin reusable blue silhouette',()=>{
+  const body=new THREE.Group();
+  body.add(new THREE.Mesh(new THREE.BoxGeometry(.7,1.8,.45),new THREE.MeshStandardMaterial({color:'#777'})));
+  const outline=createPvpSpawnShieldOutline(body);
+  assert.equal(outline.name,'pvp-spawn-shield-outline');
+  assert.equal(outline.children.length,1);
+  const mesh=outline.children[0],shield=outline.userData.shieldMaterial;
+  assert.equal(mesh.material,shield);assert.equal(shield.side,THREE.BackSide);
+  assert.equal(shield.depthWrite,false);assert.equal(shield.uniforms.thickness.value,.022);
+  assert.equal(`#${shield.uniforms.color.value.getHexString()}`,'#42b8ff');
+  body.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});
+  outline.traverse(object=>object.geometry?.dispose());shield.dispose();
 });
 
 test('death force follows the source, stronger weapons throw farther, and walls/upper floors stop placement',()=>{

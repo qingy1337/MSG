@@ -111,8 +111,13 @@ test('Kintsugi sniper has bold branching repairs with continuously flowing shot-
     assert.equal(model.getObjectByName('kintsugi-seam').material.color.getHexString(), 'e3ad42');
     assert.ok(model.getObjectByName('kintsugi-seam').geometry.parameters.radius>=0.0075,
       'principal gold seams are physically bold rather than hairline-thin');
-    assert.ok(model.getObjectByName('kintsugi-scope').position.z > -0.3,
+    const scope=model.getObjectByName('kintsugi-scope');
+    assert.ok(scope.position.z >= -0.18,
       'scope sits rearward near the player instead of far down the barrel');
+    assert.ok(scope.geometry.parameters.radiusTop<=0.037&&scope.geometry.parameters.height<=0.25,
+      'scope keeps a compact diameter and length');
+    assert.ok(model.getObjectByName('kintsugi-scope-ring').geometry.parameters.radiusTop<=0.042,
+      'gold scope trim scales down with the optic');
     assert.equal(model.children.filter(child => child.name === 'kintsugi-seam').length, 4,
       'four principal seams anchor the expanded branch network');
     assert.equal(model.children.filter(child => child.name === 'kintsugi-branch').length,6,

@@ -13,8 +13,8 @@ import {createElevatorModel,poseElevator} from '../public/elevator.mjs';
 const {generatePveFloor,generateScatterFloor,floorConnected,rectanglesOverlap,floorSpawn,LIFT_TIMING,elevatorSample,inElevator}=floors;
 
 test('authored PvP maps, variants, spawns and raised routes pass validation',()=>{
-  assert.deepEqual(pvpMaps.PVP_MAP_IDS,['foundry','courtyard','freight','tower','temple','orbital','airport','maze']);
-  assert.equal(new Set(pvpMaps.PVP_MAP_IDS.map(id=>pvpMaps.PVP_MAPS[id].name)).size,8);
+  assert.deepEqual(pvpMaps.PVP_MAP_IDS,['foundry','courtyard','freight','vaultAnnex','tower','temple','orbital','airport','maze']);
+  assert.equal(new Set(pvpMaps.PVP_MAP_IDS.map(id=>pvpMaps.PVP_MAPS[id].name)).size,9);
   for(const id of pvpMaps.PVP_MAP_IDS)for(let variant=0;variant<3;variant++) {
     const layout=maps.createPvpMap(variant,id),again=maps.createPvpMap(variant,id);
     assert.deepEqual(layout,again,`${id} seed ${variant} is deterministic`);
@@ -66,6 +66,37 @@ test('Foundry elevated spawns place players on the catwalk instead of beneath it
   } finally {game.close();}
 });
 
+test('Vault Annex is an irregular, purpose-built Red Vault production complex',()=>{
+  const {map,walls}=maps.createPvpMap(0,'vaultAnnex'),terrain=map.terrain;
+  assert.equal(map.style,'redVault');
+  assert.ok(map.palette.ambientIntensity>=2.5&&map.palette.sunIntensity>=3,
+    'the annex uses normal readable arena lighting rather than strike darkness');
+  assert.ok(map.palette.rimIntensity>=1.8&&map.palette.rimIntensity<=2,
+    'a restrained red rim accents the room without washing out neutral lighting');
+  assert.equal(map.floorRects.length,5,'joined wings replace the usual rectangular arena slab');
+  assert.ok(map.floorPolygon.length>=16,'the collision perimeter follows the stepped architectural silhouette');
+  const occupied=map.floorRects.reduce((area,rect)=>area+rect.width*rect.height,0);
+  assert.ok(occupied/(map.width*map.height)<.7,'large exterior cutouts make the footprint genuinely non-rectangular');
+  assert.equal(maps.withinPlayableFootprint(map,100*.78,100*.78,16),false,
+    'concave exterior voids are not silently walkable');
+  assert.equal(maps.withinPlayableFootprint(map,500*.78,500*.78,16),true);
+  assert.equal(terrain.filter(s=>s.kind==='catwalk'&&s.bridge).length,1);
+  assert.equal(terrain.filter(s=>s.kind==='ramp'&&s.stairs).length,0,
+    'the strike-style inclines are structural slopes, not generic staircase blocks');
+  assert.equal(terrain.filter(s=>s.kind==='ramp'&&s.style==='redVault'&&s.structureDepth===.72).length,2);
+  assert.ok(terrain.filter(s=>s.kind==='rail'&&s.style==='redVault').length>=16);
+  for(const kind of ['reactorCore','turbine','vaultConveyor','vaultColumn','ventStack','storageRack','consoleBank','crane'])
+    assert.ok(terrain.some(s=>s.kind===kind),`Vault Annex includes ${kind}`);
+  assert.equal(terrain.filter(s=>s.kind==='vaultConveyor').length,3,'processing and receiving have live conveyor lines');
+  assert.equal(terrain.filter(s=>s.kind==='vaultColumn').length,6,'a deliberate pillar grid carries the upper works');
+  assert.ok(terrain.filter(s=>s.kind==='ceilingPanel'&&s.nonSolid).length>=4,
+    'bright ceiling baffles add detail without invisible collision');
+  assert.ok(map.spawns.filter(s=>s.height===4).length>=5,'the command and processing galleries host active firefights');
+  const graph=new navigation.NavigationGraph(map,walls),ground=map.spawns.find(s=>s.height===0);
+  for(const spawn of map.spawns.filter(s=>s.height===4))
+    assert.ok(graph.find(ground,spawn).length,'each upper spawn has a permanent stair route');
+});
+
 test('Tower has three stair-connected heights and two out-of-phase cargo lifts',()=>{
   const {map,walls}=maps.createPvpMap(0,'tower'),decks=map.terrain.filter(s=>s.walkable);
   assert.equal(map.width,828);assert.equal(map.height,828);assert.equal(map.ceiling,15.5);
@@ -85,9 +116,9 @@ test('Tower has three stair-connected heights and two out-of-phase cargo lifts',
     assert.ok(overlapX<=1e-6||overlapY<=1e-6,`${lift.id} has a clear shaft through fixed floors`);
   }
   maps.updateCargoLifts(map,[],100000);
-  assert.deepEqual(lifts.map(s=>s.top),[0,9]);
-  maps.updateCargoLifts(map,[],107000);
   assert.deepEqual(lifts.map(s=>s.top),[6,0]);
+  maps.updateCargoLifts(map,[],104000);
+  assert.deepEqual(lifts.map(s=>s.top),[0,9]);
 });
 
 test('Overgrown Temple is a grassy two-layer sanctuary with reachable decks and tunnels',()=>{
@@ -124,6 +155,7 @@ test('Overgrown Temple is a grassy two-layer sanctuary with reachable decks and 
   const watchDecks=terrain.filter(s=>s.kind==='templeTowerDeck');
   const watchPillars=terrain.filter(s=>s.kind==='templeTowerPillar');
   assert.ok(watchLift&&watchLift.maxTop>=7,'the side watchtower is genuinely tall');
+  assert.equal(terrain.filter(s=>s.liftId===watchLift.id).length,0,'the moving watch lift has no attached fences');
   assert.equal(watchDecks.length,4,'the firing deck forms a ring around its lift shaft');
   assert.equal(watchPillars.length,4,'four tall masonry piers establish the tower silhouette');
   assert.ok(watchDecks.every(deck=>deck.bottom>6.8&&deck.top===watchLift.maxTop&&deck.liftServed===watchLift.id));
@@ -713,6 +745,51 @@ test('PvE revives eliminated teammates only after a survivor completes the floor
     assert.equal(dead.alive,false,'team wipe cannot revive anyone');
     assert.equal(events.filter(e=>e.name==='floorStarting').length,1);
     reset();assert.equal(game.gameInProgress.status,false);assert.equal(game.floorState.floor,1);
+  } finally {game.close();}
+});
+
+test('late PvE reinforcements spectate the current fight and spawn in the next arrival elevator',t=>{
+  let now=100000;
+  t.mock.method(global,'setInterval',()=>0);
+  t.mock.method(Date,'now',()=>now);
+  const events=[];
+  const io={emit(name,data){events.push({name,data});},to(){return this;},socketsLeave(){}};
+  const game=server.createGameServer(io,{attachConnections:false,manageRooms:false});
+  const leader={id:'leader',user:{username:'leader'}};
+  game.waitingPlayers.push({id:'leader',name:'Leader',displayName:'Leader',weapon:'sniper',
+    primaryWeapon:'sniper',secondaryWeapon:'pistol'});
+  game.handleStartGame(leader,{enableBots:true});
+  try {
+    const lateSocket={id:'late',user:{username:'late',currencies:{Coins:0},
+      skins:{owned:[],equippedByWeapon:{shotgun:'shotgun_silver'}}},emit(){}};
+    const lateState=game.queueLatePveJoin(lateSocket,{displayName:'late',weapon:'shotgun'});
+    assert.equal(lateState.spawnFloor,2);
+    assert.equal(game.activePlayers.some(player=>player.id==='late'),false);
+    assert.equal(game.waitingPlayers.some(player=>player.id==='late'),true);
+
+    for(const bot of game.activePlayers.filter(player=>player.isBot))bot.alive=false;
+    const survivor=game.activePlayers.find(player=>player.id==='leader');
+    const exit=game.gameMap.elevator;
+    Object.assign(survivor,{x:exit.x+exit.width/2,y:exit.y+exit.height/2});
+    game.floorState.phase='ready';game.floorState.startedAt=now-LIFT_TIMING.open;
+    game.runBotsTick();
+    assert.equal(game.floorState.phase,'riding',
+      'queued reinforcements do not prevent current survivors from boarding');
+    assert.equal(game.activePlayers.some(player=>player.id==='late'),false,
+      'reinforcement remains out of combat for the whole current floor');
+
+    now+=LIFT_TIMING.close+LIFT_TIMING.travel;
+    game.runBotsTick();
+    const reinforcement=game.activePlayers.find(player=>player.id==='late');
+    assert.ok(reinforcement?.alive);
+    assert.equal(reinforcement.health,101);assert.equal(reinforcement.grenades,3);
+    assert.equal(reinforcement.primaryWeapon,'shotgun');
+    assert.equal(reinforcement.primaryWeaponSkinKey,'shotgun_silver');
+    assert.ok(inElevator(reinforcement,{...game.gameMap,elevator:game.gameMap.arrivalElevator}));
+    assert.equal(game.waitingPlayers.length,0);
+    const floorStart=events.find(event=>event.name==='floorStarting');
+    assert.ok(floorStart?.data.players.some(player=>player.id==='late'&&player.alive),
+      'the reliable next-floor packet introduces the reinforcement to every client');
   } finally {game.close();}
 });
 

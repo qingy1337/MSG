@@ -7,6 +7,28 @@ import maps from '../public/arenaMap.js';
 import jumpPhysics from '../public/movement.js';
 const {applyMovementInput}=movement;
 
+test('Vault Annex conveyors carry grounded players in their visible direction',()=>{
+  const {map,walls}=maps.createPvpMap(0,'vaultAnnex'),solids=[...walls,...map.terrain];
+  const belts=map.terrain.filter(s=>s.kind==='vaultConveyor');
+  assert.equal(belts.length,3);
+  for(const [index,belt] of belts.entries()) {
+    const player={alive:true,x:belt.x+belt.width/2,y:belt.y+belt.height/2,
+      height:belt.top,groundHeight:belt.top,jumpStartedAt:null,bodyHeight:2.2};
+    const before={x:player.x,y:player.y},dt=.05;
+    applyMovementInput(player,{seq:index+1,dx:0,dy:0,dt,epoch:0},map,solids,1000);
+    const alongX=belt.width>=belt.height,direction=belt.direction===-1?-1:1;
+    assert.ok(Math.abs(player[alongX?'x':'y']-before[alongX?'x':'y']-
+      (alongX?belt.width:belt.height)*belt.speed*direction*dt)<1e-6);
+    assert.equal(player[alongX?'y':'x'],before[alongX?'y':'x']);
+
+    const airborne={...player,x:before.x,y:before.y,height:belt.top+.4,groundHeight:belt.top,
+      jumpStartedAt:900,jumpBase:belt.top,jumpVelocity:7.24};
+    applyMovementInput(airborne,{seq:index+20,dx:0,dy:0,dt,epoch:0},map,solids,1000);
+    assert.equal(airborne.x,before.x);assert.equal(airborne.y,before.y,
+      'jumping detaches from conveyor transport');
+  }
+});
+
 test('real server acknowledgments preserve movement at 0–500 ms RTT, jitter and snapshot loss',t=>{
   let now=100000,tick;
   t.mock.method(global,'setInterval',fn=>{tick=fn;return null;});t.mock.method(Date,'now',()=>now);

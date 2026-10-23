@@ -511,7 +511,8 @@ test('PvE defeat triggers when the last human disconnects; ordinary PvP stays fr
     pvp.game.gameWalls.length=0;
     pvp.game.gameMap.terrain.length=0;
     Object.assign(pvp.game.activePlayers.find(p=>p.id==='p0'),{x:100,y:100,height:0});
-    const victim=pvp.game.activePlayers.find(p=>p.id==='p1');Object.assign(victim,{x:200,y:100,height:0});
+    const victim=pvp.game.activePlayers.find(p=>p.id==='p1');
+    Object.assign(victim,{x:200,y:100,height:0,spawnShieldUntil:0});
     pvp.handlers.shoot({angle:0}); assert.equal(victim.health,90.5);
   } finally {pvp.game.close();}
 });
@@ -531,7 +532,7 @@ test('every terrain model has finite geometry and ramp/deck bounds match physics
 });
 
 test('authored PvP machinery, catwalks, tunnels and lifts render finite geometry',()=>{
-  for(const id of ['foundry','tower','orbital','airport'])for(const s of maps.createPvpMap(0,id).map.terrain) {
+  for(const id of ['foundry','vaultAnnex','tower','orbital','airport'])for(const s of maps.createPvpMap(0,id).map.terrain) {
     const model=createTerrainModel(s);
     if(s.collisionOnly) {
       assert.equal(model.children.length,0,`${id} ${s.kind} stays an invisible geometry-matched collision primitive`);
@@ -542,6 +543,61 @@ test('authored PvP machinery, catwalks, tunnels and lifts render finite geometry
       assert.ok(Number.isFinite(value),`${id} ${s.kind} has finite bounds`);
     assert.ok(model.children.length>0,`${id} ${s.kind} has visible geometry`);
   }
+});
+
+test('Overgrown Temple tower uses cohesive balustrades instead of loose crenellations',()=>{
+  const {map}=maps.createPvpMap(0,'temple'),rails=map.terrain.filter(s=>s.kind==='rail'&&s.style==='temple');
+  assert.equal(rails.length,7);
+  for(const rail of rails) {
+    const model=createTerrainModel(rail),bounds=new THREE.Box3().setFromObject(model);
+    assert.equal(model.name,'temple-tower-balustrade');
+    assert.ok([...bounds.min.toArray(),...bounds.max.toArray()].every(Number.isFinite));
+    assert.ok(model.children.length>=7,'sill, twin rails and capped supports form one guard');
+    model.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});
+  }
+});
+
+test('Vault Annex renders structural stairs, live conveyors, columns, guards, and galleries',()=>{
+  const {map}=maps.createPvpMap(0,'vaultAnnex');
+  const fixtures=[
+    ...map.terrain.filter(s=>s.kind==='ramp'),
+    ...map.terrain.filter(s=>s.kind==='rail').slice(0,2),
+    ...map.terrain.filter(s=>s.kind==='catwalk').slice(0,2),
+  ];
+  assert.ok(fixtures.every(s=>s.style==='redVault'));
+  const models=fixtures.map(createTerrainModel);
+  assert.ok(models.some(model=>model.name==='red-vault-stair'));
+  assert.ok(models.some(model=>model.name==='red-vault-guard'));
+  assert.ok(models.some(model=>model.name==='red-vault-gallery'));
+  const colors=new Set();
+  for(const model of models)model.traverse(object=>{
+    const materials=Array.isArray(object.material)?object.material:[object.material];
+    for(const value of materials)if(value?.color)colors.add(`#${value.color.getHexString()}`);
+  });
+  assert.ok(colors.has('#b51f32')||colors.has('#96182a')||colors.has('#9d1a2d'),
+    'the architecture itself contains structural red rather than relying on room tint');
+  assert.ok(colors.has('#b1aaa2')&&colors.has('#211e21'),
+    'silver edge channels and near-black shells match the Red Vault material language');
+  const conveyors=map.terrain.filter(s=>s.kind==='vaultConveyor').map(createTerrainModel);
+  assert.equal(conveyors.length,3);
+  for(const conveyor of conveyors) {
+    assert.equal(conveyor.name,'red-vault-moving-conveyor');
+    assert.equal(typeof conveyor.userData.update,'function');
+    const markers=conveyor.getObjectByName('red-vault-conveyor-markers');
+    const rollers=conveyor.getObjectByName('red-vault-conveyor-rollers');
+    assert.ok(markers?.isInstancedMesh&&markers.count===10);
+    assert.ok(rollers?.isInstancedMesh&&rollers.count>=5);
+    const before=Array.from(markers.instanceMatrix.array);
+    conveyor.userData.update(1);
+    assert.notDeepEqual(Array.from(markers.instanceMatrix.array),before,
+      'instanced emissive belt markers visibly travel along the conveyor');
+    assert.ok(conveyor.children.length<=6,'one belt stays within a small dynamic draw-call budget');
+  }
+  const columns=map.terrain.filter(s=>s.kind==='vaultColumn').map(createTerrainModel);
+  assert.equal(columns.length,6);
+  assert.ok(columns.every(column=>column.name==='red-vault-column'));
+  for(const model of models)model.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});
+  for(const model of [...conveyors,...columns])model.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});
 });
 
 test('Terminal 7 has a finite bespoke shell, runway, aircraft and jet bridge',()=>{

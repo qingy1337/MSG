@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { traceShot, tracePiercingShot } = require('../game/hitscan');
-const { createGameServer } = require('../game/gameServer');
+const { createGameServer,PVP_SPAWN_SHIELD_MS } = require('../game/gameServer');
 const { BOT_COMBAT, readyToShoot, recordShot } = require('../game/botCombat');
 const { MOVEMENT, startJump, advanceJump } = require('../public/movement');
 const {WEAPONS,DEFAULT_WEAPON_KEY,SECONDARY_WEAPON_KEY,WEAPON_SWITCH_MS,
@@ -125,6 +125,36 @@ test('server owns damage, origins, cooldowns, and invalid input rejection', () =
     handlers.playerUpdate({ x: 100, y: 100, angle: 0, height: 999 });
     assert.notEqual(game.activePlayers[0].height, 999);
   } finally { game.close(); }
+});
+
+test('every PvP player ignores damage for exactly the first six seconds',t=>{
+  let connection,now=100000;
+  t.mock.method(global,'setInterval',()=>0);t.mock.method(Date,'now',()=>now);
+  const handlers={},events=[];
+  const io={on(_,fn){connection=fn;},emit(name,data){events.push({name,data});},to(){return this;},socketsLeave(){}};
+  const game=createGameServer(io);
+  const connect=id=>{
+    const bound={};connection({id,user:{username:id},on(name,fn){bound[name]=fn;},join(){}});handlers[id]=bound;
+    game.waitingPlayers.push({id,name:id,displayName:id,weapon:'pistol',primaryWeapon:'pistol',
+      secondaryWeapon:'pistol',color:'#55aacc'});
+  };
+  try {
+    connect('shield-a');connect('shield-b');handlers['shield-a'].startGame({enableBots:false});
+    const started=events.find(event=>event.name==='gameStarting').data;
+    assert.equal(started.serverNow,now);
+    assert.ok(started.players.every(player=>player.spawnShieldUntil===now+PVP_SPAWN_SHIELD_MS));
+    game.gameWalls.length=0;game.gameMap.terrain.length=0;
+    const attacker=game.activePlayers.find(player=>player.id==='shield-a');
+    const protectedPlayer=game.activePlayers.find(player=>player.id==='shield-b');
+    Object.assign(attacker,{x:100,y:100,height:0,angle:0,lastShotAt:0});
+    Object.assign(protectedPlayer,{x:200,y:100,height:0,health:101});
+    handlers['shield-a'].shoot({angle:0,pitch:0});
+    assert.equal(protectedPlayer.health,101,'the opening shot cannot damage the shield');
+    now+=PVP_SPAWN_SHIELD_MS-1;attacker.lastShotAt=0;handlers['shield-a'].shoot({angle:0,pitch:0});
+    assert.equal(protectedPlayer.health,101,'immunity includes the final millisecond');
+    now+=1;attacker.lastShotAt=0;handlers['shield-a'].shoot({angle:0,pitch:0});
+    assert.equal(protectedPlayer.health,90.5,'damage begins exactly at the six-second deadline');
+  } finally {game.close();}
 });
 
 test('sniper pierces ten PvP opponents for 90 damage each and uses its shorter cooldown',t=>{
@@ -333,7 +363,7 @@ test('lobby joins are idempotent and finished-match cleanup is scoped to its par
     const winner = game.activePlayers.find(player => player.id === 'p0');
     const loser = game.activePlayers.find(player => player.id === 'p1');
     Object.assign(winner, { x: 100, y: 100, height: 0, angle: 0, lastShotAt: 0 });
-    Object.assign(loser, { x: 200, y: 100, height: 0, health: 1 });
+    Object.assign(loser, { x: 200, y: 100, height: 0, health: 1, spawnShieldUntil:0 });
     handlers.p0.shoot({ angle: 0, pitch: 0 });
 
     const gameOver = targetedEvents.find(event => event.name === 'gameOver');

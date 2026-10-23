@@ -45,13 +45,17 @@ export function createTerrainModel(s) {
     add(new THREE.CylinderGeometry(r*.75,r,.24,16),iron,cx,bodyBottom-.08,cz);
     const halo=add(new THREE.TorusGeometry(r*.72,.035,6,32),glow,cx,bodyMid,cz);halo.rotation.x=Math.PI/2;
   } else if(s.kind==='ceilingPanel') {
-    const frame=material('#3b4d51',0.72),panel=material('#74878a',0.48),light=material(s.accent||'#d9b978',0.34);
+    const vault=s.style==='redVault';
+    const frame=material(vault?'#17151a':'#3b4d51',vault ? .86 : .72);
+    const panel=material(vault?'#4b484d':'#74878a',vault ? .72 : .48);
+    const light=material(s.accent||'#d9b978',0.34);
+    if(vault){light.emissive.set(s.accent||'#ff2944');light.emissiveIntensity=3.2;light.toneMapped=false;}
     box(w,h,d,w/2,h/2,d/2,frame);
     const alongX=w>=d,count=Math.max(2,Math.min(8,Math.floor((alongX?w:d)/2.5)));
     for(let i=0;i<count;i++){
       const t=(i+.5)/count;
       box(alongX?0.08:w-.18,0.035,alongX?d-.18:0.08,
-        alongX?w*t:w/2,-.025,alongX?d/2:d*t,i%3===1?light:panel);
+        alongX?w*t:w/2,-.025,alongX?d/2:d*t,vault?(i%2?light:panel):(i%3===1?light:panel));
     }
   } else if(s.kind==='lift') {
     const temple=s.style==='temple';
@@ -76,10 +80,37 @@ export function createTerrainModel(s) {
     poseCargoLift(group,s.top);
   } else if(s.kind==='rail') {
     const base=(x,z)=>s.axis?(s.bottom||0)+s.rise*(s.reverse?1-(s.axis==='y'?z/d:x/w):(s.axis==='y'?z/d:x/w)):(s.liftId?0:s.bottom||0);
+    if(s.style==='redVault') {
+      const alongX=w>d,length=alongX?w:d,minor=alongX?d:w;
+      const shell=material('#211e21',.78),inset=material('#353238',.72),edge=material('#aaa6a0',.86);
+      const red=material('#96182a',.76),glow=new THREE.MeshStandardMaterial({color:'#43050d',emissive:'#ff1737',
+        emissiveIntensity:2.7,roughness:.28,metalness:.35,toneMapped:false});
+      const centerBase=base(w/2,d/2),railHeight=Math.max(.4,h),rise=s.axis?(s.reverse?-s.rise:s.rise):0;
+      const follow=mesh=>{if(!s.axis)return mesh;if(alongX)mesh.rotation.z=Math.atan2(rise,length);
+        else mesh.rotation.x=-Math.atan2(rise,length);return mesh;};
+      // These stacked bands fill the same narrow prism as collision: black
+      // lower armor, inset red panel, luminous datum line, and a silver cap.
+      follow(box(alongX?Math.hypot(length,rise):minor,.22,alongX?minor:Math.hypot(length,rise),
+        w/2,centerBase+.11,d/2,shell,.015));
+      follow(box(alongX?Math.hypot(length,rise)-.03:minor-.015,.42,
+        alongX?minor-.015:Math.hypot(length,rise)-.03,w/2,centerBase+.43,d/2,inset,.012));
+      follow(box(alongX?Math.hypot(length,rise)-.02:minor+.015,.10,
+        alongX?minor+.015:Math.hypot(length,rise)-.02,w/2,centerBase+.61,d/2,red,.01));
+      follow(box(alongX?Math.hypot(length,rise)-.08:minor+.025,.035,
+        alongX?minor+.025:Math.hypot(length,rise)-.08,w/2,centerBase+.665,d/2,glow,.006));
+      follow(box(alongX?Math.hypot(length,rise):minor+.035,.22,
+        alongX?minor+.035:Math.hypot(length,rise),w/2,centerBase+railHeight-.11,d/2,edge,.018));
+      for(let i=0,n=Math.max(2,Math.ceil(length/1.55));i<=n;i++) {
+        const t=i/n,x=alongX?length*t:w/2,z=alongX?d/2:length*t;
+        box(alongX?.105:minor+.04,railHeight-.05,alongX?minor+.04:.105,
+          x,base(x,z)+(railHeight-.05)/2,z,edge,.012);
+      }
+      group.name='red-vault-guard';return group;
+    }
     if(s.style==='temple') {
-      const alongX=w>d,length=alongX?w:d;
-      const parapet=material(s.liftId?'#7f6841':'#737866',s.liftId ? .58 : .04);
-      const edge=material(s.liftId?'#c19a50':'#a19b79',s.liftId ? .72 : .03);
+      const alongX=w>d,length=alongX?w:d,minor=alongX?d:w;
+      const parapet=material(s.liftId?'#7f6841':'#596052',s.liftId ? .58 : .16);
+      const edge=material(s.liftId?'#c19a50':'#a69c73',s.liftId ? .72 : .32);
       if(s.liftId) {
         // Slender bronze rails travel with the lift and leave the landing side
         // open; their visible footprint matches the forgiving rail collider.
@@ -91,16 +122,30 @@ export function createTerrainModel(s) {
         for(const y of [.18,.82])box(alongX?length:.075,.075,alongX?.075:length,
           w/2,base(w/2,d/2)+y,d/2,edge);
       } else {
-        // Low crenellated stonework gives the firing deck real cover while
-        // retaining gaps between authored rail segments as shooting ports.
-        box(alongX?length:.18,.42,alongX?.18:length,w/2,base(w/2,d/2)+.21,d/2,parapet);
-        const merlons=Math.max(1,Math.floor(length/.72));
-        for(let i=0;i<merlons;i++) {
-          const t=(i+.5)/merlons,x=alongX?length*t:w/2,z=alongX?d/2:length*t;
-          box(alongX?Math.min(.38,length/merlons*.62):.22,.56,
-            alongX?.22:Math.min(.38,length/merlons*.62),x,base(x,z)+.7,z,edge);
+        const bronze=material('#6f6242',.62),moss=material('#647558',.06);
+        const railHeight=Math.max(.82,h),centerBase=base(w/2,d/2);
+        // One continuous, architectural balustrade replaces the old row of
+        // disconnected crenellation blocks. A broad stone sill anchors two
+        // bronze rails, with only a few substantial capped supports.
+        box(alongX?length:minor,.22,alongX?minor:length,
+          w/2,centerBase+.11,d/2,parapet);
+        for(const y of [.48,railHeight-.09])
+          box(alongX?length:minor+.015,.095,alongX?minor+.015:length,
+            w/2,centerBase+y,d/2,y>.7?edge:bronze);
+        const bays=Math.max(1,Math.ceil(length/2.35));
+        for(let i=0;i<=bays;i++) {
+          const t=i/bays,x=alongX?length*t:w/2,z=alongX?d/2:length*t;
+          box(alongX?.18:minor+.02,railHeight-.16,alongX?minor+.02:.18,
+            x,base(x,z)+(railHeight-.16)/2,z,parapet);
+          box(alongX?.25:minor+.08,.12,alongX?minor+.08:.25,
+            x,base(x,z)+railHeight-.03,z,edge);
         }
+        // A narrow inset growth line ties the railing back into the overgrown
+        // sanctuary without breaking its clean silhouette.
+        box(alongX?Math.max(.1,length-.16):minor+.025,.035,
+          alongX?minor+.025:Math.max(.1,length-.16),w/2,centerBase+.235,d/2,moss);
       }
+      group.name=s.liftId?'temple-lift-guard':'temple-tower-balustrade';
       return group;
     }
     if(s.style==='orbital') {
@@ -178,20 +223,74 @@ export function createTerrainModel(s) {
     const beam=box(alongX?Math.hypot(length,rise):0.10,0.10,alongX?0.10:Math.hypot(length,rise),w/2,base(w/2,d/2)+1,d/2,trim);
     if(alongX)beam.rotation.z=Math.atan2(rise,length);else beam.rotation.x=-Math.atan2(rise,length);
   } else if (s.kind === 'ramp' && s.stairs) {
+    const vault=s.style==='redVault';
     const stairBody=s.style==='temple'?material('#596553'):s.style==='orbital'?material('#7b8792',.72):
       s.style==='airport'?material('#727e84',.56):dark;
     const stairTop=s.style==='temple'?material('#9a9b79'):s.style==='orbital'?material('#e8edf1',.56):
-      s.style==='airport'?material('#e9e5dc',.16):trim;
+      s.style==='airport'?material('#e9e5dc',.16):vault?material('#55565a',.83):trim;
+    const vaultEdge=vault?material('#b1aaa2',.82):null,vaultBlack=vault?material('#121216',.88):null;
+    const vaultRed=vault?material('#b51f32',.72):null;
     const moss=s.style==='temple'?material('#63804b',0.02):null;
     const vertical=s.axis==='y',length=vertical?d:w;
     for(let i=0;i<s.steps;i++) {
       const rise=h*(i+1)/s.steps,t=s.reverse?s.steps-1-i:i;
       const x=vertical?w/2:(t+0.5)*length/s.steps,z=vertical?(t+0.5)*length/s.steps:d/2;
-      box(vertical?w:length/s.steps,rise,vertical?length/s.steps:d,x,rise/2,z,stairBody);
+      box(vertical?w:length/s.steps,rise,vertical?length/s.steps:d,x,rise/2,z,vault?vaultBlack:stairBody);
       box(vertical?w-0.08:length/s.steps-0.04,0.018,vertical?length/s.steps-0.04:d-0.08,x,rise+0.012,z,stairTop);
+      if(vault) {
+        // Red Vault stairs are load-bearing assemblies: silver side channels
+        // and red nosings frame every dark grated tread, all within the exact
+        // authored stair footprint and step height.
+        for(const side of [-1,1])box(vertical?.13:length/s.steps-.045,.12,
+          vertical?length/s.steps-.045:.13,vertical?w/2+side*(w/2-.075):x,
+          Math.max(.06,rise-.06),vertical?z:d/2+side*(d/2-.075),vaultEdge,.012);
+        box(vertical?w-.28:.075,.035,vertical?.075:d-.28,
+          vertical?w/2:(s.reverse?x-length/s.steps*.43:x+length/s.steps*.43),rise+.032,
+          vertical?(s.reverse?z-length/s.steps*.43:z+length/s.steps*.43):d/2,
+          i%3===1?vaultRed:vaultEdge,.006);
+      }
       if(moss&&i%4===1)box(vertical?w*0.28:length/s.steps-0.05,0.022,
         vertical?length/s.steps-0.05:d*0.24,vertical?w*0.7:x,rise+0.026,vertical?z:d*0.72,moss);
     }
+    if(vault)group.name='red-vault-stair';
+  } else if(s.kind==='ramp'&&s.style==='redVault') {
+    const shell=material('#211e21',.78),edge=material('#b1aaa2',.84),grate=material('#55565a',.84);
+    const red=material('#b51f32',.76),black=material('#0d1014',.9),depth=s.structureDepth??.72;
+    const point=(t,lateral=.5)=>new THREE.Vector3(s.axis==='y'?w*lateral:w*t,
+      h*(s.reverse?1-t:t),s.axis==='y'?d*t:d*lateral);
+    const forward=point(1).sub(point(0)).normalize();
+    const lateral=s.axis==='x'?new THREE.Vector3(0,0,1):new THREE.Vector3(-1,0,0);
+    const normal=lateral.clone().cross(forward).normalize();
+    const oriented=(t0,t1,thickness,lateralWidth,offset=0,lateralOffset=0,mat=grate)=>{
+      const a=point(t0),b=point(t1),direction=b.clone().sub(a),length=direction.length();
+      const center=a.add(b).multiplyScalar(.5).addScaledVector(normal,offset).addScaledVector(lateral,lateralOffset);
+      const geometry=new THREE.BoxGeometry(length,thickness,lateralWidth);
+      const matrix=new THREE.Matrix4().makeBasis(forward,normal,lateral);matrix.setPosition(center);
+      geometry.applyMatrix4(matrix);return add(geometry,mat,0,0,0);
+    };
+    const top=[point(0,0),point(0,1),point(1,1),point(1,0)],bottom=top.map(value=>
+      value.clone().addScaledVector(normal,-depth));
+    const casing=new THREE.BufferGeometry(),positions=[...top,...bottom].flatMap(value=>value.toArray());
+    casing.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+    casing.setIndex([4,6,5,4,7,6,0,5,1,0,4,5,1,6,2,1,5,6,2,7,3,2,6,7,3,4,0,3,7,4]);
+    casing.computeVertexNormals();add(casing,shell,0,0,0);
+    const crossWidth=s.axis==='y'?w:d,channel=Math.min(.22,Math.max(.14,crossWidth*.055));
+    for(const side of [-1,1])oriented(0,1,depth,channel,-depth/2,side*(crossWidth-channel)/2,edge);
+    const bearers=Math.max(4,Math.min(12,Math.floor(point(0).distanceTo(point(1))/1.25)));
+    for(let i=0;i<bearers;i++) {
+      const t=.07+.86*i/(bearers-1),half=.11/Math.max(.001,point(0).distanceTo(point(1)));
+      oriented(Math.max(.01,t-half),Math.min(.99,t+half),Math.min(.2,depth*.3),crossWidth-channel*2,
+        -depth*.62,0,black);
+    }
+    const plates=Math.max(6,Math.min(18,Math.round(point(0).distanceTo(point(1))/.82)));
+    for(let i=0;i<plates;i++) {
+      const start=i/plates,end=(i+1)/plates,seam=.006,split=Math.min(end,start+.075/Math.max(.1,point(0).distanceTo(point(1))));
+      oriented(start+seam,split,.04,crossWidth-channel*2,-.02,0,red);
+      oriented(split,end-seam,.04,crossWidth-channel*2,-.02,0,grate);
+    }
+    for(const t of [.025,.975])oriented(Math.max(0,t-.018),Math.min(1,t+.018),Math.min(.28,depth*.42),
+      crossWidth-.05,-depth*.55,0,edge);
+    group.name='red-vault-stair';
   } else if (s.kind === 'ramp') {
     const roof = (x,z) => h * (s.reverse ? 1 - (s.axis === 'y' ? z/d : x/w) : (s.axis === 'y' ? z/d : x/w));
     const geometry = new THREE.BufferGeometry();
@@ -989,6 +1088,26 @@ export function createTerrainModel(s) {
     box(w*.56,.035,.025,w/2,h*.68,-.018,light,.008);
     box(w*.35,.04,d*.36,w*.66,h+.018,d*.52,edge,.01);
   } else if(s.kind==='catwalk') {
+    if(s.style==='redVault') {
+      const shell=material('#211e21',.76),deck=material('#39383b',.78),edge=material('#b1aaa2',.82);
+      const grate=material('#55565a',.83),red=material('#9d1a2d',.75),black=material('#101217',.88);
+      box(w,Math.max(.04,h-.045),d,w/2,Math.max(.04,h-.045)/2,d/2,shell);
+      box(w-.035,.035,d-.035,w/2,h-.018,d/2,deck,.012);
+      const alongX=w>=d,length=alongX?w:d,count=Math.max(4,Math.ceil(length/1.05));
+      for(let i=1;i<count;i++) {
+        const at=length*i/count;
+        box(alongX?.04:w-.12,.018,alongX?d-.12:.04,
+          alongX?at:w/2,h+.012,alongX?d/2:at,i%4===0?red:grate,.004);
+      }
+      if(alongX)for(const z of [.10,d-.10]) {
+        box(w-.06,.22,.16,w/2,-.07,z,black,.018);
+        box(w-.08,.10,.19,w/2,h-.18,z,edge,.012);
+      } else for(const x of [.10,w-.10]) {
+        box(.16,.22,d-.06,x,-.07,d/2,black,.018);
+        box(.19,.10,d-.08,x,h-.18,d/2,edge,.012);
+      }
+      group.name=s.bridge?'red-vault-bridge':'red-vault-gallery';return group;
+    }
     const steel=material('#38484c',0.65),grate=material(s.accent||'#d99149',0.55);
     box(w,h,d,w/2,h/2,d/2,steel);
     const alongX=w>=d,length=alongX?w:d,count=Math.max(3,Math.ceil(length/1.1));
@@ -1033,6 +1152,44 @@ export function createTerrainModel(s) {
         alongX?w*t:w/2,h*0.62,alongX?d/2:d*t);
       if(alongX)ring.rotation.y=Math.PI/2;else ring.rotation.x=Math.PI/2;
     }
+  } else if(s.kind==='vaultConveyor') {
+    const frame=material('#211e21',.84),steel=material('#aaa6a0',.9),belt=material('#29272c',.45);
+    const red=new THREE.MeshStandardMaterial({color:'#560811',emissive:'#ff1737',emissiveIntensity:2.5,
+      metalness:.45,roughness:.28,toneMapped:false});
+    const alongX=w>=d,length=alongX?w:d,cross=alongX?d:w;
+    box(w,.22,d,w/2,.11,d/2,frame);
+    box(alongX?length-.22:cross-.22,.055,alongX?cross-.22:length-.22,w/2,h-.15,d/2,belt,.012);
+    const rollers=Math.max(5,Math.floor(length/.48)),dummy=new THREE.Object3D();
+    const rollerGeometry=new THREE.CylinderGeometry(.085,.085,cross-.18,10);
+    const rollerInstances=new THREE.InstancedMesh(rollerGeometry,steel,rollers);
+    rollerInstances.name='red-vault-conveyor-rollers';
+    rollerInstances.castShadow=true;rollerInstances.receiveShadow=true;
+    for(let i=0;i<rollers;i++) {
+      const t=(i+.5)/rollers;
+      dummy.position.set(alongX?length*t:w/2,h-.08,alongX?d/2:length*t);
+      dummy.rotation.set(alongX?Math.PI/2:0,0,alongX?0:Math.PI/2);dummy.updateMatrix();
+      rollerInstances.setMatrixAt(i,dummy.matrix);
+    }
+    rollerInstances.instanceMatrix.setUsage(THREE.StaticDrawUsage);rollerInstances.computeBoundingSphere();
+    group.add(rollerInstances);
+    const markerCount=10,markerGeometry=new RoundedBoxGeometry(alongX?.16:cross-.28,.025,
+      alongX?cross-.28:.16,2,.006);
+    const markerInstances=new THREE.InstancedMesh(markerGeometry,red,markerCount);
+    markerInstances.name='red-vault-conveyor-markers';markerInstances.castShadow=false;markerInstances.receiveShadow=true;
+    markerInstances.instanceMatrix.setUsage(THREE.DynamicDrawUsage);group.add(markerInstances);
+    for(const side of [0.11,cross-.11])box(alongX?length:.18,.28,alongX?.18:length,
+      alongX?w/2:side,h-.14,alongX?side:d/2,frame,.018);
+    group.name='red-vault-moving-conveyor';
+    group.userData.update=time=>{
+      const travel=((time*(s.speed||.65)*(s.direction===-1?-1:1))%1+1)%1;
+      for(let i=0;i<markerCount;i++) {
+        const t=((i+.5)/markerCount+travel)%1;
+        dummy.position.set(alongX?length*t:w/2,h-.012,alongX?d/2:length*t);
+        dummy.rotation.set(0,0,0);dummy.updateMatrix();markerInstances.setMatrixAt(i,dummy.matrix);
+      }
+      markerInstances.instanceMatrix.needsUpdate=true;
+    };
+    group.userData.update(0);markerInstances.computeBoundingSphere();
   } else if(s.kind==='conveyor') {
     const frame=material('#45575a',0.75),roller=material('#879496',0.85),alongX=w>=d,length=alongX?w:d;
     box(w,0.20,d,w/2,0.10,d/2,frame);
@@ -1055,6 +1212,17 @@ export function createTerrainModel(s) {
     box(0.06,1.8,0.06,w*0.58,-1.25,d/2,black);
     const hook=add(new THREE.TorusGeometry(0.16,0.045,6,14,Math.PI*1.45),black,w*0.58,-2.16,d/2);
     hook.rotation.z=Math.PI;
+  } else if(s.kind==='vaultColumn') {
+    const shell=material('#211e21',.82),edge=material('#aaa6a0',.9),red=material('#891626',.78),black=material('#0d1014',.9);
+    const radius=Math.min(w,d)*.4,cx=w/2,cz=d/2;
+    add(new THREE.CylinderGeometry(radius,radius,Math.max(.1,h-.36),12),shell,cx,h/2,cz);
+    for(const y of [.16,h*.48,h-.18])
+      add(new THREE.CylinderGeometry(radius+.07,radius+.07,.18,12),y===h*.48?red:edge,cx,y,cz);
+    for(let i=0;i<4;i++) {
+      const a=Math.PI/4+i*Math.PI/2,x=cx+Math.cos(a)*(radius+.025),z=cz+Math.sin(a)*(radius+.025);
+      box(.09,Math.max(.12,h-.55),.09,x,h/2,z,black,.015);
+    }
+    group.name='red-vault-column';
   } else if (s.kind === 'pillar' || s.kind === 'generator') {
     // Solid bevelled silhouettes keep the render and rectangular collider in
     // agreement. All trim sits inside the footprint and clear of other faces.

@@ -29,6 +29,7 @@ const SCALE = 0.05;
 const WALL_HEIGHT = 3.1;
 const WEAPON_SWAP_SECONDS = 0.36;
 const DAMAGE_FLASH_COLOR = new THREE.Color('#ff3030');
+const SPAWN_SHIELD_BLUE='#42b8ff';
 const world = (x, y, height = 0, target = new THREE.Vector3()) => target.set((x - 450) * SCALE, height, (y - 300) * SCALE);
 const WARDEN_FINISHED_STATES=new Set(['complete','completed','done','ended','idle','cooldown','cancelled']);
 const STRIKE_SPAWN_SECONDS=1.2;
@@ -46,6 +47,26 @@ export function createStrikeSpawnArrival() {
   const crown=new THREE.Mesh(new THREE.TorusGeometry(.36,.035,6,24),red.clone());
   crown.name='strike-arrival-crown';crown.rotation.x=Math.PI/2;crown.position.y=2.55;crown.renderOrder=5;group.add(crown);
   return{group,beam,ring,crown,materials:[red,hot,crown.material]};
+}
+
+// An inverted, slightly expanded copy produces a true silhouette outline
+// without adding an expensive full-screen post-processing pass. It is built
+// once per PvP character and merely toggled during the opening shield window.
+export function createPvpSpawnShieldOutline(source) {
+  const material=new THREE.ShaderMaterial({
+    uniforms:{color:{value:new THREE.Color(SPAWN_SHIELD_BLUE)},opacity:{value:.9},thickness:{value:.022}},
+    vertexShader:`uniform float thickness;
+      void main(){gl_Position=projectionMatrix*modelViewMatrix*vec4(position+normal*thickness,1.0);}`,
+    fragmentShader:`uniform vec3 color;uniform float opacity;
+      void main(){gl_FragColor=vec4(color,opacity);}`,
+    side:THREE.BackSide,transparent:true,depthWrite:false,toneMapped:false,
+  });
+  const outline=source.clone(true);outline.name='pvp-spawn-shield-outline';
+  outline.traverse(object=>{
+    if(object.isMesh){object.material=material;object.castShadow=false;object.receiveShadow=false;object.renderOrder=3;}
+    else if(object.isLine||object.isPoints)object.visible=false;
+  });
+  outline.userData.shieldMaterial=material;return outline;
 }
 
 export function finiteMetricTree(value) {
@@ -231,7 +252,9 @@ export function poseWardenPresentation(model,phase,attack,time,healthRatio=1) {
 }
 
 export function arenaFloorRectangles(map) {
-  const rectangles=[{x:0,y:0,width:map.width,height:map.height,main:true}];
+  const rectangles=Array.isArray(map.floorRects)&&map.floorRects.length?
+    map.floorRects.map((rect,index)=>({...rect,main:index===0})):
+    [{x:0,y:0,width:map.width,height:map.height,main:true}];
   const add=(x,y,width,height)=>{if(width>0&&height>0)rectangles.push({x,y,width,height});};
   for(const pocket of map.walkablePockets||[]) {
     const right=pocket.x+pocket.width,far=pocket.y+pocket.height;
@@ -596,7 +619,8 @@ export class Arena3D {
     this.minimapCache=null;
     const pve=map.mode==='pve',strike=map.mode==='strike'||map.activity==='strike';
     const palette=map.palette||{};
-    const temple=map.style==='temple',orbital=map.style==='orbital',airport=map.style==='airport';
+    const temple=map.style==='temple',orbital=map.style==='orbital',airport=map.style==='airport',
+      redVault=map.style==='redVault';
     const areas=strike?[]:planAreaLighting(map,walls);
     this.zoneUniforms=ambientZoneUniforms(planAmbientZones(map),map);
     this.scene.background.set(palette.sky||'#9ebbc9');
@@ -609,7 +633,7 @@ export class Arena3D {
     this.ambient.intensity=palette.ambientIntensity??(pve?1.9:3.2);
     this.sun.intensity=palette.sunIntensity??(pve?1.5:3.5);
     this.rim.intensity=palette.rimIntensity??(pve?0.65:2);
-    this.cargoModels=[];this.strikeEnvironment=null;this.strikeMissionState=null;
+    this.cargoModels=[];this.animatedTerrain=[];this.strikeEnvironment=null;this.strikeMissionState=null;
     this.liftRise=0;this.liftSway=0;this.elevatorModel=null;this.arrivalModel=null;
     const width = map.width*SCALE, depth = map.height*SCALE;
     const center = world(map.width/2,map.height/2);
@@ -643,24 +667,25 @@ export class Arena3D {
     const glowColor=palette.glow||'#69e8df';
     const glow = new THREE.MeshStandardMaterial({ color: glowColor, emissive: glowColor,
       emissiveIntensity:temple?0.08:1.5,roughness:temple?0.92:0.4 });
+    const vaultRed=redVault?this.material('#891626',.78,.25):null,
+      vaultBlack=redVault?this.material('#151319',.86,.28):null;
     if(!strike) {
-      this.box(this.stage, width+0.5, 0.45, depth+0.5, center.x, -0.26, center.z, dark, 0.15);
-      for(const extension of floorRectangles.slice(1)) {
-        const p=world(extension.x+extension.width/2,extension.y+extension.height/2);
-        this.box(this.stage,extension.width*SCALE+.05,.45,extension.height*SCALE+.05,p.x,-.26,p.z,dark,.08);
+      for(const rectangle of floorRectangles) {
+        const p=world(rectangle.x+rectangle.width/2,rectangle.y+rectangle.height/2);
+        this.box(this.stage,rectangle.width*SCALE+.05,.45,rectangle.height*SCALE+.05,p.x,-.26,p.z,dark,.08);
       }
     }
-    const wallGeometry={body:[],cap:[],panel:[],glow:[]};
+    const wallGeometry={body:[],cap:[],panel:[],glow:[],red:[],black:[]};
     for (const wall of strike?[]:walls) {
       // Temple collision is deliberately invisible; a dedicated architectural
       // model below replaces the shared arena wall language completely.
       if(wall.kind==='cabin'||temple||airport) continue;
       const wallCenter=world(wall.x+wall.width/2,wall.y+wall.height/2);
       const w = wall.width * SCALE, d = wall.height * SCALE;
-      const wallHeight=wall.top ?? WALL_HEIGHT;
-      wallGeometry.body.push(roundedGeometry(w,wallHeight,d,wallCenter.x,wallHeight/2,wallCenter.z,0.15));
-      wallGeometry.cap.push(roundedGeometry(w-0.06,0.24,d-0.06,wallCenter.x,0.18,wallCenter.z));
-      wallGeometry.cap.push(roundedGeometry(w-0.02,0.22,d-0.02,wallCenter.x,wallHeight-0.12,wallCenter.z));
+      const wallBottom=wall.bottom||0,wallTop=wall.top??WALL_HEIGHT,wallHeight=wallTop-wallBottom;
+      wallGeometry.body.push(roundedGeometry(w,wallHeight,d,wallCenter.x,wallBottom+wallHeight/2,wallCenter.z,0.15));
+      wallGeometry.cap.push(roundedGeometry(w-0.06,0.24,d-0.06,wallCenter.x,wallBottom+0.18,wallCenter.z));
+      wallGeometry.cap.push(roundedGeometry(w-0.02,0.22,d-0.02,wallCenter.x,wallTop-0.12,wallCenter.z));
       const horizontal = w > d, length = horizontal ? w : d;
       const count = Math.max(1, Math.floor(length / 1.7));
       for (let i = 0; i < count; i++) {
@@ -670,11 +695,13 @@ export class Arena3D {
           // rounded edges. The old inset left only 0.005 protruding, so the
           // bevels intersected the wall face and flickered as the view moved.
           const face = sign * ((horizontal ? d : w) / 2 + 0.06);
-          wallGeometry.panel.push(roundedGeometry(horizontal ? length / count - 0.12 : temple?0.07:0.10,
+          const panelGeometry=roundedGeometry(horizontal ? length / count - 0.12 : temple?0.07:0.10,
             temple?Math.max(.35,wallHeight*.33):wallHeight-1,
             horizontal ? temple?0.07:0.10 : length / count - 0.12,
-            wallCenter.x+(horizontal ? along : face),temple?wallHeight*.43:wallHeight/2,
-            wallCenter.z+(horizontal ? face : along),temple?0.025:0.045));
+            wallCenter.x+(horizontal ? along : face),temple?wallBottom+wallHeight*.43:wallBottom+wallHeight/2,
+            wallCenter.z+(horizontal ? face : along),temple?0.025:0.045);
+          (redVault?(i%4===1?wallGeometry.red:i%4===3?wallGeometry.black:wallGeometry.panel):
+            wallGeometry.panel).push(panelGeometry);
         }
       }
       if(temple) {
@@ -687,7 +714,7 @@ export class Arena3D {
         for (const sign of [-1, 1]) {
           wallGeometry.glow.push(roundedGeometry(horizontal ? w - 0.22 : 0.018, 0.055,
             horizontal ? 0.018 : d - 0.22,
-            wallCenter.x+(horizontal ? 0 : sign*w/2),wallHeight-0.32,
+            wallCenter.x+(horizontal ? 0 : sign*w/2),wallTop-0.32,
             wallCenter.z+(horizontal ? sign*d/2 : 0),0.005));
         }
       }
@@ -696,7 +723,8 @@ export class Arena3D {
     const wallCaps=mergedMesh(wallGeometry.cap,cap);
     const wallPanels=mergedMesh(wallGeometry.panel,panel);
     const wallGlow=mergedMesh(wallGeometry.glow,glow,{receiveShadow:false});
-    for(const mesh of [wallBody,wallCaps,wallPanels,wallGlow])if(mesh)this.stage.add(mesh);
+    const wallRed=mergedMesh(wallGeometry.red,vaultRed),wallBlack=mergedMesh(wallGeometry.black,vaultBlack);
+    for(const mesh of [wallBody,wallCaps,wallPanels,wallRed,wallBlack,wallGlow])if(mesh)this.stage.add(mesh);
     if(wallBody){wallBody.layers.enable(1);this.wallOccluders.push(wallBody);}
     const terrainBatches=new Map();
     const occluderMaterial=new THREE.MeshBasicMaterial({colorWrite:false,depthWrite:false});
@@ -729,7 +757,10 @@ export class Arena3D {
       if(solid.kind==='exitDoor'||solid.kind==='heightfield'||solid.collisionOnly)continue;
       const model = createTerrainModel(solid);
       const position=world(solid.x,solid.y,solid.kind==='rail'?0:solid.bottom||0);
-      if(solid.kind==='lift'||solid.liftId) {
+      if(solid.kind==='vaultConveyor') {
+        model.position.copy(position);this.stage.add(model);this.animatedTerrain.push(model);
+        model.traverse(mesh=>{if(mesh.isMesh){mesh.layers.enable(1);this.wallOccluders.push(mesh);}});
+      } else if(solid.kind==='lift'||solid.liftId) {
         model.position.copy(position);this.stage.add(model);this.cargoModels.push({solid,model});
         model.traverse(mesh=>{if(mesh.isMesh){mesh.layers.enable(1);this.wallOccluders.push(mesh);}});
       } else {
@@ -747,15 +778,21 @@ export class Arena3D {
       if(mesh)this.stage.add(mesh);
     }
     if(map.ceiling&&map.roof!==false&&!strike) {
-      const ceilingMat=this.material('#b5c7c6',0.12,0.8);
-      this.box(this.stage,width,0.2,depth,center.x,map.ceiling+0.1,center.z,ceilingMat);
+      const ceilingMat=this.material(redVault?'#27252a':'#b5c7c6',redVault ? .72 : .12,redVault ? .36 : .8);
+      for(const rectangle of floorRectangles) {
+        const p=world(rectangle.x+rectangle.width/2,rectangle.y+rectangle.height/2);
+        this.box(this.stage,rectangle.width*SCALE,0.2,rectangle.height*SCALE,p.x,map.ceiling+0.1,p.z,ceilingMat);
+      }
       // Broad emissive luminaires and inset beams; no costly per-fixture lights.
+      const whiteLamp=new THREE.MeshBasicMaterial({color:'#f6ffed'});
+      const redLamp=new THREE.MeshBasicMaterial({color:'#ff314a'});
       for(let x=240;!pve&&x<map.width;x+=300) for(let y=180;y<map.height;y+=300) {
+        if(map.floorRects&&!map.floorRects.some(rect=>x>=rect.x&&x<=rect.x+rect.width&&y>=rect.y&&y<=rect.y+rect.height))continue;
         const p=world(x,y,map.ceiling-0.08);
-        const lamp=new THREE.MeshBasicMaterial({color:'#f6ffed'});
+        const lamp=redVault&&((Math.floor(x/300)+Math.floor(y/300))%3===0)?redLamp:whiteLamp;
         this.box(this.stage,4,0.07,0.7,p.x,p.y,p.z,lamp);
       }
-      for(let y=120;y<map.height;y+=360) {
+      for(let y=120;!map.floorRects&&y<map.height;y+=360) {
         const p=world(map.width/2,y,map.ceiling-0.15);
         this.box(this.stage,width,0.3,0.22,p.x,p.y,p.z,panel);
       }
@@ -790,7 +827,7 @@ export class Arena3D {
       this.arrivalModel.traverse(m=>{if(m.isMesh){m.layers.enable(1);this.wallOccluders.push(m);}});
       poseElevator(this.arrivalModel,{door:1,rise:0});
     }
-    if(!strike) {
+    if(!strike&&!map.floorPolygon) {
       for (const z of [-depth/2, depth/2]) this.box(this.stage, width, 0.05, 0.08, center.x, 0.035, center.z+z, glow, 0.01);
       for (const x of [-width/2, width/2]) this.box(this.stage, 0.08, 0.05, depth, center.x+x, 0.035, center.z, glow, 0.01);
     }
@@ -929,6 +966,10 @@ export class Arena3D {
     // A character can contain dozens of cosmetic meshes. Only the largest
     // silhouette pieces need to render into shadow maps.
     limitShadowCasters(group,player.botType==='ogre'?10:player.botType==='guardian'?6:warden?12:8);
+    let spawnShieldOutline=null;
+    if(this.mapConfig.mode==='pvp'&&Number.isFinite(player.spawnShieldUntil)) {
+      spawnShieldOutline=createPvpSpawnShieldOutline(group);spawnShieldOutline.visible=false;group.add(spawnShieldOutline);
+    }
     let spawnArrival=null,spawnMaterials=[];
     if(player.isBot&&(this.mapConfig.mode==='strike'||this.mapConfig.activity==='strike')&&
       Number.isFinite(player.spawnRevealAt)&&player.spawnRevealAt>performance.now()-250) {
@@ -948,7 +989,7 @@ export class Arena3D {
       weaponKey:player.weapon,weaponSwitchAt:this.weaponSwitchTimes?.get(player.id)??-Infinity,
       weaponSkinKey:skin?.key,muzzleBaseX:0.27,muzzleBarrelOffset:length*0.062,
       health: player.health ?? player.maxHealth ?? 101, damageFlash: 0, flashMaterials: this.captureFlashMaterials(group),
-      spawnArrival,spawnMaterials,spawnRevealAt:player.spawnRevealAt,spawnRestored:false };
+      spawnArrival,spawnMaterials,spawnRevealAt:player.spawnRevealAt,spawnRestored:false,spawnShieldOutline };
     record.muzzleFlash = createMuzzleFlash(0.1*muzzleFlashScaleForWeapon(player.weapon));
     record.muzzleFlash.position.set(0.27, 1.34 + length * heavyWeaponMuzzleYOffset(skin?.key),
       -0.45 - muzzleLength * heavyWeaponMuzzleDepth(skin?.key));
@@ -1331,6 +1372,7 @@ export class Arena3D {
       const index=this.reflectionSolids.indexOf(solid);
       if(index>=0&&index<64){this.floor.uniforms.wallMax.value[index].y=solid.top;this.floor.uniforms.wallMin.value[index].y=solid.bottom||0;}
     }
+    for(const model of this.animatedTerrain||[])model.userData.update?.(this.renderTime);
     this.localId = localId;
     const local = players.find(p => p.id === localId);
     const viewed = local?.alive ? local : players.find(p => p.alive);
@@ -1359,6 +1401,8 @@ export class Arena3D {
     this.updateStrikeWorldWaypoint(viewed);
     const localMaxHealth=local?.maxHealth??101;
     const localHealth = local?.alive ? Math.max(0, Math.min(localMaxHealth, local.health ?? localMaxHealth)) : 0;
+    const localShielded=this.mapConfig.mode==='pvp'&&local?.alive&&
+      Number.isFinite(local.spawnShieldEndsAt)&&performance.now()<local.spawnShieldEndsAt;
     const healthText=local?.alive?`${Math.ceil(localHealth)} / ${localMaxHealth} HP`:`SPECTATING${viewed?' / '+viewed.name:''}`;
     if(this.ui.healthText.textContent!==healthText)this.ui.healthText.textContent=healthText;
     const healthBar=this.ui.healthBar;
@@ -1368,7 +1412,9 @@ export class Arena3D {
     if(healthBar.getAttribute('aria-valuenow')!==healthTextValue)healthBar.setAttribute('aria-valuenow',healthTextValue);
     const healthFill=this.ui.healthFill;
     const localPercent=100*localHealth/localMaxHealth;
-    const localWidth=`${localPercent}%`,localColor=localPercent<30?'#ff7878':localPercent<60?'#ffd48b':'#7bf0c4';
+    const localWidth=`${localPercent}%`,localColor=localShielded?SPAWN_SHIELD_BLUE:
+      localPercent<30?'#ff7878':localPercent<60?'#ffd48b':'#7bf0c4';
+    healthBar.classList.toggle('spawn-shielded',localShielded);
     if(this.ui.healthWidth!==localWidth){this.ui.healthWidth=localWidth;healthFill.style.width=localWidth;}
     if(this.ui.healthColor!==localColor){this.ui.healthColor=localColor;healthFill.style.backgroundColor=localColor;}
     const crosshair=this.ui.crosshair,crosshairKey=local?.alive?local.weapon:'dead';
@@ -1391,6 +1437,14 @@ export class Arena3D {
         this.stage.remove(c.group);this.clearObject(c.group);c.label.remove();this.characters.delete(player.id);c=null;
       }
       c=c||this.createCharacter(player, localId);
+      const shielded=this.mapConfig.mode==='pvp'&&Number.isFinite(player.spawnShieldEndsAt)&&
+        performance.now()<player.spawnShieldEndsAt;
+      if(c.spawnShieldOutline) {
+        c.spawnShieldOutline.visible=shielded;
+        if(shielded)c.spawnShieldOutline.userData.shieldMaterial.uniforms.opacity.value=
+          .82+.1*Math.sin(this.renderTime*9);
+      }
+      if(c.shielded!==shielded){c.shielded=shielded;c.label.classList.toggle('spawn-shielded',shielded);}
       const currentHealth = player.health ?? player.maxHealth ?? 101;
       const previousFlash=c.damageFlash;
       c.damageFlash = currentHealth < c.health ? 0.22 : Math.max(0, c.damageFlash - dt);
@@ -1475,7 +1529,7 @@ export class Arena3D {
       }
       const health = Math.max(0, player.health ?? player.maxHealth ?? 101), percent=100*health/(player.maxHealth||101);
       const value=String(Math.ceil(health)),width=`${Math.min(100,percent)}%`;
-      const color=player.botType==='guardian'?'#a950ef':player.botType==='warden'?'#ffb02e':
+      const color=shielded?SPAWN_SHIELD_BLUE:player.botType==='guardian'?'#a950ef':player.botType==='warden'?'#ffb02e':
         player.botType==='dread'?'#ef3048':percent<30?'#ff7878':percent<60?'#ffd48b':'#7bf0c4';
       if(c.labelValue!==value){c.labelValue=value;c.value.textContent=value;}
       if(c.fillWidth!==width){c.fillWidth=width;c.fill.style.width=width;}
@@ -1620,8 +1674,14 @@ export class Arena3D {
       const worldWidth=bounds.maxX-bounds.minX,worldHeight=bounds.maxY-bounds.minY;
       const sx=Math.min(180/worldWidth,120/worldHeight),sy=sx;
       const ox=(180-worldWidth*sx)/2-bounds.minX*sx,oy=(120-worldHeight*sy)/2-bounds.minY*sy;
-      base.fillStyle='#0b1a24';base.fillRect(0,0,180,120);base.fillStyle='#55727e';
+      base.fillStyle='#0b1a24';base.fillRect(0,0,180,120);
       base.save();base.translate(ox,oy);
+      if(this.mapConfig.floorRects) {
+        base.fillStyle='#263b43';
+        for(const rect of this.mapConfig.floorRects)
+          base.fillRect(rect.x*sx,rect.y*sy,rect.width*sx,rect.height*sy);
+      }
+      base.fillStyle='#55727e';
       for(const w of this.walls)base.fillRect(w.x*sx,w.y*sy,w.width*sx,w.height*sy);
       for(const c of this.mapConfig.cutouts||[]) {
         const left=c.x===12,top=c.y===12,x=left?0:c.x,y=top?0:c.y;

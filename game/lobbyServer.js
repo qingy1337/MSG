@@ -46,10 +46,13 @@ function createLobbyServer(io) {
   }
 
   function publicLobby(lobby) {
+    const maxPlayers = MODES[lobby.mode].maxPlayers;
+    const hasCapacity = lobby.memberIds.size < maxPlayers;
     const players = lobby.engine.waitingPlayers.map(player => ({
       id: player.id,
       username: player.accountUsername || player.name,
       weapon: player.primaryWeapon || player.weapon,
+      joiningNextFloor:lobby.status==='active',
     }));
     if (lobby.status === 'active') {
       for (const player of lobby.engine.activePlayers) {
@@ -69,7 +72,10 @@ function createLobbyServer(io) {
       ownerId: lobby.ownerId,
       ownerName: lobby.ownerName,
       status: lobby.status,
-      maxPlayers: MODES[lobby.mode].maxPlayers,
+      maxPlayers,
+      floor:lobby.status==='active'&&lobby.mode==='pve'?(lobby.engine.gameMap.floor||1):undefined,
+      joinable:hasCapacity&&(lobby.status==='open'||
+        (lobby.status==='active'&&lobby.mode==='pve')),
       players,
     };
   }
@@ -139,10 +145,15 @@ function createLobbyServer(io) {
   }
 
   function joinLobby(socket, lobby, weapon) {
-    if (!lobby || lobby.status !== 'open') return { ok: false, error: 'That fireteam is no longer waiting.' };
-    if (lobby.memberIds.size >= MODES[lobby.mode].maxPlayers) return { ok: false, error: 'That fireteam is full.' };
     const state = socketState.get(socket.id);
+    if (!lobby) return { ok: false, error: 'That fireteam is no longer available.' };
     if (!state || !socket.user) return { ok: false, error: 'Sign in before joining a fireteam.' };
+    const latePveJoin=lobby.status==='active'&&lobby.mode==='pve';
+    if(lobby.status!=='open'&&!latePveJoin)
+      return {ok:false,error:'That activity cannot be joined after launch.'};
+    if(state.lobbyId===lobby.id)return {ok:true,lobby:publicLobby(lobby),
+      ...(latePveJoin?{lateJoin:lobby.engine.latePveJoinState()}: {})};
+    if (lobby.memberIds.size >= MODES[lobby.mode].maxPlayers) return { ok: false, error: 'That fireteam is full.' };
     if (state.lobbyId && state.lobbyId !== lobby.id) return { ok: false, error: 'Leave your current fireteam first.' };
     if (accountIsBusy(socket.user.username, socket.id)) return { ok: false, error: 'This account is already in another fireteam or match.' };
 
@@ -150,13 +161,19 @@ function createLobbyServer(io) {
     lobby.memberIds.add(socket.id);
     socket.join(lobby.roomName);
     state.unbindGame = lobby.engine.connectSocket(socket, { lobby: false, disconnect: false });
-    lobby.engine.handleJoin(socket, {
+    const joinPayload={
       displayName: socket.user.username,
       weapon,
-    });
+    };
+    const lateJoin=latePveJoin?lobby.engine.queueLatePveJoin(socket,joinPayload):null;
+    if(latePveJoin&&!lateJoin) {
+      unbindSocket(socket.id);lobby.memberIds.delete(socket.id);state.lobbyId=null;socket.leave(lobby.roomName);
+      return {ok:false,error:'That PvE run is no longer accepting reinforcements.'};
+    }
+    if(!latePveJoin)lobby.engine.handleJoin(socket,joinPayload);
     publishLobbyState(lobby);
     publishLobbyList();
-    return { ok: true, lobby: publicLobby(lobby) };
+    return { ok: true, lobby: publicLobby(lobby), ...(lateJoin?{lateJoin}: {}) };
   }
 
   function leaveLobby(socket, { disconnected = false } = {}) {

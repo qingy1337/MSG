@@ -196,13 +196,14 @@ export function createHeavyWeapon(weapon, skinKey, length) {
       ]);
       flowCurves.push(topCrack);
       add(new THREE.TubeGeometry(topCrack, 20, 0.007, 7, false), gold, 0, 0, 0, 'kintsugi-top-seam');
-      // Compact ceramic optic, visually seated into the upper ridge.
-      box(0.052, 0.045, 0.12, 0, 0.111, -0.2, dark, 'kintsugi-scope-mount');
-      tube(0.044, 0.3, 0, 0.157, -0.24, ceramic, 'kintsugi-scope');
-      tube(0.049, 0.018, 0, 0.157, -0.382, gold, 'kintsugi-scope-ring');
-      tube(0.049, 0.018, 0, 0.157, -0.098, gold, 'kintsugi-scope-ring');
-      tube(0.035, 0.006, 0, 0.157, -0.393, lens, 'kintsugi-scope-lens');
-      box(0.032, 0.018, 0.035, 0, 0.207, -0.24, gold, 'kintsugi-scope-dial');
+      // A restrained ceramic optic: the lens, rings, mount, and dial all share
+      // the smaller silhouette so the trim cannot make it look bulky again.
+      box(0.046, 0.04, 0.1, 0, 0.113, -0.14, dark, 'kintsugi-scope-mount');
+      tube(0.037, 0.25, 0, 0.157, -0.18, ceramic, 'kintsugi-scope');
+      tube(0.042, 0.015, 0, 0.157, -0.298, gold, 'kintsugi-scope-ring');
+      tube(0.042, 0.015, 0, 0.157, -0.062, gold, 'kintsugi-scope-ring');
+      tube(0.03, 0.005, 0, 0.157, -0.307, lens, 'kintsugi-scope-lens');
+      box(0.027, 0.015, 0.03, 0, 0.201, -0.18, gold, 'kintsugi-scope-dial');
 
       group.name = 'kintsugi-sniper';
       group.userData.muzzleDepth = 1.165;
