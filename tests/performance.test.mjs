@@ -57,6 +57,22 @@ test('cached worker graph routes around walls and reuses directional edges',()=>
   const sealed=new nav.NavigationGraph(map,[{x:280,y:0,width:24,height:480,top:7.5}]);
   assert.deepEqual(sealed.find(start,goal),[]);
 });
+test('Strike routing probes only nearby accessible nodes and skips clear straight routes',()=>{
+  const sectorMap={activity:'strike',width:1200,height:800,ceiling:12,
+    terrain:[{id:'open-deck',kind:'deck',x:80,y:80,width:1040,height:640,
+      bottom:-.5,top:0,walkable:true,platform:true,sectorId:'hall'}],
+    strikeSectors:[{id:'hall',bounds:{x:80,y:80,width:1040,height:640,bottom:0,top:12},
+      floorMin:0,floorMax:.1,navCellSize:32}]};
+  const graph=new nav.NavigationGraph(sectorMap,[]),start={x:180,y:180,height:0,zone:'hall'},
+    goal={x:900,y:550,height:0,zone:'hall'};
+  const clear=graph.clear.bind(graph);let probes=0;
+  graph.clear=(...args)=>{probes++;return clear(...args);};
+  assert.deepEqual(graph.find(start,goal),[start,goal]);
+  assert.equal(probes,1,'a clear same-sector route needs one collision probe');
+  probes=0;
+  assert.equal(graph.sectorCandidates(start,true,false).length,8);
+  assert.ok(probes<20,`nearest-node access should not scan the entire ${graph.cells}-node hall`);
+});
 test('worker graph uses stairs but rejects elevated vertical sides and cargo shafts',()=>{
   const terrain=[{kind:'tower',walkable:true,x:320,y:160,width:200,height:180,top:3},
     {kind:'ramp',stairs:true,steps:17,axis:'x',x:100,y:200,width:220,height:100,top:3},

@@ -487,15 +487,15 @@ button:disabled,
     background: #f1fffb;
     box-shadow: 0 0 0 1px #061018cc, 0 0 5px #d7fff4;
 }
-#crosshair.sniper { width:1px;height:1px;text-shadow:none; }
-#crosshair.sniper .standard-crosshair { display:none; }
-#crosshair.sniper .sniper-reticle { display:block;position:absolute;left:0;top:0;color:#e7fff7;filter:drop-shadow(0 1px 2px #000c); }
-#crosshair.sniper .sniper-reticle::after { content:'';position:absolute;left:-2px;top:-2px;width:4px;height:4px;border-radius:50%;background:currentColor; }
-#crosshair.sniper .sniper-reticle i { position:absolute;display:block;background:currentColor;border-radius:2px;transition:left .045s linear,right .045s linear,top .045s linear,bottom .045s linear; }
-#crosshair.sniper .sniper-reticle i:nth-child(1) { width:8px;height:2px;right:var(--sniper-bloom-radius,7px);top:-1px; }
-#crosshair.sniper .sniper-reticle i:nth-child(2) { width:8px;height:2px;left:var(--sniper-bloom-radius,7px);top:-1px; }
-#crosshair.sniper .sniper-reticle i:nth-child(3) { width:2px;height:8px;left:-1px;bottom:var(--sniper-bloom-radius,7px); }
-#crosshair.sniper .sniper-reticle i:nth-child(4) { width:2px;height:8px;left:-1px;top:var(--sniper-bloom-radius,7px); }
+#crosshair:is(.sniper,.bloom) { width:1px;height:1px;text-shadow:none; }
+#crosshair:is(.sniper,.bloom) .standard-crosshair { display:none; }
+#crosshair:is(.sniper,.bloom) .sniper-reticle { display:block;position:absolute;left:0;top:0;color:#e7fff7;filter:drop-shadow(0 1px 2px #000c); }
+#crosshair:is(.sniper,.bloom) .sniper-reticle::after { content:'';position:absolute;left:-2px;top:-2px;width:4px;height:4px;border-radius:50%;background:currentColor; }
+#crosshair:is(.sniper,.bloom) .sniper-reticle i { position:absolute;display:block;background:currentColor;border-radius:2px;transition:left .045s linear,right .045s linear,top .045s linear,bottom .045s linear; }
+#crosshair:is(.sniper,.bloom) .sniper-reticle i:nth-child(1) { width:8px;height:2px;right:var(--sniper-bloom-radius,7px);top:-1px; }
+#crosshair:is(.sniper,.bloom) .sniper-reticle i:nth-child(2) { width:8px;height:2px;left:var(--sniper-bloom-radius,7px);top:-1px; }
+#crosshair:is(.sniper,.bloom) .sniper-reticle i:nth-child(3) { width:2px;height:8px;left:-1px;bottom:var(--sniper-bloom-radius,7px); }
+#crosshair:is(.sniper,.bloom) .sniper-reticle i:nth-child(4) { width:2px;height:8px;left:-1px;top:var(--sniper-bloom-radius,7px); }
 #look-prompt { position: absolute; top: 58%; left: 50%; transform: translateX(-50%); padding: 16px 22px; border: 1px solid #55727e; border-radius: 8px; background: #07131de8; color: #e0fff4; letter-spacing: 2px; text-align: center; pointer-events: none; }
 #look-prompt small { display: block; font-size: 10px; letter-spacing: 0; margin-top: 8px; white-space: nowrap; }
 #local-health { position: absolute; bottom: 55px; left: 22px; color: #c5f7e5; font: 18px monospace; pointer-events: none; }
@@ -1294,10 +1294,41 @@ body.in-game .app-header { min-height: 52px; padding-top: 7px; padding-bottom: 7
 #game-info { position: static; margin: 0; color: #b9d0d1; }
 #players-alive, #weapon-status, #performance-info, #game-message { position: absolute; z-index: 2; pointer-events: none; border: 1px solid rgba(106, 147, 153, .25); background: rgba(5, 14, 20, .76); backdrop-filter: blur(5px); }
 #players-alive { top: 78px; right: 22px; padding: 7px 9px; color: #88aeb1; font: 9px monospace; letter-spacing: .08em; }
+.kill-feed { position: absolute; z-index: 3; top: 113px; right: 22px; display: flex;
+    flex-direction: column; align-items: flex-end; gap: 5px; width: min(360px, calc(100% - 44px));
+    pointer-events: none; }
+.kill-feed-entry { box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr) 56px minmax(0, 1fr);
+    align-items: center; gap: 9px; width: max-content; max-width: 100%; min-width: 210px;
+    padding: 7px 10px; border: 1px solid rgba(130, 174, 181, .28); border-radius: 5px;
+    background: rgba(7, 19, 25, .82); color: #dbe9e8; font: 600 11px "Manrope", sans-serif;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, .13); }
+.kill-feed-entry strong { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: inherit; }
+.kill-feed-entry strong:first-child { text-align: right; }
+.kill-feed-entry strong.local { color: #7ee4cb; }
+.kill-feed-entry strong.local-victim { color: #ffad9c; }
+.kill-feed-weapon { color: #94aeb0; font: 700 8px "Manrope", sans-serif; letter-spacing: .04em; text-align: center; }
+@media (max-width: 650px) {
+    .kill-feed { top: 105px; right: 12px; width: min(300px, calc(100% - 24px)); }
+    .kill-feed-entry { gap: 6px; padding: 6px 8px; min-width: 176px; font-size: 10px; }
+}
 #weapon-status { right: 22px; bottom: 70px; padding: 7px 9px; color: #d0e4e1; font: 10px monospace; }
 #performance-info { right: 22px; bottom: 42px; padding: 5px 8px; color: #70898e; font: 9px monospace; opacity: 1; }
 #game-message { top: 22px; left: 50%; transform: translateX(-50%); min-width: 240px; padding: 9px 13px; color: #d8ebe7; font-size: 11px; letter-spacing: .04em; text-align: center; }
 #game-message:empty { display: none; }
+.pve-wipe { position: absolute; z-index: 12; top: 50%; left: 50%; width: min(420px, calc(100% - 32px));
+    transform: translate(-50%, -50%); padding: 30px; border: 1px solid rgba(137, 190, 202, .5);
+    border-radius: 18px; background: rgba(12, 27, 36, .94); color: #e7f4f2;
+    box-shadow: 0 20px 70px rgba(0, 0, 0, .35); text-align: center; backdrop-filter: blur(16px); }
+.pve-wipe.hidden { display: none; }
+.pve-wipe-kicker { color: #89c8d2; font: 700 10px Manrope, sans-serif; letter-spacing: .22em; }
+.pve-wipe h2 { margin: 10px 0 6px; font: 400 32px Rowdies, sans-serif; }
+.pve-wipe p { margin: 0; color: #b5cdd0; font-size: 13px; }
+.pve-wipe-actions { display: flex; gap: 10px; justify-content: center; margin: 24px 0 14px; }
+.pve-wipe-actions button { padding: 11px 18px; border-radius: 9px; border: 1px solid #7dbdc5;
+    background: #a7e4e5; color: #10303a; font: 700 12px Manrope, sans-serif; cursor: pointer; }
+.pve-wipe-actions button:last-child { background: transparent; color: #c6dddf; border-color: #5b7b84; }
+.pve-wipe-actions button:disabled { opacity: .6; cursor: default; }
+.pve-wipe small { color: #8eaaaf; font-size: 11px; }
 .render-setting { bottom: 17px; color: #71898e; }
 
 @media (max-width: 1150px) {

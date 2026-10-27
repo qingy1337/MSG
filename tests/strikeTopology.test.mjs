@@ -8,9 +8,40 @@ import movement from '../public/movement.js';
 import * as THREE from 'three';
 import {createRedVaultEnvironment} from '../public/strikeEnvironment.mjs';
 import {createStrikeSpawnArrival,poseStrikeSpawnArrival,finiteMetricTree} from '../public/arena3d.js';
+const strikeScale=2;
+const scaled=point=>({...point,x:point.x*strikeScale,y:point.y*strikeScale,
+  ...(Number.isFinite(point.height)?{height:point.height*strikeScale}:{})});
 
 const floor=(id,sectorId,x,y,width,height,top)=>({id,kind:'floor',walkable:true,platform:true,
   sectorId,x,y,width,height,bottom:top-.2,top});
+
+test('Red Vault doubles its physical footprint while keeping combat and lighting authored',()=>{
+  const {map}=strike.createRedVaultMap();
+  assert.deepEqual([map.width,map.height,map.ceiling],[5600,3800,140]);
+  assert.ok(map.palette.ambientIntensity>=2.5&&map.palette.sunIntensity>=2.4);
+  assert.ok(map.lightingZones.every(zone=>zone.ambient>=2.2));
+  const finale=map.encounters.at(-1),command=map.strikeSectors.find(sector=>sector.id==='command');
+  assert.ok(command.bounds.width>=1200&&command.bounds.height>=2000,'the boss arena has a large ring and well');
+  const chamber=map.strikeSectors.find(sector=>sector.id==='boss-vault');
+  assert.ok(chamber.bounds.width>=1800&&chamber.bounds.height>=1400,
+    'the finale has a distinct large chamber beyond command');
+  assert.equal(finale.sectorId,'boss-vault');
+  assert.ok(map.dynamicState['vault-boss-gate']==='closed');
+  assert.ok(map.encounters.find(encounter=>encounter.id==='command-breach').opens.includes('vault-boss-gate'));
+  assert.deepEqual(finale.wardenPhases.map(phase=>phase.impact.count),[1,2,3]);
+  assert.ok(map.encounters.every(encounter=>encounter.spawnGroups.some(group=>group.id?.includes('-reserve-'))),
+    'each district has a visible reserve wave');
+  for(const encounter of map.encounters) {
+    const total=encounter.spawnGroups.reduce((count,group)=>count+group.bots.length,0);
+    assert.ok(total>=17,`${encounter.id} should field a substantial multi-wave population`);
+    if(['break-sorting-lock','gantry-overwatch','refinery-control','command-breach'].includes(encounter.id))continue;
+    const opener=encounter.spawnGroups[0],reserve=encounter.spawnGroups.find(group=>
+      group.id?.endsWith('reserve-1'));
+    assert.ok(opener.bots.length>=10,`${encounter.id} should begin with a populated room`);
+    assert.ok(reserve.afterRemaining+reserve.bots.length>=15,
+      `${encounter.id} should reach a level-15-sized active fight`);
+  }
+});
 
 test('Strike reinforcements materialize visibly before their body becomes active',()=>{
   const body=new THREE.MeshStandardMaterial({color:0x991d2b,opacity:.84,transparent:false,depthWrite:true});
@@ -68,9 +99,9 @@ test('Assembly Gantry defenders cannot spawn behind their own completion shutter
 test('clearing the gantry exposes a real shuttered route into the live furnace',()=>{
   const {map,walls}=strike.createRedVaultMap();
   const route=[{x:1130,y:1000},{x:1095,y:1000},{x:1060,y:1000},
-    {x:1000,y:1000},{x:970,y:970},{x:970,y:900}];
+    {x:1000,y:1000},{x:970,y:970},{x:970,y:900}].map(scaled);
   const walk=solids=>{
-    const actor={x:1160,y:1000,height:12,groundHeight:12,bodyHeight:2.2};
+    const actor={...scaled({x:1160,y:1000,height:12}),groundHeight:24,bodyHeight:2.2};
     return route.map((point,index)=>arena.moveOnTerrain(actor,point.x,point.y,map,solids,index*16));
   };
   const closed=[...walls,...map.terrain];
@@ -248,7 +279,7 @@ test('every usable Red Vault ramp lane is capsule-safe in both directions across
 
 test('every Red Vault incline has a substantial exact structural casing for movement and shots',()=>{
   const {map}=strike.createRedVaultMap(),ramps=map.terrain.filter(surface=>surface.kind==='ramp');
-  assert.equal(ramps.length,10,'the audit must include every authored incline and hinged bridge');
+  assert.equal(ramps.length,12,'the audit must include every authored incline and hinged bridge');
   const failures=[];
   for(const ramp of ramps) {
     if(!Number.isFinite(ramp.structureDepth)||ramp.structureDepth<.6)
@@ -366,13 +397,13 @@ test('bounded Red Vault perimeter flood finds no reachable implicit-ground or vo
 
 test('Red Vault critical layered boundaries remain physically sealed and bridgeable',()=>{
   const {map,walls}=strike.createRedVaultMap(),solids=eventualRedVaultSolids(map,walls);
-  assert.ok(!exactAuthoredSupport(1250,300,20,solids),
+  assert.ok(!exactAuthoredSupport(2500,600,40,solids),
     'the rectangular north-west corner outside the octagonal shaft must not be walkable');
 
-  const crown={x:1750,y:350,height:36,groundHeight:36,bodyHeight:2.2};
-  for(const target of [{x:1835,y:350},{x:1900,y:350},{x:1946,y:350}])
+  const crown={...scaled({x:1750,y:350,height:36}),groundHeight:72,bodyHeight:2.2};
+  for(const target of [{x:1835,y:350},{x:1900,y:350},{x:1946,y:350}].map(scaled))
     assert.ok(arena.moveOnTerrain(crown,target.x,target.y,map,solids,100));
-  assert.ok(crown.jumpStartedAt==null&&crown.x>1945,
+  assert.ok(crown.jumpStartedAt==null&&crown.x>3890,
     'the split north-east chamfer must leave a real capsule-safe bridge throat');
 
   for(const [label,start,target] of [
@@ -380,9 +411,10 @@ test('Red Vault critical layered boundaries remain physically sealed and bridgea
     ['lower vault well',{x:2360,y:600,height:38},{x:2360,y:520}],
     ['upper command ring',{x:2450,y:530,height:42},{x:2450,y:590}],
   ]) {
-    const actor={...start,groundHeight:start.height,bodyHeight:2.2};
-    arena.moveOnTerrain(actor,target.x,target.y,map,solids,100);
-    assert.ok(Math.hypot(actor.x-target.x,actor.y-target.y)>8&&actor.jumpStartedAt==null,
+    const from=scaled(start),to=scaled(target);
+    const actor={...from,groundHeight:from.height,bodyHeight:2.2};
+    arena.moveOnTerrain(actor,to.x,to.y,map,solids,100);
+    assert.ok(Math.hypot(actor.x-to.x,actor.y-to.y)>8&&actor.jumpStartedAt==null,
       `${label} needs a visible physical no-fall boundary`);
   }
 });
@@ -391,9 +423,9 @@ test('lowering the command bridge opens a physical route before the deeper Vault
   const {map,walls}=strike.createRedVaultMap();
   const solids=[...walls.map(solid=>solid.id==='command-bridge-raised'?{...solid,nonSolid:true}:solid),
     ...map.terrain.map(solid=>solid.dynamicId==='command-bridge'?{...solid,nonSolid:false}:solid)];
-  const actor={x:1900,y:350,height:36,groundHeight:36,bodyHeight:2.2};
-  for(let x=1910;x<=2240;x+=10)assert.ok(arena.moveOnTerrain(actor,x,350,map,solids,100+x));
-  assert.ok(actor.x>=2239&&Math.abs(actor.height-42)<.12,
+  const actor={...scaled({x:1900,y:350,height:36}),groundHeight:72,bodyHeight:2.2};
+  for(let x=1910;x<=2240;x+=10)assert.ok(arena.moveOnTerrain(actor,x*2,700,map,solids,100+x));
+  assert.ok(actor.x>=4478&&Math.abs(actor.height-84)<.12,
     'the lowered bridge must reach command floor instead of a wall at its far landing');
   assert.notEqual(solids.find(solid=>solid.id==='command-breach-shutter').nonSolid,true,
     'the later Vault shutter remains a distinct interior objective');
@@ -406,30 +438,31 @@ test('structural posts leave the refinery and command stair mouths capsule-clear
     {label:'north command stair',start:{x:2275,y:600,height:42.35},end:{x:2275,y:325,height:48}},
     {label:'south command stair',start:{x:2640,y:760,height:42.35},end:{x:2640,y:1035,height:48}},
   ]) {
-    const actor={...route.start,groundHeight:route.start.height,bodyHeight:2.2};
+    const start=scaled(route.start),end=scaled(route.end);
+    const actor={...start,groundHeight:start.height,bodyHeight:2.2};
     const steps=70;
     for(let index=1;index<=steps;index++) {
-      const t=index/steps,x=route.start.x+(route.end.x-route.start.x)*t;
-      const y=route.start.y+(route.end.y-route.start.y)*t;
+      const t=index/steps,x=start.x+(end.x-start.x)*t;
+      const y=start.y+(end.y-start.y)*t;
       arena.moveOnTerrain(actor,x,y,map,solids,index*20);
     }
-    assert.ok(Math.hypot(actor.x-route.end.x,actor.y-route.end.y)<1,
+    assert.ok(Math.hypot(actor.x-end.x,actor.y-end.y)<1,
       `${route.label} is still obstructed by a support or rail post`);
   }
 });
 
 test('the forge hoist guide leaves a full natural approach into the west stair',()=>{
   const {map,walls}=strike.createRedVaultMap(),solids=[...walls,...map.terrain];
-  const actor={x:1465,y:725,height:30,groundHeight:30,bodyHeight:2.2};
+  const actor={...scaled({x:1465,y:725,height:30}),groundHeight:60,bodyHeight:2.2};
   for(let x=1455;x>=1360;x-=5)
-    assert.ok(arena.moveOnTerrain(actor,x,725,map,solids,100+(1465-x)),
+    assert.ok(arena.moveOnTerrain(actor,x*2,1450,map,solids,100+(1465-x)),
       `the hoist-side approach is blocked at x=${x}`);
   for(let y=720;y>=684;y-=4)
-    assert.ok(arena.moveOnTerrain(actor,1360,y,map,solids,300+(725-y)),
+    assert.ok(arena.moveOnTerrain(actor,2720,y*2,map,solids,300+(725-y)),
       `the stair mouth is blocked at y=${y}`);
-  assertWalked(actor,{x:1360,y:684,height:30.32},'forge west-stair approach');
+  assertWalked(actor,scaled({x:1360,y:684,height:30.32}),'forge west-stair approach');
   const westGuide=walls.find(solid=>solid.id==='hoist-rail-west');
-  assert.ok(westGuide.y>=750,'the thick hoist guide must begin beyond the stair circulation throat');
+  assert.ok(westGuide.y>=1500,'the thick hoist guide must begin beyond the stair circulation throat');
 });
 
 test('both command stairs remain completely traversable while the Vault shutter is closed',()=>{
@@ -438,17 +471,18 @@ test('both command stairs remain completely traversable while the Vault shutter 
     {label:'north command stair',start:{x:2275,y:635,height:42},end:{x:2275,y:335,height:48}},
     {label:'south command stair',start:{x:2640,y:725,height:42},end:{x:2640,y:1025,height:48}},
   ]) {
-    const actor={...route.start,groundHeight:route.start.height,bodyHeight:2.2};
+    const start=scaled(route.start),end=scaled(route.end);
+    const actor={...start,groundHeight:start.height,bodyHeight:2.2};
     for(let index=1;index<=100;index++) {
       const t=index/100;
-      assert.ok(arena.moveOnTerrain(actor,route.start.x+(route.end.x-route.start.x)*t,
-        route.start.y+(route.end.y-route.start.y)*t,map,solids,index*16),
+      assert.ok(arena.moveOnTerrain(actor,start.x+(end.x-start.x)*t,
+        start.y+(end.y-start.y)*t,map,solids,index*16),
       `${route.label} is obstructed at ${(t*100).toFixed(0)}%`);
     }
-    assertWalked(actor,route.end,route.label);
+    assertWalked(actor,end,route.label);
   }
   const shutter=walls.find(solid=>solid.id==='command-breach-shutter');
-  assert.ok(shutter.y>=650&&shutter.y+shutter.height<=720,
+  assert.ok(shutter.y>=1300&&shutter.y+shutter.height<=1440,
     'the closed shutter belongs between the stair flights, never across either flight');
 });
 
@@ -556,14 +590,14 @@ test('Red Vault hoist has authoritative moving cage collision at both landings',
 
     // The south opening is the permanent boarding side at both stops. This
     // checks the complete cage/shaft/deck composition, not only its centre.
-    const solids=[...walls,...map.terrain],dock={x:1490,y:875,height:top};
+    const solids=[...walls,...map.terrain],dock={x:2980,y:1750,height:top};
     assert.ok(Math.abs(arena.supportHeight(dock.x,dock.y,top,solids,.001)-top)<.03,
       `hoist ${top} m dock has no matching support`);
     assert.ok(arena.canOccupy(dock.x,dock.y,top,solids,16,.001,2.2),
       `hoist ${top} m dock is capsule-blocked`);
     const passenger={...dock,groundHeight:top,bodyHeight:2.2};
-    assert.ok(arena.moveOnTerrain(passenger,1490,780,map,solids,100));
-    assertWalked(passenger,{x:1490,y:780,height:top},`hoist ${top} m boarding`);
+    assert.ok(arena.moveOnTerrain(passenger,2980,1560,map,solids,100));
+    assertWalked(passenger,{x:2980,y:1560,height:top},`hoist ${top} m boarding`);
     assert.equal(passenger.groundPlatformId,lift.id);
     assert.ok(arena.moveOnTerrain(passenger,dock.x,dock.y,map,solids,200));
     assertWalked(passenger,dock,`hoist ${top} m exit`);
@@ -656,6 +690,19 @@ test('Red Vault bounded navigation validates every physical link and authored en
   assert.deepEqual(failures,[]);
 });
 
+test('Strike gantry defenders can route to the east landing through the actual press gap',()=>{
+  const {map,walls}=strike.createRedVaultMap();
+  const graph=new navigation.NavigationGraph(map,walls);
+  const encounter=map.encounters.find(value=>value.id==='gantry-overwatch');
+  const defender=encounter.spawnGroups[0].bots[0],landing=encounter.checkpointSpawns[0];
+  const route=graph.find(defender,landing);
+  assert.ok(route.length>2,'the gantry and landing must be one walkable area');
+  assert.deepEqual(route[0],defender);
+  assert.deepEqual(route.at(-1),landing,'a Strike route must reach the requested position');
+  for(let index=1;index<route.length;index++)
+    assert.ok(graph.clear(route[index-1],route[index]),`blocked route segment ${index}`);
+});
+
 test('Red Vault renderer stays finite, bounded, and reacts to authored machinery state',()=>{
   const {map}=strike.createRedVaultMap(),root=createRedVaultEnvironment(map);
   try {
@@ -675,7 +722,7 @@ test('Red Vault renderer stays finite, bounded, and reacts to authored machinery
     root.userData.setMissionState({encounterIndex:2,phase:'objective',objectiveKind:'destructible',
       objectiveHealth:90,objectiveMaxHealth:180,machineryState:{lineReactor:'exposed'}});
     root.userData.hitDestructible(reactor.id,{bulletId:4,strikeTargetDamage:90});
-    root.userData.update(.1,{x:1812,y:1115,height:12},new THREE.Scene());
+    root.userData.update(.1,{x:3624,y:2230,height:24},new THREE.Scene());
     assert.equal(root.getObjectByName(`${reactor.id}-impact-flash`).visible,true,
       'authoritative reactor hits produce a bright local impact response');
     const healthFill=root.getObjectByName(`${reactor.id}-health-fill`);
@@ -687,15 +734,20 @@ test('Red Vault renderer stays finite, bounded, and reacts to authored machinery
     const metrics=root.userData.metrics();
     assert.equal(finiteMetricTree(metrics),true,
       'the same nested metric record checked during Arena3D startup must be accepted');
-    assert.ok(metrics.meshes>20&&metrics.meshes<400,`unexpected mesh count ${metrics.meshes}`);
-    assert.ok(metrics.vertices>1_000&&metrics.vertices<1_000_000,
+    const labelOccluders=root.userData.occluders;
+    assert.ok(!labelOccluders.includes(root.getObjectByName('red-vault-shell')),
+      'crowded-room health labels must not raycast the merged visual shell');
+    assert.ok(labelOccluders.reduce((count,mesh)=>count+mesh.geometry.attributes.position.count,0)<10_000,
+      'authoritative wall proxies keep repeated label rays inexpensive');
+    assert.ok(metrics.meshes>20&&metrics.meshes<600,`unexpected mesh count ${metrics.meshes}`);
+    assert.ok(metrics.vertices>1_000&&metrics.vertices<1_100_000,
       `unexpected vertex count ${metrics.vertices}`);
-    assert.ok(metrics.lights<=5,'the fixed facility must keep bounded local lights');
+    assert.ok(metrics.lights<=6,'the fixed facility must keep bounded local lights');
     assert.equal(metrics.collisionBindings,map.assetCollision.length);
     root.userData.setMissionState({encounterIndex:2,phase:'objective',objectiveKind:'destructible',
       objectiveHealth:90,objectiveMaxHealth:180,machineryState:{lineReactor:'exposed'},
-      reviveBeacons:[{playerId:'downed-ally',name:'ALLY',x:500,y:1490,height:0,progress:.5}]});
-    root.userData.update(.2,{x:500,y:1450,height:0},new THREE.Scene());
+      reviveBeacons:[{playerId:'downed-ally',name:'ALLY',x:1000,y:2980,height:0,progress:.5}]});
+    root.userData.update(.2,{x:1000,y:2900,height:0},new THREE.Scene());
     const reviveShell=root.getObjectByName('strike-revive-downed-ally');
     assert.ok(reviveShell?.visible,'a downed Strike ally has a visible blue shell marker');
     reviveShell.traverse(object=>{
@@ -757,6 +809,7 @@ test('Red Vault renderer stays finite, bounded, and reacts to authored machinery
     near(ventBounds.min.y,ventBase.bottom,'pressure plinth underside');near(ventBounds.max.y,ventBase.top,'pressure plinth top');
     const lift=map.terrain.find(surface=>surface.id==='forge-freight-hoist');
     const postDef=map.terrain.find(surface=>surface.id==='hoist-cage-post-nw');
+    const canopyDef=map.terrain.find(surface=>surface.id==='hoist-cage-canopy');
     const postBounds=boundsOf(postDef.id),deckBounds=boundsOf('forge-hoist-deck'),
       canopyBounds=boundsOf('forge-hoist-canopy');
     near(postBounds.max.x-postBounds.min.x,postDef.width*.05,'hoist post width');
@@ -764,7 +817,8 @@ test('Red Vault renderer stays finite, bounded, and reacts to authored machinery
     near(postBounds.min.y,lift.top+postDef.liftBottomOffset,'hoist post bottom');
     near(postBounds.max.y,lift.top+postDef.liftTopOffset,'hoist post top');
     near(deckBounds.min.y,lift.bottom,'hoist deck underside');near(deckBounds.max.y,lift.top,'hoist deck support');
-    near(canopyBounds.min.y,lift.top+3.6,'hoist canopy underside');near(canopyBounds.max.y,lift.top+3.9,'hoist canopy top');
+    near(canopyBounds.min.y,lift.top+canopyDef.liftBottomOffset,'hoist canopy underside');
+    near(canopyBounds.max.y,lift.top+canopyDef.liftTopOffset,'hoist canopy top');
 
     const scene=new THREE.Scene(),bridge=root.getObjectByName('command-hinged-bridge');
     const raised=bridge.rotation.z;
@@ -772,19 +826,19 @@ test('Red Vault renderer stays finite, bounded, and reacts to authored machinery
     root.userData.setMissionState({machineryState:{core:{state:'warden-venting'}},
       hazards:[{id:'furnace-vent-west',active:false,cycleProgress:.44}],
       activeHazardIds:[],hazardServerNow:Date.now()});
-    root.userData.update(.5,{x:600,y:620,height:12},scene);
+    root.userData.update(.5,{x:1200,y:1240,height:24},scene);
     assert.ok(warning.material.emissiveIntensity>.5,
       'the furnace fixture visibly warns before its authoritative damage pulse');
     const activeGuide=map.routeGuides.find(guide=>guide.id==='route-04-west-a');
     const openedAt=Date.now();
     root.userData.setMissionState({encounterIndex:4,phase:'travel',
       openedIds:['command-bridge','freight-shutter'],openedAtById:{'freight-shutter':openedAt},
-      activeRouteGuideIds:[activeGuide.id],objectiveBeacon:{x:600,y:620,height:12,label:'LIVE FURNACE'},
+      activeRouteGuideIds:[activeGuide.id],objectiveBeacon:{x:1200,y:1240,height:24,label:'LIVE FURNACE'},
       machineryState:{bridge:'lowered',
       arms:'cycling',rotor:'overdrive',core:{state:'exposed'}},activeHazardIds:['furnace-vent-west'],
       hazards:[{id:'furnace-vent-west',active:true,cycleProgress:.55}],hazardServerNow:Date.now()});
     const shutter=root.getObjectByName('freight-shutter');
-    root.userData.update(.516,{x:600,y:620,height:12},scene);
+    root.userData.update(.516,{x:1200,y:1240,height:24},scene);
     assert.ok(shutter.position.y>0&&shutter.position.y<map.walls.find(solid=>solid.id==='freight-shutter').top,
       'an unlocked shutter begins a quick eased garage-door travel instead of snapping fully open');
     root.updateMatrixWorld(true);
@@ -796,7 +850,7 @@ test('Red Vault renderer stays finite, bounded, and reacts to authored machinery
     'the bright shutter frame projects clearly beyond the slab and shell faces');
     near(shutterFrameBounds.min.z,(freightDoor.y-300)*.05,'freight frame north aperture edge');
     near(shutterFrameBounds.max.z,(freightDoor.y+freightDoor.height-300)*.05,'freight frame south aperture edge');
-    for(let time=1;time<=2;time+=.05)root.userData.update(time,{x:600,y:620,height:12},scene);
+    for(let time=1;time<=2;time+=.05)root.userData.update(time,{x:1200,y:1240,height:24},scene);
     assert.notEqual(bridge.rotation.z,raised,'the command bridge visual follows its open collider state');
     root.updateMatrixWorld(true);
     const bridgeRail=map.walls.find(solid=>solid.id==='command-bridge-rail-north');
@@ -820,7 +874,7 @@ test('Red Vault renderer stays finite, bounded, and reacts to authored machinery
       'route metadata remains authoritative without painting tutorial arrows on the floor');
     const beacon=root.getObjectByName('red-vault-objective-beacon');
     assert.equal(beacon.visible,true,'the authoritative objective has a visible world beacon');
-    near(beacon.position.y,12.045,'objective beacon floor placement');
+    near(beacon.position.y,24.045,'objective beacon floor placement');
     assert.ok(root.getObjectByName('freight-shutter-route-frame').material.emissiveIntensity>7,
       'a newly opened shutter receives emphatic lit jambs');
   } finally {root.userData.dispose();}

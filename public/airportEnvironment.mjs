@@ -13,6 +13,8 @@ export function createAirportEnvironment(map,walls) {
   const plaster=mat('#eeeae1',.78,.02),warmWhite=mat('#fbfaf5',.58,.03);
   const steel=mat('#66737c',.35,.62),dark=mat('#26333c',.46,.48),service=mat('#b8c0c3',.73,.18);
   const blue=mat('#236b99',.42,.3),tarmac=mat('#454f55',.96,.02);
+  const shellPanel=mat('#dce5e2',.82,.02),servicePanel=mat('#d2dedf',.73,.05);
+  const shellBase=mat('#697a80',.62,.16),shopBase=mat('#39464d',.63,.20);
   const glass=new THREE.MeshPhysicalMaterial({color:'#a8c7d6',transparent:true,opacity:.24,roughness:.08,
     metalness:.06,depthWrite:false,side:THREE.DoubleSide});
   const glow=new THREE.MeshStandardMaterial({color:'#e5f8ff',emissive:'#83d9ff',emissiveIntensity:1.9,
@@ -56,7 +58,7 @@ export function createAirportEnvironment(map,walls) {
     const paneHeight=Math.max(.2,r.h-sill-head);
     box(r.horizontal?length-.08:.028,paneHeight,r.horizontal?.028:length-.08,
       r.x,paneBottom+paneHeight/2,r.z,glass,.008);
-    const bays=Math.max(1,Math.ceil(length/(exterior?1.65:1.35)));
+    const bays=Math.max(1,Math.ceil(length/(exterior?2.1:2.35)));
     for(let i=0;i<=bays;i++) {
       const along=-length/2+length*i/bays;
       box(r.horizontal?.065:depth,r.h,r.horizontal?depth:.065,
@@ -66,25 +68,82 @@ export function createAirportEnvironment(map,walls) {
       r.x,r.bottom+.9,r.z,blue,.008);
   }
 
-  function panelWall(s,isService=false) {
+  function panelWall(s) {
     const r=rect(s),length=r.horizontal?r.w:r.d,depth=Math.max(.16,r.horizontal?r.d:r.w);
-    const tenant=s.airportWall==='shop',wallMaterial=tenant?(shopWall[s.shop]||plaster):(isService?service:plaster);
-    const edgeMaterial=tenant?(shopTrim[s.shop]||blue):(isService?dark:blue);
-    box(r.w,r.h,r.d,r.x,r.bottom+r.h/2,r.z,wallMaterial,.055);
-    const bays=Math.max(1,Math.ceil(length/1.55));
-    for(let i=1;i<bays;i++) {
-      const along=-length/2+length*i/bays;
-      box(r.horizontal?.035:depth+.015,r.h-.34,r.horizontal?depth+.015:.035,
-        r.x+(r.horizontal?along:0),r.bottom+r.h/2,r.z+(r.horizontal?0:along),steel,.01);
+    const tenant=s.airportWall==='shop',isService=s.airportWall==='service';
+    const wallMaterial=tenant?(shopWall[s.shop]||plaster):isService?service:plaster;
+    const accent=tenant?(shopTrim[s.shop]||blue):blue;
+    const body=box(r.w,r.h,r.d,r.x,r.bottom+r.h/2,r.z,wallMaterial,.025);
+    body.name=tenant?'terminal-shop-wall':isService?'terminal-service-wall':'terminal-shell-wall';
+    // All applied detail sits just beyond the visible wall face. Thin flush
+    // panels previously flickered against the wall and made its collision
+    // silhouette look unrelated to the model.
+    const face=(along,y,panelLength,panelHeight,material,thickness=.025)=>{
+      for(const side of [-1,1]) {
+        const offset=side*(depth/2+thickness/2+.008);
+        box(r.horizontal?panelLength:thickness,panelHeight,r.horizontal?thickness:panelLength,
+          r.x+(r.horizontal?along:offset),y,r.z+(r.horizontal?offset:along),material,.008);
+      }
+    };
+    if(tenant) {
+      // The shop's color belongs to its self-contained room. A dark plinth
+      // and restrained metal fascia tie it into the public concourse.
+      face(0,r.bottom+.23,length-.04,.46,shopBase,.035);
+      face(0,r.top-.12,length-.06,.16,accent,.03);
+      return;
     }
-    box(r.horizontal?length-.12:depth+.025,.16,r.horizontal?depth+.025:length-.12,
-      r.x,r.bottom+.12,r.z,dark,.018);
-    box(r.horizontal?length-.16:depth+.035,.12,r.horizontal?depth+.035:length-.16,
-      r.x,r.top-.11,r.z,edgeMaterial,.015);
-    if(isService)for(let i=0;i<bays;i+=2) {
-      const along=-length/2+length*(i+.5)/bays;
-      box(r.horizontal?Math.max(.18,length/bays-.18):.025,.045,r.horizontal?.025:Math.max(.18,length/bays-.18),
-        r.x+(r.horizontal?along:(r.w/2+.02)),r.bottom+2.05,r.z+(r.horizontal?r.d/2+.02:along),amber,.006);
+    if(isService) {
+      // Gate and screening partitions are one calm material family, with
+      // broad acoustic bays and a low durable base instead of metal ribs.
+      face(0,r.bottom+.29,length-.04,.58,shellBase,.035);
+      const bays=Math.max(1,Math.ceil(length/3.2)),bayLength=length/bays;
+      for(let i=0;i<bays;i++) {
+        const along=-length/2+bayLength*(i+.5);
+        face(along,r.bottom+(r.h+.25)/2,bayLength-.18,r.h-.91,servicePanel,.022);
+      }
+      face(0,r.top-.25,length-.10,.07,blue,.028);
+      // The coping wraps over the body instead of sharing its top and side
+      // planes. Coplanar caps were responsible for the flashing wall edges.
+      box(r.w+.025,.14,r.d+.025,r.x,r.top-.055,r.z,warmWhite,.012);
+      return;
+    }
+    // The terminal shell has a grounded stone base, a clear shop-height datum,
+    // and large upper acoustic bays. Their scale follows the building rather
+    // than making every wall segment look like a separate prop.
+    if(r.bottom<.6)face(0,r.bottom+.37,length-.04,.74,shellBase,.04);
+    const panelBottom=Math.max(r.bottom+.26,4.05),panelTop=r.top-1.02;
+    if(panelTop>panelBottom+.5) {
+      const bays=Math.max(1,Math.ceil(length/4.4)),bayLength=length/bays;
+      for(let i=0;i<bays;i++) {
+        const along=-length/2+bayLength*(i+.5);
+        face(along,(panelBottom+panelTop)/2,bayLength-.15,panelTop-panelBottom,shellPanel,.026);
+      }
+    }
+    if(r.bottom<3.4&&r.top>3.4)face(0,3.4,length-.10,.075,blue,.028);
+    box(r.w+.025,.15,r.d+.025,r.x,r.top-.06,r.z,warmWhite,.012);
+  }
+
+  function galleryScreen(s) {
+    const r=rect(s),alongX=r.horizontal,length=alongX?r.w:r.d,depth=alongX?r.d:r.w;
+    const shell=mat('#d9e4e5',.64,.08),acoustic=mat('#afc4c8',.59,.10),edge=mat('#eef0ec',.43,.12);
+    // Flat-ended bodies meet at the authored right-angle joints. A calm
+    // continuous base and cap make the two returns read as mezzanine
+    // architecture instead of separate decorated obstacles.
+    const body=box(r.w,r.h,r.d,r.x,r.bottom+r.h/2,r.z,shell,.005);
+    body.name='terminal-gallery-screen';
+    box(r.w+.025,.16,r.d+.025,r.x,r.bottom+.065,r.z,steel,.008);
+    box(r.w+.025,.16,r.d+.025,r.x,r.top-.065,r.z,edge,.008);
+    const bays=Math.max(1,Math.ceil(length/2.7));
+    for(const side of [-1,1]) {
+      for(let i=0;i<bays;i++) {
+        const along=-length/2+length*(i+.5)/bays;
+        box(alongX?length/bays-.11:.022,r.h-.50,alongX?.022:length/bays-.11,
+          r.x+(alongX?along:side*(depth/2+.012)),r.bottom+r.h/2,
+          r.z+(alongX?side*(depth/2+.012):along),acoustic,.008);
+      }
+      box(alongX?length-.10:.025,.035,alongX?.025:length-.10,
+        r.x+(alongX?0:side*(depth/2+.019)),r.bottom+.82,
+        r.z+(alongX?side*(depth/2+.019):0),blue,.008);
     }
   }
 
@@ -93,9 +152,10 @@ export function createAirportEnvironment(map,walls) {
   for(const s of walls) {
     if(s.kind==='cabin')continue;
     if(s.kind==='boundary') {
-      if(s.y<1)glassPartition(s,true);else panelWall(s,false);
-    } else if(s.airportWall==='glass')glassPartition(s);
-    else panelWall(s,s.airportWall==='service');
+      if(s.y<1)glassPartition(s,true);else panelWall(s);
+    } else if(s.zone==='gallery-screen')galleryScreen(s);
+    else if(s.airportWall==='glass')glassPartition(s);
+    else panelWall(s);
   }
 
   // A continuous arched canopy replaces the old flat slab and repetitive beam
@@ -174,11 +234,10 @@ export function createAirportEnvironment(map,walls) {
     const z=scanners.reduce((sum,r)=>sum+r.z,0)/scanners.length;
     const securityHeader=box(right-left+.55,.52,.42,(left+right)/2,3.28,z,dark,.055);
     securityHeader.name='terminal-security-header';
-    box(right-left+.16,.075,.45,(left+right)/2,2.98,z,glow,.012);
-    for(const r of scanners) {
-      for(const side of [-1,1])box(.14,2.90,.24,r.x+side*(r.w/2+.12),1.45,z,steel,.024);
-      box(r.w+.26,.12,.56,r.x,2.78,z,warmWhite,.025);
-    }
+    box(right-left+.16,.075,.028,(left+right)/2,3.12,z+.23,glow,.008);
+    // The actual scanner arches below provide the lane framing. Extra posts
+    // and crosspieces here had no gameplay solids, so shots passed through
+    // apparently solid steel. Keep only the shared header with its own solid.
   }
 
   // Three boarding portals are dimensioned from the gate desks and repeated
@@ -237,17 +296,6 @@ export function createAirportEnvironment(map,walls) {
   };
   sign(site(.50,.87),4.4);sign(site(.50,.66),4.8,glow);sign(site(.50,.25),4.2);
 
-  // Serpentine belts are visually light and intentionally non-colliding; the
-  // check-in islands and scanners provide the honest gameplay silhouettes.
-  for(const v of [.745,.775,.805])for(const u of [.24,.42,.58,.76]) {
-    const p=site(u,v);
-    add(new THREE.CylinderGeometry(.06,.085,.86,10),steel,p.x,.43,p.z);
-    add(new THREE.SphereGeometry(.085,9,6),dark,p.x,.91,p.z);
-  }
-  for(const v of [.745,.775,.805])for(const [a,b] of [[.24,.42],[.58,.76]]) {
-    const from=site(a,v),to=site(b,v);
-    beam([from.x,.78,from.z],[to.x,.78,to.z],.022,blue,7);
-  }
 
   // Airside apron continues beyond the glazed facade and carries a complete
   // parked narrow-body silhouette, jet bridge, markings, and runway lights.

@@ -14,7 +14,9 @@ const ENEMY_REACTIONS = Object.freeze({
 
 const HIT_PROFILES = Object.freeze({
   miniGun: Object.freeze({ velocity: 7, duration: 65, staggerMs: 0, impulseCooldownMs: 100 }),
-  autoRifle: Object.freeze({ velocity: 34, duration: 110, staggerMs: 35 }),
+  // Keep the visual reaction without making a sustained burst push its own
+  // target out of the rifle's effective engagement.
+  autoRifle: Object.freeze({ velocity: 18, duration: 110, staggerMs: 35 }),
   pistol: Object.freeze({ velocity: 52, duration: 125, staggerMs: 55 }),
   sniper: Object.freeze({ velocity: 125, duration: 190, staggerMs: 130 }),
   shotgun: Object.freeze({ velocity: 30, damageVelocity: 0.7, duration: 175, staggerMs: 100 }),

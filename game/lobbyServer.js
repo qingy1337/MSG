@@ -75,7 +75,7 @@ function createLobbyServer(io) {
       maxPlayers,
       floor:lobby.status==='active'&&lobby.mode==='pve'?(lobby.engine.gameMap.floor||1):undefined,
       joinable:hasCapacity&&(lobby.status==='open'||
-        (lobby.status==='active'&&lobby.mode==='pve')),
+        (lobby.status==='active'&&lobby.mode==='pve'&&lobby.engine.floorState.phase!=='wiped')),
       players,
     };
   }
@@ -148,7 +148,7 @@ function createLobbyServer(io) {
     const state = socketState.get(socket.id);
     if (!lobby) return { ok: false, error: 'That fireteam is no longer available.' };
     if (!state || !socket.user) return { ok: false, error: 'Sign in before joining a fireteam.' };
-    const latePveJoin=lobby.status==='active'&&lobby.mode==='pve';
+    const latePveJoin=lobby.status==='active'&&lobby.mode==='pve'&&lobby.engine.floorState.phase!=='wiped';
     if(lobby.status!=='open'&&!latePveJoin)
       return {ok:false,error:'That activity cannot be joined after launch.'};
     if(state.lobbyId===lobby.id)return {ok:true,lobby:publicLobby(lobby),
@@ -186,6 +186,11 @@ function createLobbyServer(io) {
     state.lobbyId = null;
     if (!disconnected) socket.leave(lobby.roomName);
 
+    if(lobby.status==='active'&&lobby.memberIds.size===0) {
+      destroyLobby(lobby.id);
+      return;
+    }
+
     if (lobby.status === 'open') {
       if (lobby.memberIds.size === 0) {
         destroyLobby(lobby.id);
@@ -197,6 +202,11 @@ function createLobbyServer(io) {
         lobby.ownerName = nextOwner?.user?.username ||
           lobby.engine.waitingPlayers.find(player => player.id === lobby.ownerId)?.name || 'Fireteam';
       }
+      publishLobbyState(lobby);
+    } else if(lobby.ownerId===socket.id) {
+      lobby.ownerId=lobby.memberIds.values().next().value;
+      const nextOwner=io.sockets?.sockets?.get(lobby.ownerId);
+      lobby.ownerName=nextOwner?.user?.username||'Fireteam';
       publishLobbyState(lobby);
     }
     publishLobbyList();
@@ -216,6 +226,7 @@ function createLobbyServer(io) {
       attachConnections: false,
       manageRooms: false,
       onReset: () => finishLobby(id),
+      onFloorStateChange: () => publishLobbyList(),
     });
     lobby = {
       id,
@@ -290,7 +301,8 @@ function createLobbyServer(io) {
     socket.on('lobby:join', (payload, reply) => handleJoinLobby(socket, payload, reply));
     socket.on('lobby:leave', (_, reply) => {
       const lobby = currentLobby(socket);
-      if (lobby?.status === 'active') return reply?.({ ok: false, error: 'The match is already in progress.' });
+      if (lobby?.status === 'active'&&lobby.engine.floorState.phase!=='wiped')
+        return reply?.({ ok: false, error: 'The match is already in progress.' });
       leaveLobby(socket);
       reply?.({ ok: true });
     });

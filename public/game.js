@@ -1,4 +1,4 @@
-import { Arena3D } from './arena3d.js';
+import { Arena3D,resolveViewPlayer } from './arena3d.js';
 import { SnapshotMotion } from './snapshotMotion.mjs';
 import { InputPrediction } from './inputPrediction.mjs';
 import {createGrenadeHud} from './grenadeHud.mjs';
@@ -10,7 +10,8 @@ let jumpRequested=false;
 let grenadeChargeAt=null;
 let minigunSpinAt=null,minigunReleasedAt=-Infinity;
 function resetMinigunSpool(){minigunSpinAt=null;minigunReleasedAt=-Infinity;updateMinigunSpool();}
-function cancelGrenade(){if(grenadeChargeAt!=null)socket.emit('grenadeCancel');grenadeChargeAt=null;updateGrenadeHud(localPlayer?.grenades??0);}
+function cancelGrenade(){if(grenadeChargeAt!=null)socket.emit('grenadeCancel');grenadeChargeAt=null;
+  updateGrenadeHud(resolveViewPlayer(players,socket.id)?.grenades??0);}
 let lastProbeAt=-Infinity,lastMetricsAt=0,probeId=0,networkRtt=null,serverTickMs=null;
 const snapshotMotion=new SnapshotMotion();
 let lastSnapshotSequence=0;
@@ -18,6 +19,12 @@ let lastSnapshotSequence=0;
 const canvas = document.getElementById('game-canvas');
 const playersAliveInfo = document.getElementById('players-alive');
 const gameMessage = document.getElementById('game-message');
+const killFeed=document.getElementById('kill-feed');
+const killFeedTimers=new Map();
+const pveWipe=document.getElementById('pve-wipe');
+const pveWipeFloor=document.getElementById('pve-wipe-floor');
+const retryFloorBtn=document.getElementById('retry-floor-btn');
+const leaveWipeBtn=document.getElementById('leave-wipe-btn');
 const crosshair=document.getElementById('crosshair');
 const weaponStatus=document.getElementById('weapon-status');
 const performanceInfo=document.getElementById('performance-info');
@@ -49,7 +56,7 @@ const isCoopMap=(map=gameMap)=>map?.mode==='pve'||isStrikeMap(map);
 const riding = () => gameMap.mode === 'pve' && !isStrikeMap() && ['riding','opening'].includes(floorState.phase);
 const travelCabin=()=>riding()?(floorState.phase==='opening'?gameMap.arrivalElevator:gameMap.elevator):null;
 let gameActive = false, frame = 0, previousTime = 0, lastShotAt = 0, lastUpdateAt = 0;
-let firing = false, dirty = false, returnTimer, messageTimer;
+let firing = false, automaticFireTimer = null, dirty = false, returnTimer, messageTimer;
 const keys = new Set();
 let pitch = 0;
 function hydrateSpawnTiming(player) {
@@ -61,6 +68,39 @@ function hydrateSpawnTiming(player) {
 }
 const lookPrompt = document.getElementById('look-prompt');
 const locked = () => document.pointerLockElement === canvas;
+function clearKillFeed() {
+  for(const timer of killFeedTimers.values())clearTimeout(timer);
+  killFeedTimers.clear();
+  killFeed?.replaceChildren();
+  killFeed?.classList.add('hidden');
+}
+function addKillFeedEntry(kill,death) {
+  if(!killFeed||!kill||!gameActive||gameMap.mode!=='pvp')return;
+  const killer=String(kill.killerName||'Environment');
+  const victim=String(kill.victimName||'Player');
+  const weaponNames={autoRifle:'AUTO',miniGun:'MINIGUN',sniper:'SNIPER',pistol:'PISTOL',
+    shotgun:'SHOTGUN',grenade:'GRENADE'};
+  const entry=document.createElement('div');entry.className='kill-feed-entry';
+  entry.setAttribute('aria-label',`${killer} eliminated ${victim}`);
+  const name=document.createElement('strong');name.textContent=killer;
+  if(kill.killerId===socket.id)name.classList.add('local');
+  const weapon=document.createElement('span');weapon.className='kill-feed-weapon';
+  weapon.textContent=weaponNames[death?.kind]||'›';
+  const target=document.createElement('strong');target.textContent=victim;
+  if(kill.victimId===socket.id)target.classList.add('local-victim');
+  entry.append(name,weapon,target);
+  killFeed.append(entry);
+  killFeed.classList.remove('hidden');
+  const timer=setTimeout(()=>{
+    killFeedTimers.delete(entry);entry.remove();
+    if(!killFeed.childElementCount)killFeed.classList.add('hidden');
+  },6000);
+  killFeedTimers.set(entry,timer);
+  while(killFeed.childElementCount>4) {
+    const oldest=killFeed.firstElementChild;
+    clearTimeout(killFeedTimers.get(oldest));killFeedTimers.delete(oldest);oldest.remove();
+  }
+}
 function updateArenaLabel(map) {
   const label=document.getElementById('arena-label');
   if(!label)return;
@@ -262,6 +302,7 @@ function releaseMouse() {
 
 window.initGame = function initGame(gamePlayers, gameWalls, map = DEFAULT_MAP, serverNow) {
   stop(); clearTimeout(returnTimer); clearTimeout(messageTimer);
+  pveWipe?.classList.add('hidden');
   if(Number.isFinite(serverNow))floorClockOffset=serverNow-Date.now();
   players = gamePlayers.map(hydrateSpawnTiming); walls = gameWalls; localPlayer = players.find(p => p.id === socket.id);
   snapshotMotion.clear();lastSnapshotSequence=0;
@@ -291,7 +332,9 @@ window.initGame = function initGame(gamePlayers, gameWalls, map = DEFAULT_MAP, s
 };
 
 function stop() {
-  gameActive = false; releaseMouse(); cancelAnimationFrame(frame);
+  gameActive = false; stopAutomaticFire(); releaseMouse(); cancelAnimationFrame(frame);
+  clearKillFeed();
+  pveWipe?.classList.add('hidden');
   strikeState=null;updateStrikeHud();
 }
 
@@ -317,7 +360,6 @@ function update(dt, now) {
     jumpRequested=false;dirty=true;
   }
   if (dirty && now - lastUpdateAt >= 33) sendPosition(now);
-  if (firing && WEAPONS[localPlayer.weapon]?.automatic) attemptFire(now);
 }
 
 function sendPosition(now) {
@@ -334,6 +376,31 @@ function attemptFire(now = performance.now()) {
   sendPosition(now); socket.emit('shoot', { angle: localPlayer.angle, pitch }); lastShotAt = now;
 }
 
+// Automatic fire must not depend on requestAnimationFrame. At 60 Hz the old
+// loop silently rounded an 80 ms weapon up to five frames (83.3 ms), and low
+// or uneven frame rates reduced its damage output further. The server remains
+// authoritative over every shot and its cooldown; this timer only schedules
+// held-trigger attempts at the weapon's authored cadence.
+function stopAutomaticFire() {
+  if (automaticFireTimer !== null) clearTimeout(automaticFireTimer);
+  automaticFireTimer = null;
+}
+
+function scheduleAutomaticFire() {
+  stopAutomaticFire();
+  const cfg=WEAPONS[localPlayer?.weapon];
+  if(!firing||!gameActive||!localPlayer?.alive||!locked()||riding()||!cfg?.automatic)return;
+  const now=performance.now();
+  const cadenceWait=Math.max(0,cfg.cooldownMs-(now-lastShotAt));
+  const swapWait=Math.max(0,(localPlayer.weaponSwapUntil||0)-(Date.now()+floorClockOffset));
+  automaticFireTimer=setTimeout(()=>{
+    automaticFireTimer=null;
+    if(!firing)return;
+    attemptFire(performance.now());
+    scheduleAutomaticFire();
+  },Math.max(1,cadenceWait,swapWait));
+}
+
 function gameLoop(now) {
   if(previousTime)arena.recordFrame(now-previousTime);
   const dt = previousTime ? Math.min((now - previousTime) / 1000, 0.05) : 0;
@@ -342,26 +409,28 @@ function gameLoop(now) {
   updateExitDoor(gameMap,floorState,Date.now()+floorClockOffset);
   update(dt, now);
   arena.animateElevator(floorState, Date.now()+floorClockOffset);
-  const sniperSpread=localPlayer?.alive&&localPlayer.weapon==='sniper'?
-    sniperBloomRadians(localPlayer,inputPrediction.time):0;
-  const bloomRadius=`${sniperBloomPixels(sniperSpread,canvas.clientHeight||600).toFixed(2)}px`;
+  const renderedPlayers=snapshotMotion.sample(players,socket.id,now);
+  const viewed=resolveViewPlayer(renderedPlayers,socket.id);
+  const bloom=viewed?.alive?weaponBloomRadians(viewed.weapon,viewed,inputPrediction.time):0;
+  const bloomPixels=sniperBloomPixels(bloom,canvas.clientHeight||600);
+  const bloomRadius=`${bloomPixels.toFixed(2)}px`;
   if(previousBloomRadius!==bloomRadius){previousBloomRadius=bloomRadius;
     crosshair.style.setProperty('--sniper-bloom-radius',bloomRadius);}
-  arena.render(snapshotMotion.sample(players,socket.id,now), socket.id, dt, pitch);
+  arena.render(renderedPlayers, socket.id, dt, pitch);
   const canInteract=updateStrikeInteractionHud(now);
-  updateGrenadeHud(localPlayer?.grenades??0,grenadeChargeAt==null||!localPlayer?.alive?null:performance.now()-grenadeChargeAt);
+  updateGrenadeHud(viewed?.grenades??0,grenadeChargeAt==null||!localPlayer?.alive?null:performance.now()-grenadeChargeAt);
   updateMinigunSpool(firing&&localPlayer?.alive&&localPlayer.weapon==='miniGun'&&minigunSpinAt!=null?
     performance.now()-minigunSpinAt:null,WEAPONS.miniGun.spinUpMs);
-  const statusHidden=!localPlayer?.alive;
+  const statusHidden=!viewed?.alive;
   if(previousWeaponStatusHidden!==statusHidden){previousWeaponStatusHidden=statusHidden;weaponStatus.hidden=statusHidden;}
   if(!statusHidden) {
-    const otherWeapon=localPlayer.weapon==='pistol'?localPlayer.primaryWeapon:'pistol';
-    const swapHint=canInteract?' · E: INTERACT':otherWeapon&&WEAPONS[otherWeapon]?` · E: ${WEAPONS[otherWeapon].name}`:'';
-    const reloadLeft=(localPlayer.shotgunReloadUntil||0)-(Date.now()+floorClockOffset);
-    const ammo=localPlayer.shotgunShotsRemaining===0&&reloadLeft<=0?2:(localPlayer.shotgunShotsRemaining??2);
-    const statusText=localPlayer.weapon==='shotgun'?
+    const otherWeapon=localPlayer?.alive?(localPlayer.weapon==='pistol'?localPlayer.primaryWeapon:'pistol'):null;
+    const swapHint=localPlayer?.alive?(canInteract?' · E: INTERACT':otherWeapon&&WEAPONS[otherWeapon]?` · E: ${WEAPONS[otherWeapon].name}`:''):'';
+    const reloadLeft=(viewed.shotgunReloadUntil||0)-(Date.now()+floorClockOffset);
+    const ammo=viewed.shotgunShotsRemaining===0&&reloadLeft<=0?2:(viewed.shotgunShotsRemaining??2);
+    const statusText=viewed.weapon==='shotgun'?
       (reloadLeft>0?`Reloading · ${(reloadLeft/1000).toFixed(1)}s${swapHint}`:`Shotgun · ${ammo}/2${swapHint}`):
-      `${WEAPONS[localPlayer.weapon]?.name||'Weapon'}${swapHint}`;
+      `${WEAPONS[viewed.weapon]?.name||'Weapon'}${swapHint}`;
     if(previousWeaponStatus!==statusText){previousWeaponStatus=statusText;weaponStatus.textContent=statusText;}
   }
   if(now-lastProbeAt>=2000){
@@ -431,7 +500,7 @@ document.addEventListener('pointerlockchange', () => {
   cancelGrenade();
   if(!locked())cancelStrikeInteraction();
   if(!locked())resetMinigunSpool();
-  firing = false; keys.clear();
+  firing = false; stopAutomaticFire(); keys.clear();
   lookPrompt.hidden = locked() || !gameActive || !localPlayer?.alive;
 });
 document.addEventListener('pointerlockerror', () => {
@@ -447,11 +516,11 @@ canvas.addEventListener('pointerdown', e => {
   const now=performance.now();
   if(localPlayer.weapon==='miniGun'&&
     (minigunSpinAt==null||now-minigunReleasedAt>WEAPONS.miniGun.triggerReleaseMs))minigunSpinAt=now;
-  firing = true; attemptFire(now);
+  firing = true; attemptFire(now); scheduleAutomaticFire();
 });
 window.addEventListener('pointerup', () => {
   if(firing&&localPlayer?.weapon==='miniGun')minigunReleasedAt=performance.now();
-  firing = false;
+  firing = false; stopAutomaticFire();
 });
 document.getElementById('raytracing-toggle').addEventListener('change', e => {
   if (arena?.floor) arena.floor.uniforms.reflections.value = e.target.checked;
@@ -584,12 +653,14 @@ window.initLatePveJoin=function initLatePveJoin(data) {
 };
 socket.on('floorState',applyFloorState);
 socket.on('floorStarting',data=>{
+  pveWipe?.classList.add('hidden');
+  if(retryFloorBtn){retryFloorBtn.disabled=false;retryFloorBtn.textContent='Retry floor';}
   const angle=localPlayer?.angle,wasAlive=localPlayer?.alive;
   players=data.players.map(hydrateSpawnTiming);walls=data.walls;gameMap=data.map;mapSolids=[...walls,...gameMap.terrain];
   updateArenaLabel(gameMap);
   localPlayer=players.find(p=>p.id===socket.id);
   if(localPlayer&&wasAlive&&Number.isFinite(angle))localPlayer.angle=angle+Math.PI;
-  if(localPlayer?.alive&&!wasAlive){pitch=0;firing=false;resetMinigunSpool();keys.clear();}
+  if(localPlayer?.alive&&!wasAlive){pitch=0;firing=false;resetMinigunSpool();keys.clear();gameMessage.textContent='';}
   arena.build(walls,gameMap);
   snapshotMotion.clear();
   inputPrediction.reset(data.state.serverNow);jumpRequested=false;
@@ -602,7 +673,8 @@ function eliminatedMessage() {
   return isStrikeMap()?'Downed · A teammate can revive your shell with E':
     gameMap.mode==='pve'?'Spectating · You’ll respawn next floor if your team survives':'You were eliminated · Spectating';
 }
-socket.on('playerKilled', (id,death) => {
+socket.on('playerKilled', (id,death,kill) => {
+  if(kill?.victimId===id)addKillFeedEntry(kill,death);
   const player = players.find(p => p.id === id); if (!player) return;
   if(arena&&gameActive)arena.characterDeath(player,death);
   player.alive = false; player.health = 0; updateGameInfo();
@@ -634,6 +706,28 @@ socket.on('gameOver', winner => {
     returnTimer = null;
     stop(); window.returnToHome?.();
   }, 5000);
+});
+socket.on('floorState',state=>{
+  if(!gameActive||gameMap.mode!=='pve'||state?.phase!=='wiped')return;
+  releaseMouse();lookPrompt.hidden=true;clearTimeout(messageTimer);
+  gameMessage.textContent='';
+  if(pveWipeFloor)pveWipeFloor.textContent=`Floor ${state.floor||gameMap.floor||1} is ready for another attempt.`;
+  pveWipe?.classList.remove('hidden');
+});
+retryFloorBtn?.addEventListener('click',()=>{
+  retryFloorBtn.disabled=true;
+  retryFloorBtn.textContent='Restarting…';
+  socket.emit('retryFloor',result=>{
+    if(result?.ok)return;
+    retryFloorBtn.disabled=false;
+    retryFloorBtn.textContent='Retry floor';
+  });
+});
+leaveWipeBtn?.addEventListener('click',()=>{
+  socket.emit('lobby:leave',{},result=>{
+    if(!result?.ok)return;
+    stop();window.returnToHome?.();
+  });
 });
 socket.on('resetGame', stop);
 socket.on('disconnect', () => { stop(); gameMessage.textContent = 'Connection lost. Reconnect to join another match.'; });

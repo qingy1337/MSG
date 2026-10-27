@@ -225,6 +225,7 @@
                         <canvas id="game-canvas" aria-label="3D multiplayer arena"></canvas>
                         <div class="minimap-panel"><span>TACTICAL MAP</span><canvas id="minimap" width="180" height="120" aria-label="Arena map showing your position and current objective"></canvas><small><span id="minimap-legend">YOU ONLY</span><i></i></small></div>
                         <div id="arena-label">SECTOR / 01 <span>LIVE ARENA</span></div>
+                        <div id="kill-feed" class="kill-feed hidden" role="log" aria-label="Recent PvP eliminations" aria-live="polite" aria-relevant="additions"></div>
                         <section id="strike-objective" class="strike-objective hidden" aria-live="polite">
                             <div class="strike-objective-meta"><span id="strike-act">ACT 1 / 5</span><span id="strike-phase">ADVANCE</span></div>
                             <strong id="strike-objective-text">Enter the foundry</strong>
@@ -240,6 +241,16 @@
                             <i></i><strong>OBJECTIVE</strong><span>-- m</span>
                         </div>
                         <div id="crosshair" aria-hidden="true"><span class="standard-crosshair">+</span><span class="shotgun-reticle"></span><span class="sniper-reticle"><i></i><i></i><i></i><i></i></span></div>
+                        <section id="pve-wipe" class="pve-wipe hidden" aria-live="polite">
+                            <span class="pve-wipe-kicker">FIRETEAM DOWN</span>
+                            <h2>Sector lost</h2>
+                            <p id="pve-wipe-floor">Floor 1 is ready for another attempt.</p>
+                            <div class="pve-wipe-actions">
+                                <button id="retry-floor-btn" type="button">Retry floor</button>
+                                <button id="leave-wipe-btn" type="button">Return home</button>
+                            </div>
+                            <small>Any teammate can restart the same map for everyone.</small>
+                        </section>
                         <div id="strike-interact" class="strike-interact hidden" role="progressbar" aria-label="Objective interaction" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
                             <span class="strike-interact-ring"><b>E</b></span>
                             <strong id="strike-interact-label">HOLD E · ACTIVATE</strong>

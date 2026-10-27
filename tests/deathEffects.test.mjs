@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import deaths from '../game/deathEffects.js';
 import server from '../game/gameServer.js';
 import weapons from '../public/weapons.js';
-import {Arena3D,syncCharacterLabelVisibility,createPvpSpawnShieldOutline} from '../public/arena3d.js';
+import {Arena3D,resolveViewPlayer,healthHudState,syncCharacterLabelVisibility,createPvpSpawnShieldOutline} from '../public/arena3d.js';
 import {createCorpse,poseCorpse,createDeathRemains,poseDeathRemains,MAX_CORPSES,MAX_REMAINS} from '../public/deathEffects.mjs';
 
 const map={width:900,height:900,terrain:[]},target={id:'bot',isBot:true,x:300,y:300,height:0,angle:0};
@@ -23,6 +23,42 @@ function renderer(t) {
     corpses:[],remains:[],pickups:new Map(),grenades:new Map(),effects:[],deadIds:new Set(),camera:new THREE.PerspectiveCamera(),renderTime:0,deathShake:0});
   t.after(()=>arena.clearObject(arena.stage));return arena;
 }
+
+test('spectator view follows a living teammate and uses their loadout state',()=>{
+  const dead={id:'local',alive:false,grenades:0,weapon:'pistol'};
+  const bot={id:'bot',alive:true,isBot:true,grenades:0,weapon:'autoRifle'};
+  const teammate={id:'teammate',alive:true,isBot:false,grenades:2,weapon:'sniper',weaponSkinKey:'sniper_kintsugi'};
+  assert.equal(resolveViewPlayer([dead,bot,teammate],dead.id),teammate);
+  assert.equal(resolveViewPlayer([{...dead,alive:true},bot,teammate],dead.id).id,dead.id);
+  assert.equal(resolveViewPlayer([dead,bot],dead.id),null,'bots are never selected as the human spectator camera');
+});
+
+test('spectator health bar shows the viewed player and returns to local health on revival',()=>{
+  const dead={id:'local',alive:false,health:0,maxHealth:101};
+  const teammate={id:'teammate',name:'Operator',alive:true,health:37,maxHealth:150};
+  const spectating=healthHudState(dead,teammate,'pve',1000);
+  assert.equal(spectating.visible,true);
+  assert.equal(spectating.text,'SPECTATING Operator · 37 / 150 HP');
+  assert.equal(spectating.health/spectating.maxHealth,37/150);
+  assert.equal(spectating.ariaLabel,"Operator's health");
+  const revived=healthHudState({...dead,alive:true,health:101},teammate,'pve',1000);
+  assert.equal(revived.text,'101 / 101 HP');
+  assert.equal(revived.ariaLabel,'Your health');
+  assert.equal(healthHudState(dead,null,'pve',1000).visible,false);
+});
+
+test('shots from the spectated player animate the first-person weapon',t=>{
+  const arena=renderer(t);let flashes=0;
+  Object.assign(arena,{localId:'dead',viewedId:'teammate',freeTracers:[],tracerPool:[],
+    viewWeapon:new THREE.Group(),viewMuzzleFlash:{},viewMuzzleState:{},
+    triggerWeaponFlash(){flashes++;}});
+  arena.characters.set('teammate',{weaponKey:'pistol',weaponSkinKey:null,
+    weapon:new THREE.Group(),muzzleFlash:{}});
+  arena.shot({playerId:'teammate',x:100,y:100,height:1.84,endX:250,endY:100,endHeight:1.84});
+  assert.equal(arena.weaponRecoil,.16);
+  assert.equal(arena.viewShotAt,arena.renderTime);
+  assert.equal(flashes,2,'the character and spectated view both receive the muzzle flash');
+});
 
 test('wall-occluded character labels cannot be revived by a stale DOM write',()=>{
   const character={labelHidden:true,label:{hidden:false}};
@@ -160,6 +196,30 @@ test('server emits one reliable death descriptor and includes collectible drops 
     assert.equal(events.filter(e=>e.name==='gameState').at(-1).meta.pickups.length,0);
     assert.equal(events.filter(e=>e.name==='playerKilled').length,1);
   }finally{game.close();}
+});
+
+test('PvP death event includes authoritative killer and victim names for the kill feed',t=>{
+  let connect;const handlers={},events=[];
+  t.mock.method(global,'setInterval',()=>0);
+  const game=server.createGameServer({on(_,fn){connect=fn;},
+    emit(name,...args){events.push({name,args});},to(){return this;},socketsLeave(){}});
+  connect({id:'killer',on(name,fn){handlers[name]=fn;}});
+  game.waitingPlayers.push({id:'killer',name:'Alpha',weapon:'pistol'},
+    {id:'victim',name:'Beta',weapon:'pistol'});
+  handlers.startGame({});
+  try {
+    game.gameWalls.length=0;game.gameMap.terrain.length=0;
+    const killer=game.activePlayers.find(player=>player.id==='killer');
+    const victim=game.activePlayers.find(player=>player.id==='victim');
+    Object.assign(killer,{x:200,y:200,height:0,spawnShieldUntil:0});
+    Object.assign(victim,{x:280,y:200,height:0,health:1,spawnShieldUntil:0});
+    handlers.shoot({angle:0,pitch:0});
+    const death=events.find(event=>event.name==='playerKilled');
+    assert.ok(death,'a lethal PvP shot emits a reliable death event');
+    assert.deepEqual(death.args[2],{
+      killerId:'killer',killerName:'Alpha',victimId:'victim',victimName:'Beta',
+    });
+  } finally {game.close();}
 });
 
 test('PvP peers render reliable grenade spawns even when all volatile snapshots are dropped',t=>{

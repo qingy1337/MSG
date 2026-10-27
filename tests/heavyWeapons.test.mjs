@@ -219,6 +219,16 @@ test('minigun skins retain their themes while Midas is an original streamlined S
       assert.equal(model.children.filter(c => c.name === 'rotary-barrel').length, 6);
       assert.equal(model.children.filter(c => c.name === 'barrel-bore').length, 6);
       assert.ok(model.getObjectByName('carry-handle'));
+      if (skin.key === 'miniGun_default') {
+        model.updateMatrixWorld(true);
+        const size = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3());
+        assert.ok(size.z / size.x > 3.2, 'base minigun has a longer, slimmer silhouette');
+        assert.ok(model.getObjectByName('base-grip'), 'the rear has a joined firing grip');
+        const barrel = model.getObjectByName('rotary-barrel');
+        const barrelFront = barrel.position.z - barrel.geometry.parameters.height / 2;
+        assert.ok(Math.abs(heavyWeaponMuzzleDepth(skin.key) + barrelFront) < 0.01,
+          'muzzle flash stays at the extended barrel tips');
+      }
       if (skin.key === 'miniGun_infiniti') assert.equal(model.children.filter(c => c.name === 'infinity-loop').length, 4);
       if (skin.key === 'miniGun_poison') assert.equal(model.getObjectByName('poison-leaf').material.color.getHexString(), '23ad17');
     }
@@ -227,7 +237,7 @@ test('minigun skins retain their themes while Midas is an original streamlined S
 });
 
 test('Midas sits naturally in the first-person hand without shifting other heavy weapons', () => {
-  assert.equal(heavyWeaponViewYOffset('miniGun_midas'),-0.045);
+  assert.equal(heavyWeaponViewYOffset('miniGun_midas'),-0.01);
   assert.equal(heavyWeaponViewYOffset('miniGun_default'),0);
   assert.equal(heavyWeaponViewYOffset('sniper_calibrated'),0);
   assert.equal(heavyWeaponMuzzleYOffset('sniper_calibrated'),0.022);
@@ -237,13 +247,13 @@ test('Midas sits naturally in the first-person hand without shifting other heavy
   assert.equal(heavyWeaponViewZ('miniGun_midas'),-0.32);
   assert.equal(heavyWeaponViewZ('miniGun_default'),-0.32);
   assert.equal(heavyWeaponMuzzleDepth('miniGun_midas'),1.234);
-  assert.equal(heavyWeaponMuzzleDepth('miniGun_default'),1);
+  assert.equal(heavyWeaponMuzzleDepth('miniGun_default'),1.15);
   const viewModel=createHeavyWeapon('miniGun','miniGun_midas',0.5);
   viewModel.scale.setScalar(0.5*heavyWeaponViewScale('miniGun_midas'));
   viewModel.position.set(0.23,-0.2+heavyWeaponViewYOffset('miniGun_midas'),heavyWeaponViewZ('miniGun_midas'));
   viewModel.updateMatrixWorld(true);
   const gripBounds=new THREE.Box3().setFromObject(viewModel.getObjectByName('midas-grip'));
-  assert.ok(gripBounds.min.y<-.34&&gripBounds.max.y>-.34,'grip passes through the hand vertically');
+  assert.ok(gripBounds.min.y<-.34&&gripBounds.max.y>-.27,'grip remains centered through the hand vertically');
   assert.ok(gripBounds.min.z<-.285&&gripBounds.max.z>-.455,'grip overlaps the hand in depth');
   const bounds=new THREE.Box3().setFromObject(viewModel);
   assert.ok(bounds.max.z<-.29&&bounds.max.z>-.34,'full-size rear uses the standard first-person weapon depth');

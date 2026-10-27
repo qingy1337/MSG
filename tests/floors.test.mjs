@@ -71,7 +71,7 @@ test('Vault Annex is an irregular, purpose-built Red Vault production complex',(
   assert.equal(map.style,'redVault');
   assert.ok(map.palette.ambientIntensity>=2.5&&map.palette.sunIntensity>=3,
     'the annex uses normal readable arena lighting rather than strike darkness');
-  assert.ok(map.palette.rimIntensity>=1.8&&map.palette.rimIntensity<=2,
+  assert.ok(map.palette.rimIntensity>=1.4&&map.palette.rimIntensity<=1.7,
     'a restrained red rim accents the room without washing out neutral lighting');
   assert.equal(map.floorRects.length,5,'joined wings replace the usual rectangular arena slab');
   assert.ok(map.floorPolygon.length>=16,'the collision perimeter follows the stepped architectural silhouette');
@@ -85,10 +85,21 @@ test('Vault Annex is an irregular, purpose-built Red Vault production complex',(
     'the strike-style inclines are structural slopes, not generic staircase blocks');
   assert.equal(terrain.filter(s=>s.kind==='ramp'&&s.style==='redVault'&&s.structureDepth===.72).length,2);
   assert.ok(terrain.filter(s=>s.kind==='rail'&&s.style==='redVault').length>=16);
+  const galleries=terrain.filter(s=>s.kind==='catwalk'&&!s.bridge);
+  assert.equal(galleries.length,2);
+  assert.equal(galleries[0].height,galleries[1].height,
+    'mirrored control galleries establish one clean architectural datum');
+  const stairs=terrain.filter(s=>s.kind==='ramp'&&s.style==='redVault');
+  assert.deepEqual([stairs[0].width,stairs[0].height,stairs[0].axis,stairs[0].reverse],
+    [stairs[1].width,stairs[1].height,stairs[1].axis,stairs[1].reverse],
+    'paired stairs use one consistent proportion and direction');
+  assert.ok(stairs[0].height>stairs[0].width*1.8,'the stairs read as broad architectural runs');
   for(const kind of ['reactorCore','turbine','vaultConveyor','vaultColumn','ventStack','storageRack','consoleBank','crane'])
     assert.ok(terrain.some(s=>s.kind===kind),`Vault Annex includes ${kind}`);
   assert.equal(terrain.filter(s=>s.kind==='vaultConveyor').length,3,'processing and receiving have live conveyor lines');
   assert.equal(terrain.filter(s=>s.kind==='vaultColumn').length,6,'a deliberate pillar grid carries the upper works');
+  assert.equal(terrain.filter(s=>s.kind==='vaultBarrier').length,2,
+    'each variation changes one aligned cover bay instead of scattering props');
   assert.ok(terrain.filter(s=>s.kind==='ceilingPanel'&&s.nonSolid).length>=4,
     'bright ceiling baffles add detail without invisible collision');
   assert.ok(map.spawns.filter(s=>s.height===4).length>=5,'the command and processing galleries host active firefights');
@@ -281,7 +292,7 @@ test('Terminal 7 is a connected full-scale departures terminal with processing, 
   assert.ok(checkinY>securityY&&securityY>gateY,'departures flow coherently from check-in through security to gates');
   const scanners=terrain.filter(s=>s.kind==='airportScanner'),scannerColliders=terrain.filter(s=>s.kind==='airportScannerCollider');
   assert.equal(scanners.length,4,'security has four full-scale screening lanes');
-  assert.equal(scannerColliders.length,12,'scanner collision follows two uprights and one belt per lane');
+  assert.equal(scannerColliders.length,17,'scanner collision includes uprights, arch heads, belts and the shared header');
   for(const scanner of scanners) {
     assert.equal(scanner.nonSolid,true,'the scanner authoring rectangle is visual only');
     const cy=scanner.y+scanner.height/2;
@@ -291,7 +302,14 @@ test('Terminal 7 is a connected full-scale departures terminal with processing, 
       'the visible white scanner upright remains solid');
     assert.equal(maps.canOccupy(scanner.x+scanner.width*.80,cy,0,solids),false,
       'the visible baggage belt remains solid');
+    assert.ok(Number.isFinite(combat.rayBox(scanner.x+scanner.width*.30,scanner.y-10,0,1,
+      scannerColliders.find(s=>s.scannerPart==='arch-head'&&s.x>=scanner.x&&s.x<scanner.x+scanner.width),2.3,0)),
+    'a shot angled through the top of a screening arch hits its visible crossbar');
   }
+  const securityHeader=scannerColliders.find(s=>s.scannerPart==='shared-header');
+  assert.ok(Number.isFinite(combat.rayBox(scanners[1].x+30,securityHeader.y-10,0,1,
+    securityHeader,3.28,0)),
+    'the common steel screening header blocks elevated shots');
   const carpets=terrain.filter(s=>s.kind==='airportCarpet');
   const carpetCoverage=carpets.reduce((sum,s)=>sum+s.width*s.height,0)/(map.width*map.height);
   assert.ok(carpets.length>=5&&carpetCoverage<.20,
@@ -300,6 +318,34 @@ test('Terminal 7 is a connected full-scale departures terminal with processing, 
   const market=terrain.find(s=>s.kind==='airportMarketIsland');
   assert.ok(market.width>map.width*.25&&market.height>map.height*.08,
     'the market court is a substantial social landmark rather than a loose prop cluster');
+  const screen=terrain.find(s=>s.kind==='airportMarketScreen');
+  assert.ok(screen&&Math.abs(screen.bottom-market.top)<1e-6&&screen.top>3,
+    'the market has one integrated, standing-height sightline break');
+  assert.equal(terrain.filter(s=>s.kind==='airportKiosk').length,1,
+    'the market keeps a single information kiosk instead of scattered ones');
+  assert.equal(walls.filter(s=>s.zone==='retail-windbreak').length,0,
+    'loose glass windbreaks no longer clutter the shop frontages');
+  const sightlines=pvpMaps.pvpSightlineMetrics({map,walls});
+  assert.ok(sightlines.visibleRatio<.55&&sightlines.p90<800,
+    'the terminal keeps varied fights without the old cross-hall shooting lanes');
+  const galleryPanel=walls.find(s=>s.zone==='gallery-screen'&&s.width>s.height);
+  assert.ok(galleryPanel,'the overlook has solid cover at some upper-floor angles');
+  const screenWalls=walls.filter(s=>s.zone==='gallery-screen');
+  assert.equal(screenWalls.length,4);
+  const longScreens=screenWalls.filter(s=>s.width>s.height).sort((a,b)=>a.x-b.x);
+  const sideScreens=screenWalls.filter(s=>s.height>s.width).sort((a,b)=>a.x-b.x);
+  assert.ok(Math.abs(longScreens[0].x-(sideScreens[0].x+sideScreens[0].width))<1e-6,
+    'the west gallery screen meets its side return without a gap');
+  assert.ok(Math.abs(longScreens[1].x+longScreens[1].width-sideScreens[1].x)<1e-6,
+    'the east gallery screen meets its side return without a gap');
+  assert.ok(sideScreens.every(s=>Math.abs(s.y-longScreens[0].y)<1e-6&&
+    terrain.some(rail=>rail.kind==='rail'&&rail.style==='airport'&&
+      Math.abs(rail.y-(s.y+s.height))<1e-6)),
+  'both returns run continuously from the upper bridge to the lower bridge rail');
+  const galleryShotLength=map.height*200/1250;
+  assert.ok(combat.rayBox(galleryPanel.x+galleryPanel.width/2,map.height*380/1250,
+    0,1,galleryPanel,5.94,0)<galleryShotLength,
+  'a gallery screen blocks an eye-level shot from one upper route to the other');
   const decks=terrain.filter(s=>s.kind==='airportDeck'&&s.walkable),stairs=terrain.filter(s=>s.kind==='ramp'&&s.style==='airport');
   assert.equal(decks.length,4);assert.equal(stairs.length,2);
   assert.equal(terrain.filter(s=>s.kind==='rail'&&s.style==='airport'&&s.axis).length,0,
@@ -704,10 +750,9 @@ test('ceilings stop upward shots and jumping heads, including the elevator cabin
   assert.ok(cabin.height+2.2<=map.elevator.ceiling+1e-8);
 });
 
-test('PvE revives eliminated teammates only after a survivor completes the floor; a wipe resets the run',t=>{
-  let now=100000,tick,connect,reset;
+test('PvE revives eliminated teammates after a clear and retries the identical floor after a wipe',t=>{
+  let now=100000,tick,connect;
   t.mock.method(global,'setInterval',fn=>{tick=fn;return 0;});
-  t.mock.method(global,'setTimeout',fn=>{reset=fn;return 1;});
   t.mock.method(Date,'now',()=>now);
   const events=[],handlers={};
   const io={on(_,fn){connect=fn;},emit(name,data){events.push({name,data});},socketsLeave(){},to(){return this;}};
@@ -740,11 +785,24 @@ test('PvE revives eliminated teammates only after a survivor completes the floor
     const snapshot=events.find(e=>e.name==='floorStarting').data.players.find(p=>p.id===dead.id);
     assert.equal(snapshot.alive,true);assert.equal(snapshot.health,101);assert.equal(snapshot.maxHealth,101);
     now+=LIFT_TIMING.open;tick();
+    const lostFloor=game.gameMap.floor,lostSeed=game.gameMap.seed;
     survivor.alive=false;survivor.health=0;dead.alive=false;dead.health=0;
-    tick();assert.ok(events.some(e=>e.name==='gameOver'&&e.data.team==='bots'));
-    assert.equal(dead.alive,false,'team wipe cannot revive anyone');
+    tick();assert.equal(game.floorState.phase,'wiped');
+    assert.equal(events.some(e=>e.name==='gameOver'),false);
+    assert.equal(dead.alive,false,'team wipe does not revive anyone before retry');
     assert.equal(events.filter(e=>e.name==='floorStarting').length,1);
-    reset();assert.equal(game.gameInProgress.status,false);assert.equal(game.floorState.floor,1);
+    handlers.retryFloor();
+    assert.equal(game.gameInProgress.status,true);
+    assert.equal(game.gameMap.floor,lostFloor);assert.equal(game.gameMap.seed,lostSeed);
+    assert.equal(game.floorState.phase,'opening');
+    assert.equal(survivor.alive,true);assert.equal(dead.alive,true);
+    assert.equal(survivor.health,101);assert.equal(dead.health,101);
+    assert.equal(survivor.grenades,3);assert.equal(dead.grenades,3);
+    assert.equal(game.activePlayers.filter(p=>p.isBot&&p.alive).length>0,true);
+    assert.equal(events.filter(e=>e.name==='floorStarting').length,2);
+    assert.equal(inElevator(survivor,{...game.gameMap,elevator:game.gameMap.arrivalElevator}),true);
+    handlers.retryFloor();assert.equal(events.filter(e=>e.name==='floorStarting').length,2,
+      'duplicate retry packets cannot start another floor');
   } finally {game.close();}
 });
 

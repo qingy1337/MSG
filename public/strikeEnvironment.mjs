@@ -270,18 +270,18 @@ export function createRedVaultEnvironment(map) {
     renderFogColor: new THREE.Color(zone.fog)}));
 
   const materials = {
-    shell: material('#211e21', .72, .34),
-    shellInset: material('#353238', .68, .31),
-    edge: material('#8c8c88', .82, .23),
-    deck: material('#39383b', .75, .42),
-    deckEdge: material('#b1aaa2', .7, .28),
+    shell: material('#575157', .65, .4),
+    shellInset: material('#70696f', .62, .36),
+    edge: material('#aaa9a7', .76, .28),
+    deck: material('#686368', .68, .45),
+    deckEdge: material('#cbc0b8', .68, .32),
     black: material('#0d1014', .86, .25),
     red: material('#891626', .78, .25),
     brightRed: material('#d52a3d', .7, .22),
     warm: material('#8d4d2d', .63, .38),
     brass: material('#9e6d37', .82, .25),
     glass: material('#5e8491', .4, .13, { transparent: true, opacity: .34, depthWrite: false }),
-    grate: material('#55565a', .83, .38),
+    grate: material('#77787d', .75, .42),
     redGlow: material('#2b0308', .35, .25, { emissive: '#ff1737', emissiveIntensity: 4.2 }),
     orangeGlow: material('#3b0c02', .3, .3, { emissive: '#ff4a16', emissiveIntensity: 5.6 }),
     whiteGlow: material('#dce7e3', .2, .25, { emissive: '#ffe6d5', emissiveIntensity: 2.4 }),
@@ -331,7 +331,7 @@ export function createRedVaultEnvironment(map) {
     // Vertical ribs sit outside the collision face, creating real panel depth
     // without putting a flush coplanar sheet over the wall.
     const longX = solid.width >= solid.height;
-    const count = Math.max(1, Math.floor((longX ? solid.width : solid.height) / 180));
+    const count = Math.max(1, Math.floor((longX ? solid.width : solid.height) / 360));
     for (let i = 0; i <= count; i++) {
       const t = (i + .5) / (count + 1);
       const x = longX ? solid.x + solid.width * t : solid.x + solid.width / 2;
@@ -379,7 +379,7 @@ export function createRedVaultEnvironment(map) {
         addWorldBox('shell',part.x,part.y,part.width,part.height,solid.bottom,solid.top);
       // Deep roof beams clarify that each ceiling belongs to its room.
       const longX = solid.width > solid.height;
-      const count = Math.max(2, Math.floor((longX ? solid.width : solid.height) / 260));
+      const count = Math.max(2, Math.floor((longX ? solid.width : solid.height) / 520));
       for (let i = 1; i < count; i++) {
         const x = longX ? solid.x + solid.width * i / count : solid.x + solid.width / 2;
         const y = longX ? solid.y + solid.height / 2 : solid.y + solid.height * i / count;
@@ -434,7 +434,7 @@ export function createRedVaultEnvironment(map) {
   for (const r of map.architecture.rails) {
     const longX = r.width >= r.height;
     const length = (longX ? r.width : r.height) * SCALE;
-    const count = Math.max(2, Math.floor(length / 1.6));
+    const count = Math.max(2, Math.floor(length / 3.2));
     const rise = r.rise || 0;
     const railHeight=(r.top??((r.bottom||0)+1.15))-(r.bottom||0);
     const minor=Math.min(r.width,r.height)*SCALE;
@@ -502,8 +502,30 @@ export function createRedVaultEnvironment(map) {
     if (!geometry) throw new Error(`Unable to merge Red Vault batch ${key}`);
     if (batch.geometries.length > 1) batch.geometries.forEach(item => item.dispose());
     addMesh(geometry, batch.material, `red-vault-${key}`, {
-      castShadow: ['shell', 'edge', 'red'].includes(key), occluder: key === 'shell',
+      castShadow: ['shell', 'edge', 'red'].includes(key),
     });
+  }
+
+  // Health labels only need the wall collision silhouettes. Raycasting every
+  // enemy label into the merged visual shell tested tens of thousands of
+  // triangles repeatedly in crowded Strike rooms. These layer-1 proxies
+  // follow the same authored solids but never enter a camera or shadow pass.
+  const labelOccluderMaterial=new THREE.MeshBasicMaterial({colorWrite:false,depthWrite:false});
+  for(const solid of map.walls) {
+    if(solid.nonSolid||specialWallKinds.has(solid.kind))continue;
+    if(solid.collisionShape==='capsule') {
+      for(const geometry of verticalCapsuleGeometries(solid.collisionA.x,solid.collisionA.y,
+        solid.collisionB.x,solid.collisionB.y,solid.collisionRadius*SCALE,solid.bottom,solid.top))
+        addMesh(geometry,labelOccluderMaterial,`${solid.id}-label-occluder`,
+          {occluder:true,receiveShadow:false});
+      continue;
+    }
+    const center=toWorld(solid.x+solid.width/2,solid.y+solid.height/2,
+      (solid.bottom+solid.top)/2);
+    const proxy=addMesh(new THREE.BoxGeometry(solid.width*SCALE,solid.top-solid.bottom,
+      solid.height*SCALE),labelOccluderMaterial,`${solid.id}-label-occluder`,
+      {occluder:true,receiveShadow:false});
+    proxy.position.copy(center);
   }
 
   // Dynamic blast shutters are layered armored slabs with independent teeth;
@@ -853,14 +875,20 @@ export function createRedVaultEnvironment(map) {
   if (pressureDef) pressureDef.vents.forEach((vent, index) => {
     const root = new THREE.Group(); root.name = `pressure-vent-${index}`;
     root.position.copy(toWorld(vent.x, vent.y, pressureDef.bottom));
-    const pedestal = addMesh(new THREE.CylinderGeometry(.7, .92, .8, 12), materials.black,
-      `${root.name}-pedestal`, { parent: root, castShadow: true }); pedestal.position.y = .4;
-    const throat = addMesh(new THREE.CylinderGeometry(.5, .62, .42, 12), materials.brass,
-      `${root.name}-throat`, { parent: root }); throat.position.y = 1;
+    const baseSolid=map.walls.find(wall=>wall.id===pressureDef.collisionIds[index*2]);
+    const throatSolid=map.walls.find(wall=>wall.id===pressureDef.collisionIds[index*2+1]);
+    const baseRadius=(baseSolid?.collisionRadius||18.4)*SCALE;
+    const baseHeight=(baseSolid?.top||pressureDef.bottom+.8)-pressureDef.bottom;
+    const throatRadius=(throatSolid?.collisionRadius||12.4)*SCALE;
+    const throatHeight=(throatSolid?.top||pressureDef.bottom+1.22)-(throatSolid?.bottom||pressureDef.bottom+.8);
+    const pedestal = addMesh(new THREE.CylinderGeometry(baseRadius*.76,baseRadius,baseHeight,12), materials.black,
+      `${root.name}-pedestal`, { parent: root, castShadow: true }); pedestal.position.y=baseHeight/2;
+    const throat = addMesh(new THREE.CylinderGeometry(throatRadius*.81,throatRadius,throatHeight,12), materials.brass,
+      `${root.name}-throat`, { parent: root }); throat.position.y=baseHeight+throatHeight/2;
     const warningMaterial = materials.redGlow.clone(); warningMaterial.emissiveIntensity = .5;
-    const warning = addMesh(new THREE.TorusGeometry(.72, .08, 7, 18), warningMaterial,
+    const warning = addMesh(new THREE.TorusGeometry(throatRadius*1.16, .08, 7, 18), warningMaterial,
       `${root.name}-warning`, { parent: root, receiveShadow: false });
-    warning.rotation.x = Math.PI / 2; warning.position.y = 1.22;
+    warning.rotation.x = Math.PI / 2; warning.position.y = baseHeight+throatHeight;
     const jetMaterial = new THREE.MeshBasicMaterial({ color: '#fff1c7', transparent: true,
       opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
     const jet = addMesh(new THREE.ConeGeometry(1.15, 4.8, 14, 1, true), jetMaterial,
@@ -878,17 +906,19 @@ export function createRedVaultEnvironment(map) {
   const rotorDef = map.architecture.machines.find(m => m.type === 'forgeRotor');
   if (rotorDef) {
     const root = new THREE.Group(); root.name = rotorDef.id; root.position.copy(toWorld(rotorDef.x, rotorDef.y, rotorDef.bottom));
-    const core = addMesh(new THREE.CylinderGeometry(3.4, 3.4, rotorDef.top - rotorDef.bottom, 16), materials.black,
+    const coreRadius=(map.walls.find(wall=>wall.id===rotorDef.collisionIds?.[0])?.collisionRadius||68)*SCALE;
+    const detailScale=coreRadius/3.4;
+    const core = addMesh(new THREE.CylinderGeometry(coreRadius, coreRadius, rotorDef.top - rotorDef.bottom, 16), materials.black,
       'forge-rotor-column', { parent: root, castShadow: true }); core.position.y = (rotorDef.top - rotorDef.bottom) / 2;
     const cage = new THREE.Group(); root.add(cage);
     for (const h of [4, 10, 16, 22]) {
-      const ring = addMesh(new THREE.TorusGeometry(4.9, .22, 8, 28), h % 8 ? materials.red : materials.edge,
-        'forge-rotor-ring', { parent: cage }); ring.rotation.x = Math.PI / 2; ring.position.y = h;
+      const ring = addMesh(new THREE.TorusGeometry(4.9*detailScale, .22, 8, 28), h % 8 ? materials.red : materials.edge,
+        'forge-rotor-ring', { parent: cage }); ring.rotation.x = Math.PI / 2; ring.position.y = h*detailScale;
       for (let i = 0; i < 6; i++) {
         const angle = i * Math.PI / 3;
-        const vane = addMesh(new RoundedBoxGeometry(3.3, .25, .52, 2, .05), materials.redGlow,
+        const vane = addMesh(new RoundedBoxGeometry(3.3*detailScale, .25, .52*detailScale, 2, .05), materials.redGlow,
           'forge-rotor-vane', { parent: cage, receiveShadow: false });
-        vane.position.set(Math.cos(angle) * 3.0, h, Math.sin(angle) * 3.0); vane.rotation.y = -angle;
+        vane.position.set(Math.cos(angle) * 3.0*detailScale, h*detailScale, Math.sin(angle) * 3.0*detailScale); vane.rotation.y = -angle;
       }
     }
     group.add(root); animated.push({ type: 'rotor', root, cage });
@@ -980,13 +1010,14 @@ export function createRedVaultEnvironment(map) {
     // pre-sheared prisms become exact sloped-base, vertical guards when down.
     for (const id of ['command-bridge-rail-north','command-bridge-rail-south']) {
       const rail=map.walls.find(solid=>solid.id===id);
-      const lowerPanel=railPrismGeometry(rail,0,.46);lowerPanel.applyMatrix4(toBridgeLocal);
-      const upperPanel=railPrismGeometry(rail,.57,.95);upperPanel.applyMatrix4(toBridgeLocal);
+      const railScale=(rail.top-rail.bottom)/1.15;
+      const lowerPanel=railPrismGeometry(rail,0,.46*railScale);lowerPanel.applyMatrix4(toBridgeLocal);
+      const upperPanel=railPrismGeometry(rail,.57*railScale,.95*railScale);upperPanel.applyMatrix4(toBridgeLocal);
       const panels=mergeGeometries([lowerPanel,upperPanel],false);lowerPanel.dispose();upperPanel.dispose();
       addMesh(panels,materials.shellInset,id,{parent:root,castShadow:true,occluder:true});
-      const cap=railPrismGeometry(rail,.95,1.15,.028);cap.applyMatrix4(toBridgeLocal);
+      const cap=railPrismGeometry(rail,.95*railScale,rail.top-rail.bottom,.028);cap.applyMatrix4(toBridgeLocal);
       addMesh(cap,materials.edge,`${id}-cap`,{parent:root});
-      const stripe=railPrismGeometry(rail,.46,.57,.032);stripe.applyMatrix4(toBridgeLocal);
+      const stripe=railPrismGeometry(rail,.46*railScale,.57*railScale,.032);stripe.applyMatrix4(toBridgeLocal);
       addMesh(stripe,materials.redGlow,`${id}-warning`,{parent:root,receiveShadow:false});
     }
     const pin = addMesh(new THREE.CylinderGeometry(.38, .38, width + .6, 12), materials.brass,
@@ -1012,33 +1043,57 @@ export function createRedVaultEnvironment(map) {
       `${consoleDef.id}-screen`, { parent: root, receiveShadow: false }); screen.position.copy(screenPos); screen.rotation.x = -.18;
     group.add(root);
   }
-  const vaultDef = map.architecture.machines.find(m => m.type === 'vaultCore');
-  if (vaultDef) {
+  for (const vaultDef of map.architecture.machines.filter(m => m.type === 'vaultCore')) {
     const root = new THREE.Group(); root.name = vaultDef.id; root.position.copy(toWorld(vaultDef.x, vaultDef.y, vaultDef.bottom));
+    const coreScale=vaultDef.radius*SCALE/2.7;
     const core = addMesh(new THREE.CylinderGeometry(vaultDef.radius*SCALE,
       vaultDef.radius*SCALE,vaultDef.top-vaultDef.bottom,18),materials.black,
-    'red-vault-core-column', { parent: root, castShadow: true }); core.position.y = (vaultDef.top - vaultDef.bottom) / 2;
-    const energy = addMesh(new THREE.IcosahedronGeometry(1.75, 2), materials.redGlow,
-      'red-vault-heart', { parent: root, receiveShadow: false }); energy.position.y = 8.1;
-    const rings = new THREE.Group(); rings.position.y = 8.1; root.add(rings);
+    `${vaultDef.id}-column`, { parent: root, castShadow: true }); core.position.y = (vaultDef.top - vaultDef.bottom) / 2;
+    const energy = addMesh(new THREE.IcosahedronGeometry(1.75*coreScale, 2), materials.redGlow,
+      `${vaultDef.id}-energy`, { parent: root, receiveShadow: false }); energy.position.y = 8.1*coreScale;
+    const rings = new THREE.Group(); rings.position.y = 8.1*coreScale; root.add(rings);
     for (const [i, radius] of [2.5, 3.6, 4.8].entries()) {
-      const ring = addMesh(new THREE.TorusGeometry(radius, .13 + i * .03, 8, 30), i === 1 ? materials.brass : materials.brightRed,
-        'red-vault-core-ring', { parent: rings });
+      const ring = addMesh(new THREE.TorusGeometry(radius*coreScale, .13*coreScale + i * .03, 8, 30), i === 1 ? materials.brass : materials.brightRed,
+        `${vaultDef.id}-ring`, { parent: rings });
       // Keep physical-looking rings above player clearance. Their subtle
       // cant still reads as articulated machinery without ghosting through
       // the 42 m boss routes below.
       ring.rotation.x=Math.PI/2;
     }
+    if (vaultDef.id === 'vault-boss-heart') {
+      // A recessed warning circle marks the real reactor clearance. It sits
+      // above the deck by 8 cm, with no coplanar decal or hidden collider.
+      const warning=addMesh(new THREE.TorusGeometry(vaultDef.radius*SCALE+1.15,
+        .045,8,64),materials.redGlow,'vault-boss-heart-warning',
+        {parent:root,receiveShadow:false});
+      warning.rotation.x=Math.PI/2;warning.position.y=.08;
+    }
     group.add(root); animated.push({ type: 'vaultCore', root, core, energy, rings });
   }
-  const crownDef = map.architecture.machines.find(m => m.type === 'rotatingCrown');
-  if (crownDef) {
+  for (const crownDef of map.architecture.machines.filter(m => m.type === 'rotatingCrown')) {
     const root = new THREE.Group(); root.name = crownDef.id; root.position.copy(toWorld(crownDef.x, crownDef.y, crownDef.bottom));
+    const crownScale=crownDef.radius*SCALE/8.25;
     for (let i = 0; i < 8; i++) {
       const angle = i * Math.PI / 4;
-      const arm = addMesh(new RoundedBoxGeometry(6.5, .42, .58, 2, .07), i % 2 ? materials.red : materials.edge,
-        'vault-crown-arm', { parent: root, castShadow: true });
-      arm.position.set(Math.cos(angle) * 3.2, 0, Math.sin(angle) * 3.2); arm.rotation.y = -angle;
+      const arm = addMesh(new RoundedBoxGeometry(6.5*crownScale, .42, .58*crownScale, 2, .07), i % 2 ? materials.red : materials.edge,
+        `${crownDef.id}-arm`, { parent: root, castShadow: true });
+      arm.position.set(Math.cos(angle) * 3.2*crownScale, 0, Math.sin(angle) * 3.2*crownScale); arm.rotation.y = -angle;
+    }
+    if(crownDef.id==='vault-boss-crown') {
+      // The chamber's overhead iris moves with the Warden's crown state,
+      // giving the boss room a silhouette distinct from the command well.
+      const iris=addMesh(new THREE.TorusGeometry(crownDef.radius*SCALE*.82,
+        .12,8,48),materials.brass,'vault-boss-iris-ring',
+        {parent:root,receiveShadow:false});
+      iris.rotation.x=Math.PI/2;
+      for(let i=0;i<8;i++) {
+        const angle=i*Math.PI/4;
+        const vane=addMesh(new RoundedBoxGeometry(3.1*crownScale,.28,
+          1.05*crownScale,2,.08),i%2?materials.brightRed:materials.edge,
+          `vault-boss-iris-vane-${i}`,{parent:root,castShadow:true});
+        vane.position.set(Math.cos(angle)*5.8*crownScale,-.25,
+          Math.sin(angle)*5.8*crownScale);vane.rotation.y=-angle;
+      }
     }
     group.add(root); animated.push({ type: 'crown', root });
   }
@@ -1068,9 +1123,9 @@ export function createRedVaultEnvironment(map) {
     if(texture)plane.userData.ownedTextures = [texture];
   }
 
-  // Luminaires provide visible sources. Only five bounded non-shadowed point
+  // Luminaires provide visible sources. Six bounded non-shadowed point
   // lights are used for the whole Strike; emissive strips carry the rest.
-  for (const light of map.architecture.lights.slice(0, 5)) {
+  for (const light of map.architecture.lights.slice(0, 6)) {
     const p = toWorld(light.x, light.y, light.height);
     const lamp = addMesh(new THREE.CylinderGeometry(.22, .22, 3.2, 8), materials.whiteGlow,
       `${light.id}-fixture`, { receiveShadow: false }); lamp.position.copy(p); lamp.rotation.z = Math.PI / 2;
@@ -1087,7 +1142,7 @@ export function createRedVaultEnvironment(map) {
     const body = addMesh(new THREE.BoxGeometry(mass.width * SCALE, mass.top - mass.bottom,
       mass.height * SCALE), materials.black, `${mass.id}-body`, { parent: root });
     body.position.y = (mass.top - mass.bottom) / 2;
-    const stacks = Math.max(2, Math.floor(mass.width / 180));
+    const stacks = Math.max(2, Math.floor(mass.width / 360));
     for (let i = 0; i < stacks; i++) {
       const stack = addMesh(new THREE.CylinderGeometry(.55, .8, mass.top * .8, 8), materials.shell,
         `${mass.id}-stack`, { parent: root });
@@ -1398,9 +1453,9 @@ export function createRedVaultEnvironment(map) {
         viewed.y >= z.y && viewed.y <= z.y + z.height);
       if (zone) {
         currentLightingZone=zone;
-        scene.fog ||= new THREE.FogExp2(zone.fog, .0045);
+        scene.fog ||= new THREE.FogExp2(zone.fog, .0032);
         scene.fog.color.lerp(zone.renderFogColor, 1 - Math.exp(-2 * dt));
-        scene.fog.density += (.0045 - scene.fog.density) * (1 - Math.exp(-2 * dt));
+        scene.fog.density += (.0032 - scene.fog.density) * (1 - Math.exp(-2 * dt));
       }
     }
   }

@@ -1,5 +1,6 @@
 const express = require("express");
 const {
+  AUTH_COOKIE_NAME,
   usersByUsername,
   issueUserId,
   hashPassword,
@@ -19,6 +20,9 @@ function createAuthRoutes() {
   const router = express.Router();
 
   router.post("/register", (req, res) => {
+    if (process.env.TEST_MODE === '1') {
+      return res.status(403).json({ error: 'The test app has one admin account. Sign in as qing.' });
+    }
     const { username, password } = req.body || {};
     const cleanUsername =
       typeof username === "string" ? username.trim().toLowerCase() : "";
@@ -57,7 +61,7 @@ function createAuthRoutes() {
 
     const token = signAuthToken({ username: user.username });
     res
-      .cookie("auth_token", token, {
+      .cookie(AUTH_COOKIE_NAME, token, {
         httpOnly: true,
         sameSite: "lax",
         maxAge: 1000 * 60 * 60 * 24 * 365, // ~1 year
@@ -78,7 +82,7 @@ function createAuthRoutes() {
     }
     const token = signAuthToken({ username: user.username });
     res
-      .cookie("auth_token", token, {
+      .cookie(AUTH_COOKIE_NAME, token, {
         httpOnly: true,
         sameSite: "lax",
         maxAge: 1000 * 60 * 60 * 24 * 365,
@@ -88,7 +92,7 @@ function createAuthRoutes() {
 
   router.post("/logout", (req, res) => {
     res
-      .clearCookie("auth_token", {
+      .clearCookie(AUTH_COOKIE_NAME, {
         httpOnly: true,
         sameSite: "lax",
       })

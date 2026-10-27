@@ -4,6 +4,37 @@
 // encounter sightline and machine service space is deliberate.
 
 const RED_VAULT_ID = 'red-vault';
+const STRIKE_SCALE = 2;
+
+// Keep collision, visuals, navigation, encounter volumes and route guidance in
+// one coordinate system. Shared wall/spawn objects are visited only once.
+function enlargeStrike(map) {
+  const seen=new WeakSet();
+  const horizontal=new Set(['x','y','ax','ay','bx','by','minX','maxX','minY','maxY',
+    'width','radius','minRadius','collisionRadius','collisionEndInset','span',
+    'counterweightX','range','navCellSize']);
+  const vertical=new Set(['bottom','top','minTop','maxTop','ceiling','rise','floorMin','floorMax',
+    'structureDepth','thickness','liftBottomOffset','liftTopOffset','heightTolerance']);
+  function visit(value) {
+    if(!value||typeof value!=='object'||seen.has(value))return;
+    seen.add(value);
+    if(Array.isArray(value)){for(const item of value)visit(item);return;}
+    const rectangle=Number.isFinite(value.width)&&Number.isFinite(value.height);
+    const jumpableRise=value.kind==='conveyor'&&Number.isFinite(value.top)&&Number.isFinite(value.bottom)
+      ?value.top-value.bottom:null;
+    for(const [key,item] of Object.entries(value)) {
+      if(item&&typeof item==='object'){visit(item);continue;}
+      if(typeof item!=='number')continue;
+      if(horizontal.has(key)||key==='height'&&rectangle||
+        (key==='min'||key==='max')&&value.axis==='x')value[key]=item*STRIKE_SCALE;
+      else if(vertical.has(key)||key==='height'&&!rectangle||
+        (key==='min'||key==='max')&&value.axis==='y')value[key]=item*STRIKE_SCALE;
+    }
+    if(jumpableRise!=null)value.top=value.bottom+jumpableRise;
+  }
+  visit(map);
+  return map;
+}
 
 function createRedVaultMap() {
   const walls = [];
@@ -177,9 +208,11 @@ function createRedVaultMap() {
   // The transfer gallery meets the upper gantry through the 100-unit opening
   // at its north end. The old unbroken shell sealed this opening, leaving the
   // assembly shutter open in a corridor the fireteam could never enter.
-  wall('assembly-west-a', 1076, 1050, 34, 230, 0, 32, { sectorId: 'assembly-lower' });
-  wall('assembly-west-mid', 1076, 1280, 34, 130, 0, 32, { sectorId: 'assembly-lower' });
-  wall('assembly-west-b', 1076, 1530, 34, 152, 0, 32, { sectorId: 'assembly-lower' });
+  wall('assembly-west-a', 1076, 1050, 64, 230, 0, 32, { sectorId: 'assembly-lower' });
+  wall('assembly-west-upper-sill', 1076, 1010, 64, 40, 0, 11.4,
+    { sectorId: 'assembly-lower' });
+  wall('assembly-west-mid', 1076, 1280, 64, 130, 0, 32, { sectorId: 'assembly-lower' });
+  wall('assembly-west-b', 1076, 1530, 64, 152, 0, 32, { sectorId: 'assembly-lower' });
   wall('assembly-north-a', 1076, 920, 124, 34, 0, 32, { sectorId: 'assembly-upper' });
   wall('assembly-north-under-shaft', 1200, 920, 156, 34, 0, 18,
     { sectorId: 'assembly-upper' });
@@ -200,7 +233,7 @@ function createRedVaultMap() {
   for (const c of conveyorDefs) {
     wall(c.id, c.x, c.y, c.width, c.height, c.bottom, c.top,
       { kind: 'conveyor', sectorId: 'assembly-lower' });
-    architecture.conveyors.push({ ...c, direction: c.id.endsWith('west') ? 1 : -1,
+    architecture.conveyors.push({ ...c, kind:'conveyor', direction: c.id.endsWith('west') ? 1 : -1,
       speed: c.id.endsWith('west') ? 1.1 : .82, collisionIds: [c.id] });
     bind(c.id, 'solid', [c.id]);
   }
@@ -218,7 +251,10 @@ function createRedVaultMap() {
   }
   // Tall press frames define the canyon silhouette and stop fire accurately at
   // their legs; the open middle remains traversable and shootable.
-  for (const [i, x] of [1160, 1430, 1720].entries()) {
+  // Keep the east landing's gantry mouth clear. The last press leg used to
+  // occupy its entire capsule-width opening, splitting one deck into two
+  // disconnected navigation islands.
+  for (const [i, x] of [1160, 1430, 1620].entries()) {
     wall(`press-${i}-leg-n`, x, 1025, 26, 72, 6, 22, { kind: 'machineFrame', sectorId: 'assembly-lower' });
     wall(`press-${i}-leg-s`, x, 1575, 26, 72, 6, 22, { kind: 'machineFrame', sectorId: 'assembly-lower' });
     beam(`press-${i}-header`, x + 13, 1080, x + 13, 1590, 20.8, 22.2, 'assembly-lower', 'press-header');
@@ -362,9 +398,11 @@ function createRedVaultMap() {
   rail('refinery-service-west-north', 636, 350, 8, 40, 20, 'refinery');
   rail('refinery-east-landing-west', 1106, 455, 8, 215, 20, 'refinery');
   rail('refinery-east-landing-south', 1110, 666, 130, 8, 20, 'refinery');
+  rail('refinery-east-landing-north', 1110, 346, 160, 8, 20, 'refinery');
   // A short sill carries the whole capsule through the shutter opening.  The
   // previous route relied on the two deck AABBs merely touching at the wall.
   floor('refinery-shaft-throat', 1196, 580, 74, 140, 20, 'refinery');
+  rail('refinery-shaft-throat-west', 1192, 670, 8, 50, 20, 'refinery');
   // Keep the first structural post out of the refinery stair's upper landing.
   // Its old centre at (670,405) overlapped a full player capsule exiting the
   // ramp, turning the visible support into an unavoidable slalom pole.
@@ -452,6 +490,7 @@ function createRedVaultMap() {
   rail('shaft-east-service-north-rail', 1800, 496, 100, 8, 26, 'shaft-mid');
   rail('shaft-east-service-south-rail', 1780, 696, 120, 8, 26, 'shaft-mid');
   rail('shaft-east-service-west-rail', 1676, 500, 8, 200, 26, 'shaft-mid');
+  rail('shaft-east-service-east-rail', 1896, 500, 8, 200, 26, 'shaft-mid');
   rail('shaft-ramp-north-rail', 1480, 388, 320, 8, 26, 'shaft-mid',
     { axis: 'x', rise: 4, reverse: true });
   rail('shaft-ramp-north-south-rail', 1480, 496, 320, 8, 26, 'shaft-mid',
@@ -461,6 +500,7 @@ function createRedVaultMap() {
   rail('shaft-west-service-west-rail', 1268, 400, 8, 500, 30, 'shaft-mid');
   rail('shaft-west-service-east-rail', 1476, 500, 8, 200, 30, 'shaft-mid');
   rail('shaft-west-service-north-rail', 1280, 396, 200, 8, 30, 'shaft-mid');
+  rail('shaft-west-service-south-rail', 1280, 896, 170, 8, 30, 'shaft-mid');
   rail('shaft-ramp-west-west-rail', 1306, 400, 8, 300, 30, 'shaft-crown',
     { axis: 'y', rise: 6, reverse: true });
   rail('shaft-ramp-west-east-rail', 1406, 400, 8, 300, 30, 'shaft-crown',
@@ -580,11 +620,15 @@ function createRedVaultMap() {
   rail('vault-well-ramp-east-rail', 2421, 760, 8, 140, 38, 'command',
     { axis: 'y', rise: 4 });
   roof('command-roof', 2150, 190, 600, 980, 55, 'command');
-  wall('command-west-a', 2150, 190, 34, 120, 20, 55, { sectorId: 'command' });
-  wall('command-west-b', 2150, 420, 34, 750, 20, 55, { sectorId: 'command' });
+  wall('command-west-a', 2150, 190, 60, 120, 20, 55, { sectorId: 'command' });
+  wall('command-west-b', 2150, 420, 60, 750, 20, 55, { sectorId: 'command' });
   wall('command-east', 2716, 190, 34, 980, 20, 55, { sectorId: 'command' });
   wall('command-north', 2150, 190, 600, 34, 20, 55, { sectorId: 'command' });
-  wall('command-south', 2150, 1136, 600, 34, 20, 55, { sectorId: 'command' });
+  wall('command-south-west', 2150, 1136, 220, 34, 20, 55, { sectorId: 'command' });
+  wall('command-south-east', 2530, 1136, 220, 34, 20, 55, { sectorId: 'command' });
+  wall('command-south-header', 2370, 1136, 160, 34, 50, 55, { sectorId: 'command' });
+  wall('vault-boss-gate', 2370, 1136, 160, 34, 42, 50,
+    { kind: 'strikeDoor', dynamicId: 'vault-boss-gate', sectorId: ['command', 'boss-vault'] });
   // This shutter gates the Vault interior, not the command bridge entrance.
   // Placing it on the west shell left the freshly lowered bridge facing a
   // solid wall and stranded the fireteam outside its own encounter.
@@ -656,11 +700,83 @@ function createRedVaultMap() {
   architecture.signs.push({ id: 'vault-sign', x: 2190, y: 260, bottom: 50,
     facing: 'east', text: 'THE RED VAULT', color: '#ff203b' });
 
+  // The final chamber is beyond a sealed bulkhead, with its own roof, tall
+  // shell and combat circulation. The approach floor meets the foundry floor
+  // exactly; no invisible jump or implicit ground is needed at the threshold.
+  floor('vault-boss-threshold', 2370, 1130, 160, 135, 42, 'boss-vault');
+  floor('vault-boss-main', 1870, 1265, 860, 530, 42, 'boss-vault');
+  roof('vault-boss-threshold-roof', 2330, 1136, 240, 89, 55, 'boss-vault');
+  roof('vault-boss-roof', 1830, 1225, 940, 610, 69, 'boss-vault');
+  wall('vault-boss-north-west', 1830, 1225, 540, 40, 40, 69, { sectorId: 'boss-vault' });
+  wall('vault-boss-north-east', 2530, 1225, 240, 40, 40, 69, { sectorId: 'boss-vault' });
+  wall('vault-boss-portal-header', 2370, 1225, 160, 40, 55, 69,
+    { sectorId: 'boss-vault' });
+  wall('vault-boss-west-north', 1830, 1225, 40, 135, 40, 69, { sectorId: 'boss-vault' });
+  wall('vault-boss-west-south', 1830, 1360, 40, 475, 40, 69, { sectorId: 'boss-vault' });
+  wall('vault-boss-east', 2730, 1225, 40, 610, 40, 69, { sectorId: 'boss-vault' });
+  wall('vault-boss-south', 1830, 1795, 940, 40, 40, 69, { sectorId: 'boss-vault' });
+  wall('vault-boss-threshold-west', 2330, 1136, 40, 129, 42, 55, { sectorId: 'boss-vault' });
+  wall('vault-boss-threshold-east', 2530, 1136, 40, 129, 42, 55, { sectorId: 'boss-vault' });
+
+  // Two opposing observation galleries make the tall room usable rather than
+  // merely a large empty box. Broad stairs begin clear of the doorway and
+  // connect to actual 48 m decks with matching side collision.
+  floor('vault-boss-gallery-west', 1870, 1340, 170, 360, 48, 'boss-vault-upper');
+  floor('vault-boss-gallery-east', 2570, 1340, 160, 360, 48, 'boss-vault-upper');
+  ramp('vault-boss-stair-west', 2040, 1450, 135, 220, 42, 48, 'x',
+    'boss-vault-upper', { reverse: true, industrial: 'command-stair' });
+  ramp('vault-boss-stair-east', 2435, 1450, 135, 220, 42, 48, 'x',
+    'boss-vault-upper', { industrial: 'command-stair' });
+  rail('vault-boss-gallery-west-rail', 2032, 1340, 8, 110, 48, 'boss-vault-upper');
+  rail('vault-boss-gallery-east-rail', 2566, 1340, 8, 110, 48, 'boss-vault-upper');
+  rail('vault-boss-gallery-west-south', 1870, 1700, 170, 8, 48, 'boss-vault-upper');
+  rail('vault-boss-gallery-east-south', 2570, 1700, 160, 8, 48, 'boss-vault-upper');
+  rail('vault-boss-gallery-west-north', 1870, 1332, 170, 8, 48, 'boss-vault-upper');
+  rail('vault-boss-gallery-east-north', 2570, 1332, 160, 8, 48, 'boss-vault-upper');
+  rail('vault-boss-stair-west-north', 2040, 1442, 135, 8, 42,
+    'boss-vault-upper', { axis: 'x', rise: 6, reverse: true });
+  rail('vault-boss-stair-west-south', 2040, 1670, 135, 8, 42,
+    'boss-vault-upper', { axis: 'x', rise: 6, reverse: true });
+  rail('vault-boss-stair-east-north', 2435, 1442, 135, 8, 42,
+    'boss-vault-upper', { axis: 'x', rise: 6 });
+  rail('vault-boss-stair-east-south', 2435, 1670, 135, 8, 42,
+    'boss-vault-upper', { axis: 'x', rise: 6 });
+  for (const [id, x, y] of [
+    ['vault-boss-pylon-nw', 1990, 1320], ['vault-boss-pylon-ne', 2680, 1320],
+    ['vault-boss-pylon-sw', 1960, 1710], ['vault-boss-pylon-se', 2680, 1710],
+  ]) column(id, x, y, 24, 42, 66, 'boss-vault', 'command');
+  beam('vault-boss-roof-truss-north', 1930, 1320, 2680, 1320, 65, 66,
+    'boss-vault', 'truss');
+  beam('vault-boss-roof-truss-south', 1930, 1710, 2680, 1710, 65, 66,
+    'boss-vault', 'truss');
+  beam('vault-boss-roof-truss-west', 1990, 1320, 1960, 1710, 65, 66,
+    'boss-vault', 'truss');
+  beam('vault-boss-roof-truss-east', 2680, 1320, 2680, 1710, 65, 66,
+    'boss-vault', 'truss');
+  for (const [id, x, y, w, h] of [
+    ['vault-boss-cover-nw', 2110, 1360, 95, 42],
+    ['vault-boss-cover-ne', 2470, 1360, 95, 42],
+    ['vault-boss-cover-sw', 2110, 1705, 95, 42],
+    ['vault-boss-cover-se', 2470, 1705, 95, 42],
+  ]) wall(id, x, y, w, h, 42, 45.3, { kind: 'cover', sectorId: 'boss-vault' });
+  circle('vault-boss-heart-base', 2330, 1530, 68, 42, 62, 'boss-vault', { kind: 'reactorCore' });
+  architecture.machines.push({ id: 'vault-boss-heart', type: 'vaultCore', x: 2330, y: 1530,
+    radius: 68, bottom: 42, top: 62, collisionIds: ['vault-boss-heart-base'] });
+  bind('vault-boss-heart', 'solid', ['vault-boss-heart-base']);
+  architecture.machines.push({ id: 'vault-boss-crown', type: 'rotatingCrown', x: 2330, y: 1530,
+    radius: 280, bottom: 64, top: 67, collisionIds: [],
+    nonSolidReason: 'suspended overhead above every playable gallery' });
+  bind('vault-boss-crown', 'decorative', [], 'suspended overhead above every playable gallery');
+  architecture.lights.push({ id: 'vault-boss-lumen', x: 2330, y: 1530, height: 65,
+    color: '#ff4a5c', intensity: 5, radius: 740 });
+  architecture.signs.push({ id: 'vault-boss-sign', x: 2360, y: 1215, bottom: 54,
+    facing: 'south', text: 'THE HEART', color: '#ff4059' });
+
   // Distant, unreachable foundry stacks and bridgework provide parallax
   // through shaft/furnace apertures without expanding gameplay collision.
   architecture.distantMassing.push(
     { id: 'distant-smelter-a', x: 70, y: 220, width: 150, height: 700, bottom: 0, top: 46 },
-    { id: 'distant-smelter-b', x: 2020, y: 1260, width: 520, height: 300, bottom: 0, top: 38 },
+    { id: 'distant-smelter-b', x: 2790, y: 1260, width: 520, height: 300, bottom: 0, top: 38 },
     { id: 'distant-stack-field', x: 300, y: 60, width: 800, height: 170, bottom: 0, top: 52 },
   );
   for (const mass of architecture.distantMassing)
@@ -697,9 +813,17 @@ function createRedVaultMap() {
     'vault-well-retaining-east', 'vault-well-retaining-north', 'vault-well-retaining-south',
     'vault-well-retaining-south-ramp',
     'command-roof', 'command-west-a',
-    'command-west-b', 'command-east', 'command-north', 'command-south']);
+    'command-west-b', 'command-east', 'command-north', 'command-south-west',
+    'command-south-east', 'command-south-header']);
   bind('command-balconies', 'surface', ['command-balcony-north', 'command-balcony-south',
     'command-ramp-north', 'command-ramp-south']);
+  bind('vault-boss-shell', 'surface', ['vault-boss-threshold', 'vault-boss-main',
+    'vault-boss-threshold-roof', 'vault-boss-roof',
+    'vault-boss-north-west', 'vault-boss-north-east', 'vault-boss-west-north',
+    'vault-boss-portal-header', 'vault-boss-west-south', 'vault-boss-east', 'vault-boss-south',
+    'vault-boss-threshold-west', 'vault-boss-threshold-east']);
+  bind('vault-boss-galleries', 'surface', ['vault-boss-gallery-west',
+    'vault-boss-gallery-east', 'vault-boss-stair-west', 'vault-boss-stair-east']);
 
   const strikeSectors = [
     { id: 'freight', bounds: { x: 110, y: 1180, width: 810, height: 580, bottom: 0, top: 14.5 }, floorMin: 0, floorMax: .1, navCellSize: 26 },
@@ -713,6 +837,8 @@ function createRedVaultMap() {
     { id: 'command', bounds: { x: 2130, y: 170, width: 640, height: 1020, bottom: 35, top: 55.5 }, floorMin: 37.8, floorMax: 43.2, navCellSize: 24 },
     { id: 'command-upper', bounds: { x: 2170, y: 200, width: 570, height: 950, bottom: 41, top: 55.5 }, floorMin: 47.8, floorMax: 48.2, navCellSize: 22 },
     { id: 'vault-well', bounds: { x: 2310, y: 540, width: 280, height: 370, bottom: 35, top: 55.5 }, floorMin: 37.8, floorMax: 42.2, navCellSize: 18 },
+    { id: 'boss-vault', bounds: { x: 1830, y: 1130, width: 940, height: 710, bottom: 40, top: 69.5 }, floorMin: 41.8, floorMax: 42.2, navCellSize: 26 },
+    { id: 'boss-vault-upper', bounds: { x: 1850, y: 1320, width: 900, height: 410, bottom: 42, top: 69.5 }, floorMin: 47.8, floorMax: 48.2, navCellSize: 24 },
   ];
 
   const navLinks = [
@@ -742,6 +868,12 @@ function createRedVaultMap() {
       a: { x: 2640, y: 761, height: 42.3692307692 }, b: { x: 2640, y: 989, height: 47.6307692308 }, mode: 'stairs', colliderId: 'command-ramp-south' },
     { id: 'link-vault-well', from: 'command', to: 'vault-well',
       a: { x: 2393.5, y: 884, height: 41.5428571429 }, b: { x: 2393.5, y: 776, height: 38.4571428571 }, mode: 'stairs', colliderId: 'vault-well-ramp' },
+    { id: 'link-boss-vault', from: 'command', to: 'boss-vault',
+      a: { x: 2450, y: 1100, height: 42 }, b: { x: 2450, y: 1210, height: 42 }, mode: 'walk' },
+    { id: 'link-boss-gallery-west', from: 'boss-vault', to: 'boss-vault-upper',
+      a: { x: 2159, y: 1560, height: 42.7111111111 }, b: { x: 2056, y: 1560, height: 47.2888888889 }, mode: 'stairs', colliderId: 'vault-boss-stair-west' },
+    { id: 'link-boss-gallery-east', from: 'boss-vault', to: 'boss-vault-upper',
+      a: { x: 2451, y: 1560, height: 42.7111111111 }, b: { x: 2554, y: 1560, height: 47.2888888889 }, mode: 'stairs', colliderId: 'vault-boss-stair-east' },
   ];
 
   const bot = (x, y, height, zone, extra = {}) => ({ x, y, height, zone, ...extra });
@@ -868,19 +1000,19 @@ function createRedVaultMap() {
       postClearObjective: 'Override the Vault blast shutter',
       objectiveTrigger: { x: 2390, y: 240, width: 120, height: 110, bottom: 42, top: 45 },
       interaction: interaction('vault-shutter-control',2450,227,43.55,Math.PI/2,'OVERRIDE SHUTTER'),
-      opens: ['command-breach-shutter'], machinery: { bridge: 'locked', shutters: 'breach' },
+      opens: ['command-breach-shutter', 'vault-boss-gate'], machinery: { bridge: 'locked', shutters: 'breach' },
       stateChanges: { combat: { shutters: 'sealed' }, cleared: { shutters: 'awaiting-override' },
         complete: { shutters: 'open', core: 'awakening' } } },
     { id: 'red-vault-finale', order: 9, act: 5, title: 'THE RED VAULT',
-      objective: 'Destroy the Vault command guard', sectorId: 'command', type: 'finale',
-      objectivePoint: bot(2500, 1080, 42, 'command'),
-      trigger: { x: 2220, y: 420, width: 460, height: 600, bottom: 37.5, top: 51 },
-      checkpointSpawns: [bot(2230, 660, 42, 'command'), bot(2230, 730, 42, 'command'), bot(2290, 730, 42, 'command')],
+      objective: 'Enter the Heart chamber', sectorId: 'boss-vault', type: 'finale',
+      objectivePoint: bot(2370, 1380, 42, 'boss-vault'),
+      trigger: { x: 2300, y: 1270, width: 260, height: 130, bottom: 41, top: 50 },
+      checkpointSpawns: [bot(2390, 1190, 42, 'boss-vault'), bot(2450, 1190, 42, 'boss-vault'), bot(2510, 1190, 42, 'boss-vault')],
       spawnGroups: [
-        { phase: 1, delayMs: 900, bots: [bot(2670, 600, 42, 'command', { botType: 'dread' }), bot(2560, 920, 42, 'command'), bot(2400, 1060, 48, 'command-upper')] },
-        { phase: 2, afterRemaining: 1, bots: [bot(2300, 280, 48, 'command-upper', { botType: 'guardian' }), bot(2500, 1060, 48, 'command-upper', { botType: 'dread' }), bot(2450, 820, 38, 'vault-well')] },
+        { phase: 1, delayMs: 900, bots: [bot(2630, 1460, 42, 'boss-vault', { botType: 'dread' }), bot(2250, 1690, 42, 'boss-vault'), bot(2640, 1620, 48, 'boss-vault-upper')] },
+        { phase: 2, afterRemaining: 1, bots: [bot(1910, 1520, 48, 'boss-vault-upper', { botType: 'guardian' }), bot(2600, 1660, 48, 'boss-vault-upper', { botType: 'dread' }), bot(2320, 1710, 42, 'boss-vault')] },
         { phase: 3, afterRemaining: 1, bots: [
-          bot(2500, 820, 38, 'vault-well', { botType: 'warden', boss: true, name: 'DREAD WARDEN', health: 1150, bodyRadius: 26, bodyHeight: 3.15, eyeHeight: 2.65 })
+          bot(2360, 1710, 42, 'boss-vault', { botType: 'warden', boss: true, name: 'DREAD WARDEN', health: 1150, bodyRadius: 26, bodyHeight: 3.15, eyeHeight: 2.65 })
         ] },
       ],
       // These are health phases inside the Warden wave, not additional global
@@ -889,38 +1021,130 @@ function createRedVaultMap() {
       wardenPhases: [
         { id: 'redline-carbine', minHealthRatio: .66, moveScale: 1,
           carbine: { chargeMs: 520, shotIntervalMs: 165, burstShots: 3, recoveryMs: 980, damage: 10 },
+          impact: { entryDelayMs: 1800, windupMs: 1550, cooldownMs: 5700,
+            count: 1, radius: 115, heightTolerance: 5, damage: 23, knockback: 155 },
           stateChanges: { machinery: {
-            core: { state: 'warden-guarded', sourceId: 'red-vault-core' },
-            crown: { state: 'tracking', sourceId: 'vault-rotating-crown' },
+            core: { state: 'warden-guarded', sourceId: 'vault-boss-heart' },
+            crown: { state: 'tracking', sourceId: 'vault-boss-crown' },
           } } },
         { id: 'core-pressure', minHealthRatio: .33, moveScale: 1.08, entryDelayMs: 420,
           carbine: { chargeMs: 470, shotIntervalMs: 145, burstShots: 3, recoveryMs: 900, damage: 11 },
-          pressure: { kind: 'forgePressureSweep', sourceId: 'red-vault-core', crownId: 'vault-rotating-crown',
+          impact: { entryDelayMs: 1800, windupMs: 1300, intervalMs: 650, cooldownMs: 5600,
+            count: 2, radius: 120, heightTolerance: 6, damage: 27, knockback: 175 },
+          pressure: { kind: 'forgePressureSweep', sourceId: 'vault-boss-heart', crownId: 'vault-boss-crown',
             entryDelayMs: 650, windupMs: 1350, sweepMs: 1150, cooldownMs: 5200,
             radius: 325, minRadius: 58, arcWidth: .78, heightTolerance: 7, damage: 34, knockback: 245 },
           stateChanges: { machinery: {
-            core: { state: 'warden-venting', sourceId: 'red-vault-core' },
-            crown: { state: 'spin', sourceId: 'vault-rotating-crown' },
+            core: { state: 'warden-venting', sourceId: 'vault-boss-heart' },
+            crown: { state: 'spin', sourceId: 'vault-boss-crown' },
           } } },
         { id: 'foundry-overdrive', minHealthRatio: 0, moveScale: 1.2, entryDelayMs: 260,
           carbine: { chargeMs: 330, shotIntervalMs: 105, burstShots: 4, recoveryMs: 580, damage: 12 },
-          pressure: { kind: 'forgePressureSweep', sourceId: 'red-vault-core', crownId: 'vault-rotating-crown',
+          impact: { entryDelayMs: 1100, windupMs: 1050, intervalMs: 500, cooldownMs: 5100,
+            count: 3, radius: 135, heightTolerance: 7, damage: 32, knockback: 205 },
+          pressure: { kind: 'forgePressureSweep', sourceId: 'vault-boss-heart', crownId: 'vault-boss-crown',
             entryDelayMs: 420, windupMs: 900, sweepMs: 900, cooldownMs: 3900,
             radius: 350, minRadius: 48, arcWidth: .9, heightTolerance: 7, damage: 40, knockback: 300,
             direction: -1 },
           reinforcements: { id: 'warden-redguard', bots: [
-            bot(2260, 700, 42, 'command', { botType: 'dread' }),
-            bot(2640, 700, 42, 'command', { botType: 'dread' }),
+            bot(2070, 1580, 42, 'boss-vault', { botType: 'dread' }),
+            bot(2630, 1580, 42, 'boss-vault', { botType: 'dread' }),
           ] },
           stateChanges: { machinery: {
-            core: { state: 'warden-enraged', sourceId: 'red-vault-core' },
-            crown: { state: 'overdrive', sourceId: 'vault-rotating-crown' },
+            core: { state: 'warden-enraged', sourceId: 'vault-boss-heart' },
+            crown: { state: 'overdrive', sourceId: 'vault-boss-crown' },
           } } },
       ], opens: [], machinery: { core: 'overload', crown: 'spin' },
       stateChanges: { combat: { core: 'shielded', crown: 'tracking' },
         phase2: { core: 'venting', crown: 'spin' }, phase3: { core: 'exposed', crown: 'overdrive' },
         complete: { core: 'collapsed', crown: 'stopped' } }, reward: { coins: 350 } },
   ];
+
+  // Strike encounters should have the density of a mid-run Endless floor.
+  // These are additional, hand-placed deployment lanes within the existing
+  // rooms. Groups arrive in bounded waves so the server never has to simulate
+  // the entire encounter population at the same instant.
+  const crowdLanes={
+    'secure-receiving': [
+      bot(550,1270,0,'freight'),bot(455,1360,0,'freight'),bot(540,1450,0,'freight'),
+      bot(430,1600,0,'freight'),bot(700,1470,0,'freight'),bot(560,1640,0,'freight'),
+      bot(695,1325,0,'freight'),
+    ],
+    'break-sorting-lock': [
+      bot(1370,1450,6,'assembly-lower'),bot(1320,1570,6,'assembly-lower'),
+      bot(1360,1310,6,'assembly-lower'),bot(1460,1470,6,'assembly-lower'),
+      bot(1480,1600,6,'assembly-lower'),
+    ],
+    'assembly-canyon': [
+      bot(1450,1460,6,'assembly-lower'),bot(1620,1350,6,'assembly-lower'),
+      bot(1710,1430,6,'assembly-lower'),bot(1430,1170,6,'assembly-lower'),
+      bot(1640,1150,6,'assembly-lower'),bot(1480,1000,12,'assembly-upper'),
+      bot(1720,1000,12,'assembly-upper'),
+    ],
+    'gantry-overwatch': [
+      bot(1600,1000,12,'assembly-upper'),bot(1710,1000,12,'assembly-upper'),
+      bot(1350,1030,12,'assembly-upper'),bot(1170,1200,12,'assembly-upper'),
+      bot(1500,1000,12,'assembly-upper'),
+    ],
+    'cross-furnace': [
+      bot(1040,610,12,'furnace'),bot(770,860,12,'furnace'),bot(510,760,12,'furnace'),
+      bot(620,510,12,'furnace'),bot(850,850,12,'furnace'),bot(680,700,12,'furnace'),
+      bot(490,910,12,'furnace'),
+    ],
+    'refinery-control': [
+      bot(760,400,20,'refinery'),bot(860,400,20,'refinery'),
+      bot(970,420,20,'refinery'),bot(1140,500,20,'refinery'),
+      bot(720,500,20,'refinery'),
+    ],
+    'shaft-base': [
+      bot(1450,920,20,'shaft-base'),bot(1750,750,20,'shaft-base'),
+      bot(1650,950,20,'shaft-base'),bot(1350,580,20,'shaft-base'),
+      bot(1800,450,20,'shaft-base'),bot(1540,480,20,'shaft-base'),
+      bot(1890,770,20,'shaft-base'),
+    ],
+    'shaft-ascent': [
+      bot(1710,650,26,'shaft-mid'),bot(1820,680,26,'shaft-mid'),
+      bot(1430,700,30,'shaft-mid'),bot(1600,350,36,'shaft-crown'),
+      bot(1800,350,36,'shaft-crown'),bot(1350,350,36,'shaft-crown'),
+      bot(1500,880,30,'shaft-mid'),
+    ],
+    'command-breach': [
+      bot(2250,500,42,'command'),bot(2630,550,42,'command'),
+      bot(2450,430,42,'command'),bot(2600,300,48,'command-upper'),
+      bot(2370,300,48,'command-upper'),
+    ],
+    'red-vault-finale': [
+      bot(2050,1410,42,'boss-vault'),bot(2190,1510,42,'boss-vault'),
+      bot(2270,1350,42,'boss-vault'),bot(2480,1510,42,'boss-vault'),
+      bot(2530,1680,42,'boss-vault'),bot(1970,1550,48,'boss-vault-upper'),
+      bot(2660,1500,48,'boss-vault-upper'),
+    ],
+  };
+  for(const encounter of encounters) {
+    const phases=encounter.id==='red-vault-finale'?[1,2]:[null];
+    for(const phase of phases) {
+      const groups=encounter.spawnGroups.filter(group=>phase==null||group.phase===phase);
+      if(!groups.length)continue;
+      const lanes=crowdLanes[encounter.id]||[];
+      const small=['break-sorting-lock','gantry-overwatch','refinery-control',
+        'command-breach'].includes(encounter.id);
+      const extras=lanes.slice(0,small?5:7);
+      groups[0].bots.push(...extras.map(position=>({...position})));
+      if(groups.length>1&&Number.isFinite(groups[1].afterRemaining))
+        groups[1].afterRemaining=Math.max(groups[1].afterRemaining,
+          Math.floor(groups[0].bots.length*.75));
+      const early=(small?extras.slice(0,5):[...extras,groups[0].bots[0]])
+        .map(position=>({...position}));
+      const late=groups.flatMap(group=>group.bots).filter(position=>position.botType!=='warden')
+        .slice(0,small?4:5).map(position=>({...position}));
+      const threshold=small?5:Math.floor(groups[0].bots.length*.75)+1;
+      if(early.length)encounter.spawnGroups.push({id:`${encounter.id}-reserve-${phase||1}`,
+        ...(phase==null?{}:{phase}),afterRemaining:threshold,bots:early});
+      if(late.length&&encounter.id!=='red-vault-finale')
+        encounter.spawnGroups.push({id:`${encounter.id}-last-push-${phase||1}`,
+          ...(phase==null?{}:{phase}),afterRemaining:0,bots:late});
+    }
+  }
 
   // A compact, authored wayfinding language follows the actual circulation
   // route instead of drawing a magic line through walls.  Guides are visual
@@ -937,7 +1161,7 @@ function createRedVaultMap() {
     { id:'route-01-objective-arrow', x:820, y:1460, height:0, angle:-Math.PI/2, sectorId:'freight', kind:'arrow', encounterIndex:1, targetId:'break-sorting-lock:objective' },
     { id:'route-01-objective', x:840, y:1366, height:0, sectorId:'freight', kind:'beacon', encounterIndex:1, targetId:'break-sorting-lock:objective', label:'CYCLE CRANE' },
 
-    { id:'route-02-ramp-low', x:930, y:1470, height:1, angle:0, sectorId:'assembly-lower', kind:'arrow', encounterIndex:2, targetId:'assembly-canyon', label:'ARMAMENT LINE' },
+    { id:'route-02-ramp-low', x:930, y:1470, height:.96, angle:0, sectorId:'assembly-lower', kind:'arrow', encounterIndex:2, targetId:'assembly-canyon', label:'ARMAMENT LINE' },
     { id:'route-02-ramp-high', x:1080, y:1470, height:4.56, angle:0, sectorId:'assembly-lower', kind:'strip', encounterIndex:2, targetId:'assembly-canyon' },
     { id:'route-02-floor', x:1210, y:1470, height:6, angle:0, sectorId:'assembly-lower', kind:'arrow', encounterIndex:2, targetId:'assembly-canyon' },
     { id:'route-02-beacon', x:1680, y:1360, height:6, sectorId:'assembly-lower', kind:'beacon', encounterIndex:2, targetId:'assembly-canyon', label:'SHUT DOWN LINE' },
@@ -980,16 +1204,16 @@ function createRedVaultMap() {
     { id:'route-07-objective', x:1796, y:350, height:36, sectorId:'shaft-crown', kind:'beacon', encounterIndex:7, targetId:'shaft-ascent:objective', label:'LOWER BRIDGE' },
 
     { id:'route-08-bridge-a', x:1900, y:350, height:36, angle:0, sectorId:'shaft-crown', kind:'arrow', encounterIndex:8, targetId:'command-breach', label:'COMMAND FOUNDRY' },
-    { id:'route-08-bridge-b', x:2200, y:320, height:42, angle:0, sectorId:'command', kind:'strip', encounterIndex:8, targetId:'command-breach' },
+    { id:'route-08-bridge-b', x:2340, y:320, height:42, angle:0, sectorId:'command', kind:'strip', encounterIndex:8, targetId:'command-breach' },
     { id:'route-08-threshold', x:2300, y:300, height:42, angle:0, sectorId:'command', kind:'arrow', encounterIndex:8, targetId:'command-breach' },
     { id:'route-08-beacon', x:2500, y:430, height:42, sectorId:'command', kind:'beacon', encounterIndex:8, targetId:'command-breach', label:'BREACH COMMAND' },
     { id:'route-08-objective-arrow', x:2450, y:330, height:42, angle:-Math.PI/2, sectorId:'command', kind:'arrow', encounterIndex:8, targetId:'command-breach:objective' },
     { id:'route-08-objective', x:2450, y:280, height:42, sectorId:'command', kind:'beacon', encounterIndex:8, targetId:'command-breach:objective', label:'OVERRIDE SHUTTER' },
 
-    { id:'route-09-south-a', x:2340, y:540, height:42, angle:Math.PI/2, sectorId:'command', kind:'arrow', encounterIndex:9, targetId:'red-vault-finale', label:'THE RED VAULT' },
-    { id:'route-09-south-b', x:2250, y:700, height:42, angle:Math.PI/2, sectorId:'command', kind:'strip', encounterIndex:9, targetId:'red-vault-finale' },
-    { id:'route-09-turn', x:2350, y:920, height:42, angle:0, sectorId:'command', kind:'arrow', encounterIndex:9, targetId:'red-vault-finale' },
-    { id:'route-09-beacon', x:2500, y:1080, height:42, sectorId:'command', kind:'beacon', encounterIndex:9, targetId:'red-vault-finale', label:'DESTROY THE WARDEN' },
+    { id:'route-09-south-a', x:2250, y:720, height:42, angle:Math.PI/2, sectorId:'command', kind:'arrow', encounterIndex:9, targetId:'red-vault-finale', label:'THE HEART' },
+    { id:'route-09-south-b', x:2250, y:960, height:42, angle:Math.PI/2, sectorId:'command', kind:'strip', encounterIndex:9, targetId:'red-vault-finale' },
+    { id:'route-09-turn', x:2450, y:1195, height:42, angle:Math.PI/2, sectorId:'boss-vault', kind:'arrow', encounterIndex:9, targetId:'red-vault-finale' },
+    { id:'route-09-beacon', x:2370, y:1380, height:42, sectorId:'boss-vault', kind:'beacon', encounterIndex:9, targetId:'red-vault-finale', label:'ENTER THE HEART' },
   ];
 
   architecture.signs.push(
@@ -1032,8 +1256,8 @@ function createRedVaultMap() {
     name: 'The Red Vault',
     description: 'Break a Dread armament foundry from its freight decks to the command core.',
     mode: 'strike', style: 'redVault', fixed: true, seed: 0x52455641,
-    width: 2800, height: 1900, ceiling: 56, roof: false,
-    worldBounds: { minX: 105, minY: 165, maxX: 2760, maxY: 1765 },
+    width: 2800, height: 1900, ceiling: 70, roof: false,
+    worldBounds: { minX: 105, minY: 165, maxX: 2800, maxY: 1850 },
     walls, terrain, architecture, assetCollision, strikeSectors, navLinks, routeGuides,
     encounters, hazards, playerSpawns, checkpointSpawns,
     botSpawn: encounters[0].spawnGroups[0].bots[0],
@@ -1042,24 +1266,27 @@ function createRedVaultMap() {
       'freight-shutter': 'closed', 'assembly-shutter': 'closed',
       'refinery-shutter': 'closed', 'command-bridge': 'closed',
       'command-bridge-raised': 'closed', 'command-breach-shutter': 'closed',
+      'vault-boss-gate': 'closed',
     },
     initialMissionState: { machinery: { crane: 'idle', conveyors: 'online', arms: 'park',
       pressure: 'stable', rotor: 'steady', hoist: 'locked', bridge: 'raised',
       core: 'dormant', crown: 'stopped' } },
     palette: {
-      sky: '#171216', ambient: '#aeb7bb', ground: '#49343a', sun: '#ffe0c5', rim: '#ff334c',
-      wall: '#302a2e', panel: '#85898c', cap: '#b8b0a9', glow: '#ff2944',
-      floorLow: '#242326', floorHigh: '#50494c', reflection: '#4b4144', reflectionGlow: '#f12a45',
-      ambientIntensity: 1.78, sunIntensity: 1.18, rimIntensity: 2.65,
+      sky: '#30282c', ambient: '#d2dadd', ground: '#766267', sun: '#ffe3c9', rim: '#ff4459',
+      wall: '#55494d', panel: '#a0a5a8', cap: '#c7bbb2', glow: '#ff354d',
+      floorLow: '#414044', floorHigh: '#766c70', reflection: '#655b60', reflectionGlow: '#f84a5f',
+      ambientIntensity: 2.55, sunIntensity: 2.45, rimIntensity: 2.25,
     },
     lightingZones: [
-      { id: 'freight', x: 120, y: 1180, width: 800, height: 580, ambient: 1.88, fog: '#413137', color: '#ffd0ad' },
-      { id: 'assembly', x: 850, y: 880, width: 1080, height: 830, ambient: 1.58, fog: '#2d171e', color: '#ff4056' },
-      { id: 'furnace', x: 240, y: 280, width: 1010, height: 750, ambient: 1.68, fog: '#4b1d12', color: '#ff6436' },
-      { id: 'shaft', x: 1200, y: 240, width: 800, height: 840, ambient: 1.42, fog: '#211319', color: '#ff3a50' },
-      { id: 'command', x: 2120, y: 160, width: 660, height: 1040, ambient: 1.52, fog: '#38121b', color: '#ff3048' },
+      { id: 'freight', x: 120, y: 1180, width: 800, height: 580, ambient: 2.5, fog: '#655155', color: '#ffd0ad' },
+      { id: 'assembly', x: 850, y: 880, width: 1080, height: 830, ambient: 2.32, fog: '#513c42', color: '#ff4056' },
+      { id: 'furnace', x: 240, y: 280, width: 1010, height: 750, ambient: 2.4, fog: '#654136', color: '#ff6436' },
+      { id: 'shaft', x: 1200, y: 240, width: 800, height: 840, ambient: 2.22, fog: '#44363b', color: '#ff3a50' },
+      { id: 'command', x: 2120, y: 160, width: 660, height: 1040, ambient: 2.38, fog: '#563840', color: '#ff3048' },
+      { id: 'boss-vault', x: 1830, y: 1220, width: 950, height: 620, ambient: 2.58, fog: '#754a53', color: '#ff5a69' },
     ],
   };
+  enlargeStrike(map);
   return { map, walls };
 }
 

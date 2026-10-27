@@ -1,5 +1,5 @@
 const { WEAPONS, DEFAULT_WEAPON_KEY, SECONDARY_WEAPON_KEY, WEAPON_SWITCH_MS,
-  sniperBloomRadians,spreadSniperAim } = require("../public/weapons");
+  weaponBloomRadians,spreadWeaponAim } = require("../public/weapons");
 const { traceShot, tracePiercingShot, rayBox } = require("./hitscan");
 const {traceShotgun}=require('./shotgun');
 const {hitsElevatorOverride}=require('./elevatorOverride');
@@ -12,7 +12,8 @@ const {playerSnapshot,playerFrame}=require('./snapshots');
 const {applyMovementInput}=require('../public/inputMovement');
 const { BOT_COMBAT, readyToShoot, recordShot } = require("./botCombat");
 const { DREAD_COMBAT, tickDreadCarbine, recordDreadShot } = require('./dreadCombat');
-const {phaseForHealth,tickWardenPressure,cancelWardenPressure}=require('./wardenCombat');
+const {phaseForHealth,tickWardenPressure,cancelWardenPressure,tickWardenImpact,
+  cancelWardenImpact}=require('./wardenCombat');
 const {GUARDIAN_COMBAT,tickGuardianBurst,launchGuardianProjectile,stepGuardianProjectile,guardianBlastDamage,guardianKnockbackSpeed}=require('./guardianCombat');
 const { perceive, chooseIntent, angleDelta, alertNearbyBots } = require('./botAwareness');
 const { recordEnemyHit, currentEnemyFear, fearRetreatGoal, enemyCanAttack } = require('./enemyReactions');
@@ -62,11 +63,24 @@ const colors = [
 
 const MAX_HEALTH = 101;
 const WEAPON_DAMAGE = {
-  pistol: 10.5,     // 1000 / 100 * 22.5  = 225
-  autoRifle: 5.75,  // 1000 / 70  * 15.75 = 225
-  sniper: 90,       // 1000 / 800 * 90    = 112.5
+  pistol: 10.5,
+  autoRifle: 10,    // 750 RPM: 125 sustained DPS before accuracy.
+  sniper: 90,
   miniGun: 4,
 };
+
+const AUTO_RIFLE_FALLOFF_START = 250;
+const AUTO_RIFLE_FALLOFF_END = 600;
+const AUTO_RIFLE_LONG_RANGE_DAMAGE = 5.75;
+
+function autoRifleDamageAtDistance(distance) {
+  const closeDamage = WEAPON_DAMAGE.autoRifle;
+  if (distance <= AUTO_RIFLE_FALLOFF_START) return closeDamage;
+  if (distance >= AUTO_RIFLE_FALLOFF_END) return AUTO_RIFLE_LONG_RANGE_DAMAGE;
+  const progress = (distance - AUTO_RIFLE_FALLOFF_START) /
+    (AUTO_RIFLE_FALLOFF_END - AUTO_RIFLE_FALLOFF_START);
+  return closeDamage + (AUTO_RIFLE_LONG_RANGE_DAMAGE - closeDamage) * progress;
+}
 
 function killCoinReward(target) {
   if(!target?.isBot)return 5;
@@ -115,7 +129,10 @@ function createGameServer(io, options = {}) {
   const cooperative=()=>gameMap.mode==='pve'||gameMap.mode==='strike'||gameMap.activity==='strike';
   const riding = () => gameMap.mode === 'pve'&&gameMap.activity!=='strike'&&['riding','opening'].includes(floorState.phase);
   const travelCabin=()=>riding()?(floorState.phase==='opening'?gameMap.arrivalElevator:gameMap.elevator):null;
-  function publishFloorState() { io.emit('floorState', { ...floorState, serverNow: Date.now() }); }
+  function publishFloorState() {
+    io.emit('floorState', { ...floorState, serverNow: Date.now() });
+    options.onFloorStateChange?.();
+  }
   function strikeReviveSnapshots() {
     return activePlayers.filter(player=>!player.isBot&&!player.alive&&player.strikeReviveBeacon)
       .map(player=>({id:`revive:${player.id}`,playerId:player.id,name:player.displayName||player.name||'ALLY',
@@ -241,6 +258,10 @@ function createGameServer(io, options = {}) {
     bind("playerUpdate", (data) => handlePlayerUpdate(socket, data));
     bind("shoot", (bulletData) => handleShoot(socket, bulletData));
     bind("switchWeapon", () => handleSwitchWeapon(socket));
+    bind('retryFloor', reply => {
+      const ok=retryWipedFloor(socket);
+      if(typeof reply==='function')reply({ok});
+    });
     bind('strikeInteractStart',aim=>handleStrikeInteractionStart(socket,aim));
     bind('strikeInteractCancel',()=>cancelStrikeInteraction(socket.id));
     bind('grenadeCharge',()=>{
@@ -596,8 +617,8 @@ function createGameServer(io, options = {}) {
       return true;
     }
     const trace=player.weapon==='sniper'?tracePiercingShot:traceShot;
-    const bloom=player.weapon==='sniper'&&!player.isBot?sniperBloomRadians(player,now):0;
-    const aim=spreadSniperAim(angle,pitch,bloom);
+    const bloom=player.isBot?0:weaponBloomRadians(player.weapon,player,now);
+    const aim=spreadWeaponAim(angle,pitch,bloom);
     const shot = trace(player, aim.angle, gameWalls, activePlayers,
       target => canDamage(player, target), aim.pitch, gameMap);
     if(bloom>0)shot.bloom=bloom;
@@ -648,6 +669,10 @@ function createGameServer(io, options = {}) {
     if (shooter && typeof WEAPON_DAMAGE[shooter.weapon] === "number") {
       damage = WEAPON_DAMAGE[shooter.weapon];
     }
+    if (shooter?.weapon === 'autoRifle') {
+      const distance = Math.hypot(target.x - shooter.x, target.y - shooter.y);
+      damage = autoRifleDamageAtDistance(distance);
+    }
     if (shooter?.weapon === 'miniGun') {
       // Keep the close/medium punch, then taper across the long-range band.
       // Up to 50: 4 HP; 150–350: 2 HP; 500: 1.25 HP; 650: 0.5 HP.
@@ -686,7 +711,11 @@ function createGameServer(io, options = {}) {
       target.alive = false;
       if(gameMap.activity==='strike'&&!target.isBot)prepareStrikeReviveBeacon(target,now);
       const death=deathDescriptor(target,payload?.origin||shooter,payload?.kind||shooter?.weapon||'pistol',gameMap,gameWalls);
-      io.emit("playerKilled", target.id,death);
+      const kill=gameMap.mode==='pvp'?{
+        killerId:shooter?.id??null,killerName:shooter?.displayName||shooter?.name||'Environment',
+        victimId:target.id,victimName:target.displayName||target.name||'Player',
+      }:null;
+      io.emit("playerKilled", target.id,death,kill);
       if(gameMap.activity==='strike'&&!target.isBot)publishStrikeState();
       if(cooperative()) {
         const pickup=makeDeathPickup(target,death,nextPickupId++,now);
@@ -804,7 +833,7 @@ function createGameServer(io, options = {}) {
   }
 
   function latePveJoinState() {
-    if(!gameInProgress.status||gameMap.mode!=='pve'||gameMap.activity==='strike')return null;
+    if(!gameInProgress.status||gameMap.mode!=='pve'||gameMap.activity==='strike'||floorState.phase==='wiped')return null;
     return {
       players:activePlayers.map(playerSnapshot),
       walls:gameWalls,
@@ -843,7 +872,16 @@ function createGameServer(io, options = {}) {
 
     const alivePlayers = activePlayers.filter((p) => p.alive);
     if (cooperative()) {
-      if (!alivePlayers.some(p => !p.isBot)) scheduleGameOver({ name: 'Bots', team: 'bots' });
+      if (!alivePlayers.some(p => !p.isBot)) {
+        if(gameMap.mode==='pve'&&gameMap.activity!=='strike') {
+          if(!activePlayers.some(p=>!p.isBot)) { resetGame([...matchParticipantIds]); return; }
+          if(floorState.phase!=='wiped') {
+            floorState={phase:'wiped',floor:gameMap.floor,startedAt:Date.now()};
+            grenades.length=0;guardianProjectiles.length=0;pickups.length=0;
+            publishFloorState();queueSnapshot();
+          }
+        } else scheduleGameOver({ name: 'Bots', team: 'bots' });
+      }
       else if(gameMap.activity==='strike') {
         if(strikeState?.phase==='combat'&&!alivePlayers.some(player=>player.isBot)&&
           !(strikeState.pendingGroupIndexes||[]).length)
@@ -866,6 +904,34 @@ function createGameServer(io, options = {}) {
     if (alivePlayers.length === 1) {
       scheduleGameOver(alivePlayers[0]);
     }
+  }
+
+  function retryWipedFloor(socket) {
+    if(!gameInProgress.status||gameMap.mode!=='pve'||gameMap.activity==='strike'||
+      floorState.phase!=='wiped'||!activePlayers.some(p=>!p.isBot&&p.id===socket.id))return false;
+    const now=Date.now();
+    const layout=createPveMap(gameMap.seed,gameMap.floor);
+    gameMap=layout.map;gameMap.platformEpoch=now;
+    gameWalls.splice(0,gameWalls.length,...layout.walls);
+    for(let i=activePlayers.length-1;i>=0;i--)if(activePlayers[i].isBot)activePlayers.splice(i,1);
+    for(const [index,player] of activePlayers.entries()) {
+      const spawn=floorSpawn(gameMap,false,index);
+      Object.assign(player,activateHumanPlayer({
+        ...player,weapon:player.primaryWeapon||player.weapon,
+        weaponSkinKey:player.primaryWeaponSkinKey||player.weaponSkinKey,
+      },spawn,now),{weaponSwapUntil:0,lastProcessedInput:undefined});
+    }
+    promoteLatePveJoiners(now);
+    grenades.length=0;guardianProjectiles.length=0;pickups.length=0;
+    clearActiveBullets(activeBullets);squadOrders.clear();
+    pveEncounterActive=false;lastRegenAt=now;
+    wallLayoutVersion++;invalidateCachedNavGrid();navigation.configure(gameMap,gameWalls);
+    createBotsForCurrentMatch(floorBotCount);
+    floorState={phase:'opening',floor:gameMap.floor,startedAt:now};
+    io.emit('floorStarting',{players:activePlayers.map(playerSnapshot),walls:gameWalls,map:gameMap,
+      state:{...floorState,serverNow:now}});
+    options.onFloorStateChange?.();
+    return true;
   }
 
   function resetGame(recipients = []) {
@@ -1785,7 +1851,8 @@ function createGameServer(io, options = {}) {
         bodyHeight: spawn.bodyHeight??(ogre ? 3.8 : guardian ? 2.6 : 2.2),
         eyeHeight: spawn.eyeHeight??(ogre ? 2.8 : guardian ? 2.4 : 1.84),
         hoverOffset: spawn.hoverOffset??(guardian ? 1.1 : undefined),
-        moveScale: spawn.moveScale??(cooperative() ? difficulty.speed*(ogre?0.7:guardian?0.82:1) : 1),
+        moveScale: spawn.moveScale??(cooperative() ? difficulty.speed*(ogre?0.7:guardian?0.82:1)*
+          (gameMap.activity==='strike'?1.12:1) : 1),
         isBot: true,
         team: 'bots',
         squad: gameMap.activity==='strike'&&Number.isSafeInteger(spawn.strikeSpawnGroupIndex)?
@@ -2308,6 +2375,13 @@ function createGameServer(io, options = {}) {
     return { moveX, moveY, aimAngle, shoot: shouldShoot };
   }
 
+  function botCanWalkTo(bot,point,now) {
+    const probe={...bot};
+    return moveOnTerrain(probe,point.x,point.y,gameMap,solids(),now)&&
+      probe.jumpStartedAt==null&&Math.hypot(probe.x-point.x,probe.y-point.y)<1&&
+      (point.height==null||Math.abs(probe.height-point.height)<.35);
+  }
+
   function computeSquadAction(bot, bots, now) {
     const humans = activePlayers.filter(p => p.alive && !p.isBot);
     const state = bot.botState;
@@ -2319,7 +2393,7 @@ function createGameServer(io, options = {}) {
       const distance=Math.hypot(p.x-bot.x,p.y-bot.y);
       const pitch=Math.atan2((p.height||0)+1.4-(bot.height||0)-(bot.eyeHeight||1.84),distance*0.05);
       return traceShot(bot,Math.atan2(p.y-bot.y,p.x-bot.x),gameWalls,[p],()=>true,pitch,gameMap).targetId===p.id;
-    }):null;
+    },gameMap.activity==='strike'?1300:650):null;
     if(target)squadOrders.set(bot.squad,{...state.lastSeen});
     const fear=currentEnemyFear(bot,now);
     if(bot.botType==='ogre' && (!fear||bot.ogreAttack?.kind==='slam') && tickOgre(bot,target,activePlayers,gameWalls,gameMap,now,
@@ -2361,12 +2435,28 @@ function createGameServer(io, options = {}) {
           state.lastSeen?.sectorId??bot.zone??bot.sectorId},requestedState=state;
       if(navigation.request(bot,requestedGoal,path=>{
         if(bot.alive&&bot.botState===requestedState){
-          let index=0,best=Infinity;
-          for(let i=0;i<Math.min(4,path.length);i++){
-            const distance=Math.hypot(path[i].x-bot.x,path[i].y-bot.y),probe={...bot};
-            if(distance<best&&distance<160&&moveOnTerrain(probe,path[i].x,path[i].y,gameMap,solids(),Date.now())&&probe.jumpStartedAt==null&&Math.abs(probe.height-(path[i].height||0))<0.3){best=distance;index=i;}
+          if(path.length) {
+            const previous=state.squadPath;
+            const goalMoved=state.pathGoal&&Math.hypot(
+              requestedGoal.x-state.pathGoal.x,requestedGoal.y-state.pathGoal.y)>96;
+            const currentIndex=state.pathIndex||0;
+            const current=previous?.[currentIndex];
+            const currentBlocked=current&&Math.hypot(current.x-bot.x,current.y-bot.y)<150&&
+              !botCanWalkTo(bot,current,Date.now());
+            // A worker result can arrive after this bot has already advanced.
+            // Keep the current route until it is stale or the target truly moved;
+            // replacing it every 1.2 seconds made bots run back to old nodes.
+            if(!previous?.length||goalMoved||currentBlocked||
+                Date.now()-(state.pathAcceptedAt||0)>5000) {
+              state.squadPath=path;
+              state.pathIndex=0;
+              state.pathGoal=requestedGoal;
+              state.pathAcceptedAt=Date.now();
+            }
+          } else if(state.mode==='idle') {
+            // An invalid wander destination should not pull the bot into a wall.
+            state.wanderUntil=0;
           }
-          state.squadPath=path;state.pathIndex=index;state.pathGoal=requestedGoal;
         }
       })){
         state.pathRequestAt=now;state.squadRepathAt=now+1200+(Number(bot.id.replace(/\D/g,''))%7)*75;
@@ -2378,25 +2468,43 @@ function createGameServer(io, options = {}) {
     const path=state.squadPath;
     if(path?.length) {
       let index=state.pathIndex||0;
-      if(index<path.length-1&&Math.hypot(path[index].x-bot.x,path[index].y-bot.y)<10) {
-        const next=path[index+1],probe={...bot};
-        if(Math.hypot(next.x-bot.x,next.y-bot.y)<160&&moveOnTerrain(probe,next.x,next.y,gameMap,solids(),now)&&probe.jumpStartedAt==null)index++;
+      while(index<path.length-1) {
+        const current=path[index],next=path[index+1];
+        const nearCurrent=Math.hypot(current.x-bot.x,current.y-bot.y)<20;
+        const nearNext=Math.hypot(next.x-bot.x,next.y-bot.y)<160;
+        if(!nearCurrent&&!nearNext)break;
+        if(!nearNext||!botCanWalkTo(bot,next,now))break;
+        index++;
       }
       state.pathIndex=index;waypoint=path[index];
-      if(index===path.length-1&&Math.hypot(waypoint.x-bot.x,waypoint.y-bot.y)<12)waypoint=goal;
+      if(index===path.length-1&&Math.hypot(waypoint.x-bot.x,waypoint.y-bot.y)<20) {
+        state.squadPath=null;
+        waypoint={x:bot.x,y:bot.y};
+      }
+    } else if(gameMap.activity==='strike') {
+      // The sector graph may have no route to an unreachable standoff or
+      // wander point. Never steer through a wall while waiting for a replan.
+      const close=Math.hypot(goal.x-bot.x,goal.y-bot.y)<160;
+      if(!close||!botCanWalkTo(bot,goal,now))waypoint={x:bot.x,y:bot.y};
     }
     let moveX = waypoint ? waypoint.x-bot.x : 0;
     let moveY = waypoint ? waypoint.y-bot.y : 0;
     const length = Math.hypot(moveX, moveY);
     if (length > 0) { moveX /= length; moveY /= length; }
     if (Math.hypot(goal.x-bot.x, goal.y-bot.y) < 20 && Math.abs((state.lastSeen?.height??bot.height??0)-(bot.height||0))<0.5) { moveX = 0; moveY = 0; }
+    let avoidX=0,avoidY=0;
     for (const other of bots) {
       if (other === bot) continue;
       const gap = Math.hypot(bot.x-other.x, bot.y-other.y);
       if (gap > 0 && gap < 48) {
-        moveX += (bot.x-other.x) / gap * (48-gap) / 24;
-        moveY += (bot.y-other.y) / gap * (48-gap) / 24;
+        avoidX += (bot.x-other.x) / gap * (48-gap) / 48;
+        avoidY += (bot.y-other.y) / gap * (48-gap) / 48;
       }
+    }
+    const avoidLength=Math.hypot(avoidX,avoidY);
+    if(avoidLength>0) {
+      const scale=Math.min(0.45,avoidLength)/avoidLength;
+      moveX+=avoidX*scale;moveY+=avoidY*scale;
     }
     const facing=target?yaw+(state.aimOffset||0):Math.hypot(moveX,moveY)>0.05?
       Math.atan2(moveY,moveX):bot.angle+Math.sin(now/800)*0.035;
@@ -2612,6 +2720,7 @@ function createGameServer(io, options = {}) {
 
   function strikeWeaponDamage(shooter,distance) {
     let damage=WEAPON_DAMAGE[shooter?.weapon]??WEAPON_DAMAGE.pistol;
+    if(shooter?.weapon==='autoRifle')damage=autoRifleDamageAtDistance(distance);
     if(shooter?.weapon==='miniGun')damage=distance<=150
       ? damage-Math.max(0,distance-50)*((damage-2)/100)
       : distance<=350?2:distance<=650?2-(distance-350)*(1.5/300):
@@ -3232,12 +3341,16 @@ function createGameServer(io, options = {}) {
 
   function enterWardenPhase(boss,phaseNumber,now,{initial=false}={}) {
     const definition=wardenPhaseDefinition(boss,phaseNumber),state=boss.botState||(boss.botState={});
-    if(!initial)cancelWardenPressure(boss,now,payload=>emitWardenAttackState(boss,payload));
+    if(!initial){
+      cancelWardenPressure(boss,now,payload=>emitWardenAttackState(boss,payload));
+      cancelWardenImpact(boss,now,payload=>emitWardenAttackState(boss,payload));
+    }
     boss.dreadAttack=null;boss.wardenPhase=phaseNumber;
     boss.moveScale=(boss.baseMoveScale??boss.moveScale??1)*
       Math.max(.75,Math.min(1.5,Number(definition.moveScale)||1));
     state.dreadReadyAt=Math.max(state.dreadReadyAt||0,now+Math.max(0,Number(definition.entryDelayMs)||0));
     state.wardenPressureReadyAt=now+Math.max(0,Number(definition.pressure?.entryDelayMs)||0);
+    state.wardenImpactReadyAt=now+Math.max(0,Number(definition.impact?.entryDelayMs)||0);
     state.wardenReinforcementsSpawned=false;
     applyStrikeAuthoredState(definition.stateChanges||definition.machinery);
     if(phaseNumber===3)spawnWardenReinforcements(boss,definition,now);
@@ -3255,7 +3368,7 @@ function createGameServer(io, options = {}) {
 
   function tickWardenCombat(boss,target,humans,now) {
     const definition=wardenPhaseDefinition(boss),visible=!!target;
-    return tickWardenPressure(boss,target,humans,definition,now,{visible,
+    const pressure=tickWardenPressure(boss,target,humans,definition,now,{visible:visible&&!boss.wardenImpact,
       canHit:(player,origin)=>wardenPressureHasLineOfSight(boss,player,origin),
       impact:(player,damage,knockback,origin,angle)=>{
         handlePlayerHit({targetId:player.id,shooterId:boss.id,kind:'wardenPressure',origin},damage);
@@ -3263,6 +3376,19 @@ function createGameServer(io, options = {}) {
         player.movementEpoch=(player.movementEpoch||0)+1;
         addKnockbackImpulse(player,Math.cos(angle)*knockback,Math.sin(angle)*knockback,now,
           'wardenPressure',{deceleration:520,maxSpeed:420});
+      },
+      emit:payload=>emitWardenAttackState(boss,payload),
+    });
+    if(pressure.suppressFire)return pressure;
+    return tickWardenImpact(boss,target,humans,definition,now,{visible,
+      canHit:(player,origin)=>wardenPressureHasLineOfSight(boss,player,origin),
+      impact:(player,damage,knockback,origin)=>{
+        handlePlayerHit({targetId:player.id,shooterId:boss.id,kind:'wardenImpact',origin},damage);
+        if(!player.alive)return;
+        const angle=Math.atan2(player.y-origin.y,player.x-origin.x);
+        player.movementEpoch=(player.movementEpoch||0)+1;
+        addKnockbackImpulse(player,Math.cos(angle)*knockback,Math.sin(angle)*knockback,now,
+          'wardenImpact',{deceleration:520,maxSpeed:420});
       },
       emit:payload=>emitWardenAttackState(boss,payload),
     });
@@ -3279,7 +3405,10 @@ function createGameServer(io, options = {}) {
       const authored=(encounter?.wardenPhases||encounter?.bossPhases)?.[combatPhase-1];
       if(!authored)applyStrikeAuthoredState(encounter?.stateChanges?.[`wardenPhase${combatPhase}`]);
     }
-    if(defeated)cancelWardenPressure(boss,now,payload=>emitWardenAttackState(boss,payload),'defeated');
+    if(defeated){
+      cancelWardenPressure(boss,now,payload=>emitWardenAttackState(boss,payload),'defeated');
+      cancelWardenImpact(boss,now,payload=>emitWardenAttackState(boss,payload),'defeated');
+    }
     const coreState=defeated?'rupture':boss.wardenAttack?.phase==='charge'?'pressure-charge':
       boss.wardenAttack?.phase==='sweep'?'pressure-release':combatPhase===1?'warden-guarded':
         combatPhase===2?'warden-venting':'warden-enraged';
@@ -3742,6 +3871,7 @@ function createGameServer(io, options = {}) {
 
   function runBotsTick() {
     if (!gameInProgress.status || gameOverTimeout) return;
+    if(floorState.phase==='wiped')return;
     if (!Array.isArray(activePlayers) || activePlayers.length === 0) return;
     const jumpNow = Date.now();
     navigation.beginTick();

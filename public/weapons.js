@@ -20,6 +20,7 @@ const WEAPONS = {
     bulletSpeed: 11.5,
     bulletRadius: 5,
     cooldownMs: 75,
+    bloom: {baseRadians:0,movingRadians:0.012,airborneRadians:0.022,settleMs:180},
     automatic: false,
   },
   autoRifle: {
@@ -29,7 +30,10 @@ const WEAPONS = {
     weaponLength: 40,
     bulletSpeed: 12,
     bulletRadius: 4,
-    cooldownMs: 70,
+    // A dependable mid-range primary: less burst than the shotgun and less
+    // close-range output than the minigun, but immediately ready and steady.
+    cooldownMs: 80,
+    bloom: {baseRadians:0,movingRadians:0.019,airborneRadians:0.032,settleMs:240},
     automatic: true,
   },
   miniGun: {
@@ -44,6 +48,7 @@ const WEAPONS = {
     spinUpMs: 200,
     triggerReleaseMs: 150,
     cooldownMs: 16,
+    bloom: {baseRadians:0.018,movingRadians:0.042,airborneRadians:0.058,settleMs:280},
     automatic: true,
   },
   sniper: {
@@ -63,16 +68,20 @@ const WEAPONS = {
   },
 };
 
-function sniperBloomRadians(player, now) {
-  const bloom=WEAPONS.sniper.bloom;
-  if(!player)return 0;
+function weaponBloomRadians(weapon,player,now) {
+  const bloom=WEAPONS[weapon]?.bloom;
+  if(!player||!bloom)return 0;
   if(player.knockback||player.jumpStartedAt!=null||
     (player.height||0)>(player.groundHeight||0)+0.05)return bloom.airborneRadians;
   const elapsed=now-(player.lastMovementAt??-Infinity);
-  return bloom.movingRadians*Math.max(0,Math.min(1,1-elapsed/bloom.settleMs));
+  const moving=Math.max(0,Math.min(1,1-elapsed/bloom.settleMs));
+  const base=bloom.baseRadians||0;
+  return base+(bloom.movingRadians-base)*moving;
 }
 
-function spreadSniperAim(angle,pitch,spread,random=Math.random) {
+const sniperBloomRadians=(player,now)=>weaponBloomRadians('sniper',player,now);
+
+function spreadWeaponAim(angle,pitch,spread,random=Math.random) {
   if(!(spread>0))return {angle,pitch};
   const radius=spread*Math.sqrt(Math.max(0,Math.min(1,random())));
   const theta=random()*Math.PI*2;
@@ -81,6 +90,7 @@ function spreadSniperAim(angle,pitch,spread,random=Math.random) {
     pitch:Math.max(-1.35,Math.min(1.35,pitch+Math.sin(theta)*radius)),
   };
 }
+const spreadSniperAim=spreadWeaponAim;
 
 function sniperBloomPixels(spread,height,fovDegrees=68) {
   const projection=Math.max(1,height)/(2*Math.tan(fovDegrees*Math.PI/360));
@@ -95,5 +105,5 @@ const WEAPON_SWITCH_MS = 360;
 // Node (server) export
 if (typeof module !== "undefined" && module.exports) {
   module.exports = { WEAPONS, DEFAULT_WEAPON_KEY, SECONDARY_WEAPON_KEY, WEAPON_SWITCH_MS,
-    sniperBloomRadians,spreadSniperAim,sniperBloomPixels };
+    weaponBloomRadians,spreadWeaponAim,sniperBloomRadians,spreadSniperAim,sniperBloomPixels };
 }

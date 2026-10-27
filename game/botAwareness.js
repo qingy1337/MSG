@@ -2,14 +2,15 @@ const angleDelta = (a,b) => Math.atan2(Math.sin(a-b),Math.cos(a-b));
 
 // Perception and discrete damage reports may observe enemy positions. Navigation receives
 // a copied observation, never a reference that follows an occluded player.
-function perceive(bot, humans, now, lineOfSight) {
+function perceive(bot, humans, now, lineOfSight, sightRange=650) {
   const visible=humans.filter(p=>p.alive && !p.isBot &&
-    Math.hypot(p.x-bot.x,p.y-bot.y)<650 &&
+    Math.hypot(p.x-bot.x,p.y-bot.y)<sightRange &&
     Math.abs(angleDelta(Math.atan2(p.y-bot.y,p.x-bot.x),bot.angle))<Math.PI/3 &&
     lineOfSight(p));
   visible.sort((a,b)=>Math.hypot(a.x-bot.x,a.y-bot.y)-Math.hypot(b.x-bot.x,b.y-bot.y));
   const target=visible.find(p=>p.id===bot.botState.lastSeen?.id)||visible[0];
-  if(target)bot.botState.lastSeen={id:target.id,x:target.x,y:target.y,height:target.height||0,seenAt:now};
+  if(target)bot.botState.lastSeen={id:target.id,x:target.x,y:target.y,height:target.height||0,
+    zone:target.zone??target.sectorId,seenAt:now};
   return target || null;
 }
 
@@ -77,7 +78,8 @@ function alertNearbyBots(victim, source, bots, now, killed=false) {
   const bearing=Math.atan2(victim.y-source.y,victim.x-source.x);
   nearby.forEach((bot,index)=>{
     const state=bot.botState||(bot.botState={});
-    state.lastSeen={id:source.id,x:source.x,y:source.y,height:source.height||0,seenAt:now};
+    state.lastSeen={id:source.id,x:source.x,y:source.y,height:source.height||0,
+      zone:source.zone??source.sectorId,seenAt:now};
     if(state.response?.id!==source.id || now>=state.response.until) {
       state.response={id:source.id,bearing,offset:[0,-1.15,1.15][index%3],until:now+10000};
       state.squadPath=null;state.squadRepathAt=0;

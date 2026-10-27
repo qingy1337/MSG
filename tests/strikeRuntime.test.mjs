@@ -3,6 +3,28 @@ import assert from 'node:assert/strict';
 import server from '../game/gameServer.js';
 import strikeMaps from '../public/strikeMap.js';
 import lobbyModule from '../game/lobbyServer.js';
+import wardenCombat from '../game/wardenCombat.js';
+
+test('Warden targeted bursts warn before impact, can be dodged, and repeat by phase',()=>{
+  const events=[],hits=[];
+  const bot={id:'warden',wardenPhase:2,botState:{}},target={id:'player',x:100,y:0,height:0,alive:true};
+  const definition={impact:{windupMs:900,intervalMs:350,count:2,cooldownMs:2200,
+    radius:80,heightTolerance:5,damage:30,knockback:170}};
+  const tick=now=>wardenCombat.tickWardenImpact(bot,target,[target],definition,now,{
+    visible:true,canHit:()=>true,impact:(player,damage)=>hits.push({id:player.id,damage}),
+    emit:event=>events.push(event)});
+  assert.equal(tick(1000).active,true);
+  assert.equal(events[0].event,'start');assert.equal(events[0].originX,100);
+  target.x=220;
+  tick(1899);assert.equal(hits.length,0);
+  tick(1900);assert.equal(hits.length,0,'the first locked mark can be dodged');
+  assert.equal(events.filter(event=>event.event==='start').length,2);
+  assert.equal(events.at(-1).originX,220,'the second mark acquires a fresh position');
+  tick(3150);
+  assert.deepEqual(hits,[{id:'player',damage:30}]);
+  assert.equal(bot.wardenImpact,null);
+  assert.equal(bot.botState.wardenImpactReadyAt,5350);
+});
 
 function fakeIo() {
   const events=[];
@@ -410,7 +432,7 @@ test('the Warden runs authored carbine, LOS pressure, and bounded overdrive phas
     assert.equal(game.strikeState.bossCombatPhase,3);
     assert.equal(game.strikeState.machineryState.core.state,'warden-enraged');
     assert.equal(game.strikeState.machineryState.crown.state,'overdrive');
-    assert.equal(boss.moveScale,1.25);
+    assert.ok(Math.abs(boss.moveScale-1.4)<1e-9);
     const redguard=game.activePlayers.filter(value=>value.alive&&value.botType==='dread');
     assert.equal(redguard.length,3,'phase-three reinforcements obey the hard cap');
     assert.equal(game.strikeState.wardenReinforcementCount,3);
@@ -437,11 +459,11 @@ test('all ten authored Red Vault encounters and all three finale phases advance 
     assert.equal(finale.spawnGroups.filter(group=>group.phase===3)[0]?.bots?.length,1,
       'the encounter wave owns one boss; its health phases own bounded additions');
     assert.equal(finale.wardenPhases[0].carbine.burstShots,3);
-    assert.equal(finale.wardenPhases[1].pressure.sourceId,'red-vault-core');
+    assert.equal(finale.wardenPhases[1].pressure.sourceId,'vault-boss-heart');
     assert.equal(finale.wardenPhases[2].pressure.direction,-1);
     assert.ok(finale.wardenPhases[2].reinforcements.bots.length<=3);
     const encountered=[],firstCombatPass=new Set();let interactionCancelTested=false,guard=0;
-    while(!game.strikeState.complete&&guard++<120) {
+    while(!game.strikeState.complete&&guard++<180) {
       const encounter=game.gameMap.encounters[game.strikeState.encounterIndex];
       assert.ok(encounter,`encounter ${game.strikeState.encounterIndex} exists`);
       if(encountered.at(-1)!==encounter.id)encountered.push(encounter.id);
@@ -460,6 +482,11 @@ test('all ten authored Red Vault encounters and all three finale phases advance 
           assert.equal(alive.length,expected,`${encounter.id} phase ${game.strikeState.encounterPhase} spawns every authored bot`);
           assert.ok(alive.every(bot=>Number.isFinite(bot.health)&&bot.health>0&&bot.maxHealth===bot.health),
             `${encounter.id} initializes finite authoritative enemy health`);
+          for(const bot of alive) {
+            const restored={soldier:100,dread:220,ogre:360,guardian:420,warden:1150};
+            assert.equal(bot.maxHealth,restored[bot.botType],
+              `${encounter.id} uses the earlier enemy health so difficulty comes from numbers`);
+          }
         }
         assert.equal(alive.length+(pending.length?1:0)>0,true,
           `${encounter.id} has an active or scheduled authored wave`);
@@ -543,12 +570,12 @@ test('all ten authored Red Vault encounters and all three finale phases advance 
         assert.equal(boss.maxHealth,1150);
       }
     }
-    assert.ok(guard<120,'the authored Strike cannot deadlock');
+    assert.ok(guard<180,`the authored Strike cannot deadlock at ${game.strikeState.encounterId} / ${game.strikeState.phase}; phase ${game.strikeState.encounterPhase}, pending ${game.strikeState.pendingGroupIndexes}, alive ${game.activePlayers.filter(value=>value.isBot&&value.alive).length}`);
     assert.deepEqual(encountered,game.gameMap.encounters.map(value=>value.id));
     assert.equal(game.strikeState.complete,true);
     assert.equal(game.strikeState.checkpointIndex,9);
     for(const id of ['freight-shutter','assembly-shutter','refinery-shutter','command-bridge',
-      'command-bridge-raised','command-breach-shutter'])assert.ok(game.strikeState.openedIds.includes(id),id);
+      'command-bridge-raised','command-breach-shutter','vault-boss-gate'])assert.ok(game.strikeState.openedIds.includes(id),id);
     assert.equal(game.strikeState.machineryState.core,'collapsed');
     assert.equal(game.strikeState.machineryState.crown,'stopped');
   } finally {game.close();}

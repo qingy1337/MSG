@@ -3,6 +3,24 @@
 ## 3D arena
 
 Run `npm install` and `npm start`, then open `http://localhost:3001`.
+The server honors `PORT`, so `PORT=3005 npm start` serves the app on port 3005.
+
+### Separate test instance
+
+Set an admin password and run `TEST_ADMIN_PASSWORD='your-password' npm run start:test`.
+The test app listens on port 3002 by default (`PORT` can override it), uses
+`data/test/users.json`, and sets a separate browser login cookie. It has one
+account, `qing`, with every weapon skin unlocked; registration is disabled.
+Set `AUTH_SECRET` to a stable private value for a deployed test instance so
+logins remain valid after a restart. Without it, the test command generates a
+new secret each time it starts.
+
+For a live app and test app running together, use separate checkouts or Git
+worktrees and run one server from each. Both servers serve client files from
+their own checkout; two ports in one checkout would still share those files.
+Keep each instance's `DATA_DIR` separate. `AUTH_COOKIE_NAME` is independently
+configurable if the two instances share a hostname.
+
 Sign in to reach the command deck. The authenticated username is also the in-game
 name; there is no separate display-name prompt. The home screen shows the saved
 primary loadout (with the pistol as its fixed secondary), the Armory, PvP and

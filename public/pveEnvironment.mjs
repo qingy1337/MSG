@@ -55,7 +55,7 @@ export function createTerrainModel(s) {
     for(let i=0;i<count;i++){
       const t=(i+.5)/count;
       box(alongX?0.08:w-.18,0.035,alongX?d-.18:0.08,
-        alongX?w*t:w/2,-.025,alongX?d/2:d*t,vault?(i%2?light:panel):(i%3===1?light:panel));
+        alongX?w*t:w/2,-.025,alongX?d/2:d*t,vault?(i===Math.floor(count/2)?light:panel):(i%3===1?light:panel));
     }
   } else if(s.kind==='lift') {
     const temple=s.style==='temple';
@@ -82,28 +82,27 @@ export function createTerrainModel(s) {
     const base=(x,z)=>s.axis?(s.bottom||0)+s.rise*(s.reverse?1-(s.axis==='y'?z/d:x/w):(s.axis==='y'?z/d:x/w)):(s.liftId?0:s.bottom||0);
     if(s.style==='redVault') {
       const alongX=w>d,length=alongX?w:d,minor=alongX?d:w;
-      const shell=material('#211e21',.78),inset=material('#353238',.72),edge=material('#aaa6a0',.86);
-      const red=material('#96182a',.76),glow=new THREE.MeshStandardMaterial({color:'#43050d',emissive:'#ff1737',
-        emissiveIntensity:2.7,roughness:.28,metalness:.35,toneMapped:false});
+      const shell=material('#292d30',.78),inset=material('#555b5e',.66),edge=material('#9da4a6',.82);
+      const glow=new THREE.MeshStandardMaterial({color:'#842030',emissive:'#e6344b',
+        emissiveIntensity:1.35,roughness:.3,metalness:.4,toneMapped:false});
       const centerBase=base(w/2,d/2),railHeight=Math.max(.4,h),rise=s.axis?(s.reverse?-s.rise:s.rise):0;
       const follow=mesh=>{if(!s.axis)return mesh;if(alongX)mesh.rotation.z=Math.atan2(rise,length);
         else mesh.rotation.x=-Math.atan2(rise,length);return mesh;};
-      // These stacked bands fill the same narrow prism as collision: black
-      // lower armor, inset red panel, luminous datum line, and a silver cap.
-      follow(box(alongX?Math.hypot(length,rise):minor,.22,alongX?minor:Math.hypot(length,rise),
-        w/2,centerBase+.11,d/2,shell,.015));
-      follow(box(alongX?Math.hypot(length,rise)-.03:minor-.015,.42,
-        alongX?minor-.015:Math.hypot(length,rise)-.03,w/2,centerBase+.43,d/2,inset,.012));
-      follow(box(alongX?Math.hypot(length,rise)-.02:minor+.015,.10,
-        alongX?minor+.015:Math.hypot(length,rise)-.02,w/2,centerBase+.61,d/2,red,.01));
-      follow(box(alongX?Math.hypot(length,rise)-.08:minor+.025,.035,
-        alongX?minor+.025:Math.hypot(length,rise)-.08,w/2,centerBase+.665,d/2,glow,.006));
-      follow(box(alongX?Math.hypot(length,rise):minor+.035,.22,
-        alongX?minor+.035:Math.hypot(length,rise),w/2,centerBase+railHeight-.11,d/2,edge,.018));
-      for(let i=0,n=Math.max(2,Math.ceil(length/1.55));i<=n;i++) {
+      // A restrained four-part assembly: dark curb, one neutral infill,
+      // hairline red datum, and a silver cap. Sparse supports keep long runs
+      // reading as a single manufactured object rather than stacked trim.
+      follow(box(alongX?Math.hypot(length,rise):minor,.18,alongX?minor:Math.hypot(length,rise),
+        w/2,centerBase+.09,d/2,shell,.015));
+      follow(box(alongX?Math.hypot(length,rise)-.06:minor-.02,.46,
+        alongX?minor-.02:Math.hypot(length,rise)-.06,w/2,centerBase+.39,d/2,inset,.012));
+      follow(box(alongX?Math.hypot(length,rise)-.10:minor+.012,.035,
+        alongX?minor+.012:Math.hypot(length,rise)-.10,w/2,centerBase+.58,d/2,glow,.006));
+      follow(box(alongX?Math.hypot(length,rise):minor+.025,.12,
+        alongX?minor+.025:Math.hypot(length,rise),w/2,centerBase+railHeight-.06,d/2,edge,.018));
+      for(let i=0,n=Math.max(1,Math.ceil(length/2.6));i<=n;i++) {
         const t=i/n,x=alongX?length*t:w/2,z=alongX?d/2:length*t;
-        box(alongX?.105:minor+.04,railHeight-.05,alongX?minor+.04:.105,
-          x,base(x,z)+(railHeight-.05)/2,z,edge,.012);
+        box(alongX?.09:minor+.025,railHeight-.08,alongX?minor+.025:.09,
+          x,base(x,z)+(railHeight-.08)/2,z,edge,.012);
       }
       group.name='red-vault-guard';return group;
     }
@@ -638,10 +637,8 @@ export function createTerrainModel(s) {
   } else if(s.kind==='airportMarketIsland') {
     const stone=material('#d8d4c8',.16),wood=material('#9a724c',.28),soil=material('#33443b',.03);
     const leaf=material('#3f7359',.02),lightLeaf=material('#6b9670',.02),metal=material('#64737a',.72);
-    const lamp=new THREE.MeshStandardMaterial({color:'#fff0cf',emissive:'#ffc969',emissiveIntensity:1.35,
-      roughness:.28,metalness:.06,toneMapped:false});
-    // One continuous plinth makes the capsule collider visually honest. Seats,
-    // planting beds, tables, and charging rails are integrated into that base.
+    // One continuous plinth makes the capsule collider visually honest. Seats
+    // and planting flank the central screen without filling the walking lanes.
     box(w,.28,d*.78,w/2,.14,d/2,stone,.14);
     for(const side of [-1,1]) {
       const z=d/2+side*d*.31;
@@ -659,14 +656,31 @@ export function createTerrainModel(s) {
         crown.scale.set(1.55,.62,1);
       }
     }
-    for(const x of [w*.35,w*.50,w*.65]) {
-      box(w*.11,.10,d*.42,x,.77,d/2,wood,.065);
-      box(.11,.52,.11,x,.51,d/2,metal,.025);
-      box(w*.075,.035,.12,x,.86,d*.29,metal,.012);
-      for(const offset of [-.18,.18])
-        add(new THREE.CylinderGeometry(.06,.075,.10,9),offset>0?lamp:material('#73a8b7',.18),x+offset,.91,d*.29);
-    }
     group.name='terminal-market-island';
+  } else if(s.kind==='airportMarketScreen') {
+    const base=material('#67706b',.22),frame=material('#526a70',.58),panel=material('#376e73',.16);
+    const inset=material('#7fa6a2',.28),leaf=material('#558467',.04);
+    const light=new THREE.MeshStandardMaterial({color:'#d6f8e9',emissive:'#75dbba',emissiveIntensity:1.1,
+      roughness:.35,metalness:.06,toneMapped:false});
+    // The base descends to floor level through the existing market plinth.
+    // Above it, one continuous planted acoustic screen is the island's clear
+    // visual and physical sightline break, replacing three loose tables.
+    const foundation=s.bottom||0;
+    box(w,foundation+.08,d,w/2,-foundation/2+.04,d/2,base);
+    box(w-.10,h-.08,d*.72,w/2,h/2+.02,d/2,panel);
+    box(w,.12,d,w/2,h-.03,d/2,frame);
+    const bays=6;
+    for(let i=1;i<bays;i++)box(.045,h-.18,d*.84,w*i/bays,h/2+.02,d/2,frame);
+    for(let i=0;i<bays;i++) {
+      const cx=w*(i+.5)/bays;
+      box(w/bays-.20,.20,.035,cx,.25,-.015,inset);
+      box(w/bays-.20,.11,.035,cx,h-.29,-.015,light);
+      for(let stem=0;stem<3;stem++) {
+        const sx=cx+(stem-1)*(w/bays)*.19;
+        beam([sx,.11,d+.02],[sx+(stem-1)*.045,.55+(i%2)*.10,d+.02],.026,leaf,6,.014);
+      }
+    }
+    group.name='terminal-market-screen';
   } else if(s.kind==='airportShopRoof') {
     const colors={coffee:'#49382f',bakery:'#77504b',books:'#304f68',travel:'#34434d',
       restaurant:'#713f35',noodles:'#6c352f'};
@@ -902,11 +916,12 @@ export function createTerrainModel(s) {
   } else if(s.kind==='airportScanner') {
     const shell=material('#d9dde0',.52),edge=material('#596872',.72),belt=material('#2f3b43',.8);
     const scan=new THREE.MeshStandardMaterial({color:'#a9e9fb',emissive:'#3ca5ca',emissiveIntensity:1.35,
-      roughness:.2,metalness:.15,toneMapped:false});
+      roughness:.2,metalness:.15,transparent:true,opacity:.38,depthWrite:false,
+      side:THREE.DoubleSide,toneMapped:false});
     const archX=w*.30,archW=w*.50;
     box(archW*.18,h,d*.72,archX-archW*.40,h/2,d/2,shell);
     box(archW*.18,h,d*.72,archX+archW*.40,h/2,d/2,shell);
-    box(archW,h*.18,d*.72,archX,h*.91,d/2,shell);
+    box(archW,h*.07,d*.72,archX,h*.965,d/2,shell);
     box(archW*.62,h*.60,.035,archX,h*.50,d*.12,scan,.015);
     box(w*.38,.58,d*.62,w*.80,.29,d/2,edge);
     box(w*.38,.09,d*.52,w*.80,.61,d/2,belt,.018);
@@ -1089,16 +1104,20 @@ export function createTerrainModel(s) {
     box(w*.35,.04,d*.36,w*.66,h+.018,d*.52,edge,.01);
   } else if(s.kind==='catwalk') {
     if(s.style==='redVault') {
-      const shell=material('#211e21',.76),deck=material('#39383b',.78),edge=material('#b1aaa2',.82);
-      const grate=material('#55565a',.83),red=material('#9d1a2d',.75),black=material('#101217',.88);
+      const shell=material('#292d30',.78),deck=material('#4c5255',.72),edge=material('#959c9e',.82);
+      const seam=material('#34393c',.82),red=material('#a92739',.72),black=material('#1d2124',.86);
       box(w,Math.max(.04,h-.045),d,w/2,Math.max(.04,h-.045)/2,d/2,shell);
       box(w-.035,.035,d-.035,w/2,h-.018,d/2,deck,.012);
-      const alongX=w>=d,length=alongX?w:d,count=Math.max(4,Math.ceil(length/1.05));
+      const alongX=w>=d,length=alongX?w:d,count=Math.max(2,Math.ceil(length/2.4));
       for(let i=1;i<count;i++) {
         const at=length*i/count;
-        box(alongX?.04:w-.12,.018,alongX?d-.12:.04,
-          alongX?at:w/2,h+.012,alongX?d/2:at,i%4===0?red:grate,.004);
+        box(alongX?.025:w-.18,.012,alongX?d-.18:.025,
+          alongX?at:w/2,h+.009,alongX?d/2:at,seam,.004);
       }
+      // Two continuous edge datums replace the old alternating red grate
+      // marks, giving the whole control spine one readable visual direction.
+      if(alongX)for(const z of [.15,d-.15])box(w-.20,.026,.035,w/2,h+.015,z,red,.005);
+      else for(const x of [.15,w-.15])box(.035,.026,d-.20,x,h+.015,d/2,red,.005);
       if(alongX)for(const z of [.10,d-.10]) {
         box(w-.06,.22,.16,w/2,-.07,z,black,.018);
         box(w-.08,.10,.19,w/2,h-.18,z,edge,.012);
@@ -1213,16 +1232,24 @@ export function createTerrainModel(s) {
     const hook=add(new THREE.TorusGeometry(0.16,0.045,6,14,Math.PI*1.45),black,w*0.58,-2.16,d/2);
     hook.rotation.z=Math.PI;
   } else if(s.kind==='vaultColumn') {
-    const shell=material('#211e21',.82),edge=material('#aaa6a0',.9),red=material('#891626',.78),black=material('#0d1014',.9);
+    const shell=material('#353a3d',.8),edge=material('#969d9f',.86),black=material('#202427',.86);
+    const red=new THREE.MeshStandardMaterial({color:'#7d1d2b',emissive:'#dc3046',emissiveIntensity:1.1,
+      metalness:.48,roughness:.3,toneMapped:false});
     const radius=Math.min(w,d)*.4,cx=w/2,cz=d/2;
-    add(new THREE.CylinderGeometry(radius,radius,Math.max(.1,h-.36),12),shell,cx,h/2,cz);
-    for(const y of [.16,h*.48,h-.18])
-      add(new THREE.CylinderGeometry(radius+.07,radius+.07,.18,12),y===h*.48?red:edge,cx,y,cz);
-    for(let i=0;i<4;i++) {
-      const a=Math.PI/4+i*Math.PI/2,x=cx+Math.cos(a)*(radius+.025),z=cz+Math.sin(a)*(radius+.025);
-      box(.09,Math.max(.12,h-.55),.09,x,h/2,z,black,.015);
-    }
+    add(new THREE.CylinderGeometry(radius,radius,Math.max(.1,h-.34),12),shell,cx,h/2,cz);
+    add(new THREE.CylinderGeometry(radius+.07,radius+.09,.22,12),black,cx,.11,cz);
+    add(new THREE.CylinderGeometry(radius+.07,radius+.07,.18,12),edge,cx,h-.09,cz);
+    add(new THREE.CylinderGeometry(radius+.035,radius+.035,.055,12),red,cx,h*.62,cz);
     group.name='red-vault-column';
+  } else if(s.kind==='vaultBarrier') {
+    const shell=material('#303538',.8),face=material('#596064',.68),edge=material('#9ba1a3',.8);
+    const red=new THREE.MeshStandardMaterial({color:'#842030',emissive:'#df334a',emissiveIntensity:1.05,
+      metalness:.42,roughness:.3,toneMapped:false});
+    box(w,h-.12,d,w/2,(h-.12)/2,d/2,shell,.055);
+    box(w-.14,h*.46,d+.012,w/2,h*.52,-.006,face,.035);
+    box(w-.22,.035,d+.025,w/2,h*.64,-.014,red,.006);
+    box(w,.12,d,w/2,h-.06,d/2,edge,.035);
+    group.name='red-vault-barrier';
   } else if (s.kind === 'pillar' || s.kind === 'generator') {
     // Solid bevelled silhouettes keep the render and rectangular collider in
     // agreement. All trim sits inside the footprint and clear of other faces.

@@ -309,19 +309,29 @@ class NavigationGraph {
     return[...this.sectors].sort((a,b)=>this.distanceToSector(point,a)-this.distanceToSector(point,b)).slice(0,2);
   }
 
-  sectorCandidates(point,requireAccess,accessFromNode=false) {
+  sectorCandidates(point,requireAccess,accessFromNode=false,limit=8) {
     const ids=this.sectorsForPoint(point).flatMap(sector=>this.nodesBySector.get(sector.id)||[]);
-    return ids.map(id=>({id,node:this.nodes[id]})).sort((a,b)=>{
+    const ranked=ids.map(id=>({id,node:this.nodes[id]})).sort((a,b)=>{
       const score=candidate=>Math.hypot(candidate.x-point.x,candidate.y-point.y)+
         Math.abs(candidate.height-(point.height??0))*20;
       return score(a.node)-score(b.node);
-    }).filter(candidate=>!requireAccess||
-      (accessFromNode?this.clear(candidate.node,point):this.clear(point,candidate.node)));
+    });
+    if(!requireAccess)return ranked.slice(0,limit);
+    // A search only seeds the closest few reachable nodes. Testing every node
+    // in a large Strike sector made each bot repath sweep hundreds of full
+    // collision segments before A* even began.
+    const accessible=[];
+    for(const candidate of ranked) {
+      if(accessFromNode?this.clear(candidate.node,point):this.clear(point,candidate.node))
+        accessible.push(candidate);
+      if(accessible.length>=limit)break;
+    }
+    return accessible;
   }
 
   nearest(point,requireAccess=true,accessFromNode=false) {
     if(!this.sectorMode)return this.legacyNearest(point,requireAccess);
-    return this.sectorCandidates(point,requireAccess,accessFromNode)[0]?.id??-1;
+    return this.sectorCandidates(point,requireAccess,accessFromNode,1)[0]?.id??-1;
   }
 
   sectorEdge(id,next) {
@@ -349,8 +359,12 @@ class NavigationGraph {
   }
 
   findSector(start,goal) {
-    const starts=this.sectorCandidates(start,true,false).slice(0,8);
-    const goals=this.sectorCandidates(goal,true,true).slice(0,8);
+    const startSector=start.zone??start.sector??start.sectorId;
+    const goalSector=goal.zone??goal.sector??goal.sectorId;
+    if(startSector&&startSector===goalSector&&this.clear(start,goal))
+      return [start,goal];
+    const starts=this.sectorCandidates(start,true,false);
+    const goals=this.sectorCandidates(goal,true,true);
     if(!starts.length||!goals.length)return[];
     const goalSet=new Set(goals.map(candidate=>candidate.id)),count=this.nodes.length;
     const costs=new Float64Array(count).fill(Infinity),parents=new Int32Array(count).fill(-1);
@@ -360,12 +374,16 @@ class NavigationGraph {
         Math.abs(node.height-candidate.node.height)*20);
       return best/Math.max(8,this.sectorSizes.get(node.sector)||48);
     };
-    for(const candidate of starts){costs[candidate.id]=0;heap.push({id:candidate.id,f:heuristic(candidate.id)});}
+    for(const candidate of starts){
+      const entry=Math.hypot(start.x-candidate.node.x,start.y-candidate.node.y)+
+        Math.abs((start.height??0)-candidate.node.height)*20;
+      costs[candidate.id]=entry;heap.push({id:candidate.id,f:entry+heuristic(candidate.id)});
+    }
     while(heap.items.length) {
       const {id}=heap.pop();if(closed[id])continue;closed[id]=1;
       if(goalSet.has(id)) {
         const path=[];for(let cursor=id;cursor!==-1;cursor=parents[cursor])path.push(this.nodes[cursor]);
-        path.reverse();return this.smooth(path);
+        path.reverse();return this.smooth([start,...path,goal]);
       }
       for(const next of this.adjacency[id]) {
         if(closed[next]||!this.sectorEdge(id,next))continue;

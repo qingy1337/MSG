@@ -79,6 +79,61 @@ function cancelWardenPressure(bot,now,emit=()=>{},reason='phase-change') {
   return true;
 }
 
+function cancelWardenImpact(bot,now,emit=()=>{},reason='phase-change') {
+  const attack=bot?.wardenImpact;if(!attack)return false;
+  emit({bossId:bot.id,event:'cancel',kind:'forgeTargetBurst',reason,serverNow:now});
+  bot.wardenImpact=null;return true;
+}
+
+// Each marked blast locks a position before detonation. The target can dodge,
+// teammates can see the same warning, and solid cover blocks the splash.
+function tickWardenImpact(bot,target,players,phaseDefinition,now,callbacks={}) {
+  const config=phaseDefinition?.impact,state=bot.botState||(bot.botState={});
+  if(!config)return {active:false,suppressFire:false};
+  const windupMs=Math.max(650,Number(config.windupMs)||1400);
+  const intervalMs=Math.max(350,Number(config.intervalMs)||650);
+  const cooldownMs=Math.max(1800,Number(config.cooldownMs)||4900);
+  const count=Math.max(1,Math.min(3,Number(config.count)||1));
+  const radius=Math.max(40,Number(config.radius)||130);
+  const emit=callbacks.emit||(()=>{});
+  let attack=bot.wardenImpact;
+  if(!attack) {
+    if(!target||callbacks.visible===false||now<(state.wardenImpactReadyAt||0))
+      return {active:false,suppressFire:false};
+    attack=bot.wardenImpact={kind:'forgeTargetBurst',phase:'charge',combatPhase:bot.wardenPhase||1,
+      index:0,count,originX:target.x,originY:target.y,originHeight:target.height||0,
+      startedAt:now,activeAt:now+windupMs,windupMs,radius};
+    bot.dreadAttack=null;
+    emit({bossId:bot.id,event:'start',kind:attack.kind,attackPhase:'charge',combatPhase:attack.combatPhase,
+      originX:attack.originX,originY:attack.originY,originHeight:attack.originHeight,
+      radius,windupMs,startedAt:now,serverNow:now});
+  }
+  if(now<attack.activeAt)return {active:true,suppressFire:true,lockMovement:true};
+  const origin={x:attack.originX,y:attack.originY,height:attack.originHeight};
+  for(const player of players||[]) {
+    if(!player?.alive||player.isBot||
+      Math.hypot(player.x-origin.x,player.y-origin.y)>radius||
+      Math.abs((player.height||0)-origin.height)>(Number(config.heightTolerance)||6))continue;
+    if(callbacks.canHit&&!callbacks.canHit(player,origin))continue;
+    callbacks.impact?.(player,Number(config.damage)||24,Number(config.knockback)||170,origin);
+  }
+  emit({bossId:bot.id,event:'impact',kind:attack.kind,originX:origin.x,originY:origin.y,
+    originHeight:origin.height,radius,serverNow:now});
+  attack.index++;
+  const next=(players||[]).filter(player=>player?.alive&&!player.isBot)
+    .sort((a,b)=>Math.hypot(a.x-bot.x,a.y-bot.y)-Math.hypot(b.x-bot.x,b.y-bot.y))[0];
+  if(attack.index<count&&next) {
+    Object.assign(attack,{originX:next.x,originY:next.y,originHeight:next.height||0,
+      startedAt:now,activeAt:now+intervalMs+windupMs});
+    emit({bossId:bot.id,event:'start',kind:attack.kind,attackPhase:'charge',combatPhase:attack.combatPhase,
+      originX:attack.originX,originY:attack.originY,originHeight:attack.originHeight,
+      radius,windupMs:intervalMs+windupMs,startedAt:now,serverNow:now});
+    return {active:true,suppressFire:true,lockMovement:true};
+  }
+  bot.wardenImpact=null;state.wardenImpactReadyAt=now+cooldownMs;
+  return {active:false,suppressFire:true,lockMovement:false};
+}
+
 // The sweep performs at most one bounded player pass per server tick and at
 // most one LOS/damage resolution per player per attack. Internal hit tracking
 // stays off the wire; clients receive the compact telegraph on transitions and
@@ -147,4 +202,4 @@ function tickWardenPressure(bot,target,players,phaseDefinition,now,callbacks={})
 }
 
 module.exports={WARDEN_PRESSURE_DEFAULTS,pressureConfig,phaseForHealth,crossedBySweep,
-  tickWardenPressure,cancelWardenPressure};
+  tickWardenPressure,cancelWardenPressure,tickWardenImpact,cancelWardenImpact};

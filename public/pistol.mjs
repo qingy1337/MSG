@@ -140,17 +140,35 @@ function addKintsugiPistol(group, {add, box, tube}) {
 
   box(0.132,0.018,0.19,0.056,0.211,-0.39,dark,'ejection-port');
   for(const side of [-1,1])box(0.055,0.052,0.05,side*0.077,0.242,-0.115,raised,'kintsugi-rear-sight');
-  const muzzle=add(new THREE.TorusGeometry(0.082,0.018,7,20),gold,0,0.025,-0.971,'muzzle-ring');
+  // Frame the full ceramic nose instead of leaving a small gold loop floating
+  // around the bore. The outer edge now nearly meets the nose silhouette.
+  const muzzle=add(new THREE.TorusGeometry(0.103,0.0195,8,24),gold,0,0.025,-0.971,'muzzle-ring');
   muzzle.rotation.z=Math.PI/4;
   const bore=add(new THREE.CircleGeometry(0.06,18),dark,0,0.025,-0.973,'muzzle-bore');
   bore.rotation.y=Math.PI;
 
+  // An irregular ceramic fracture crosses the upper spine, then forks at
+  // three stress points. Uneven spacing and direction keep it from reading as
+  // a decorative sine wave while concentrating the extra gold on top.
   const topCrack=new THREE.CatmullRomCurve3([
-    new THREE.Vector3(-0.075,0.224,-0.2),new THREE.Vector3(0.018,0.225,-0.31),
-    new THREE.Vector3(-0.052,0.225,-0.43),new THREE.Vector3(0.064,0.224,-0.56),
+    new THREE.Vector3(-0.052,0.224,-0.1),new THREE.Vector3(0.018,0.225,-0.19),
+    new THREE.Vector3(0.006,0.225,-0.285),new THREE.Vector3(0.073,0.224,-0.365),
+    new THREE.Vector3(-0.016,0.225,-0.465),new THREE.Vector3(-0.058,0.224,-0.57),
+    new THREE.Vector3(0.009,0.222,-0.675),new THREE.Vector3(-0.032,0.204,-0.755),
+    new THREE.Vector3(0.022,0.151,-0.835),new THREE.Vector3(-0.014,0.15,-0.94),
   ]);
   flowCurves.push(topCrack);
-  add(new THREE.TubeGeometry(topCrack,20,0.009,7,false),gold,0,0,0,'kintsugi-pistol-top-seam');
+  add(new THREE.TubeGeometry(topCrack,40,0.011,7,false),gold,0,0,0,'kintsugi-pistol-top-seam');
+  const topFork=(points)=>seam(points,0.0075,'kintsugi-pistol-top-branch');
+  topFork([
+    [0.006,0.225,-0.285],[-0.052,0.226,-0.326],[-0.098,0.225,-0.405],
+  ]);
+  topFork([
+    [-0.016,0.225,-0.465],[0.052,0.226,-0.512],[0.092,0.225,-0.595],
+  ]);
+  topFork([
+    [0.022,0.151,-0.835],[0.072,0.152,-0.865],[0.103,0.151,-0.918],
+  ]);
   group.name='kintsugi-pistol';
   group.userData.kintsugiGold=gold;
   group.userData.kintsugiBaseGlow=0.24;

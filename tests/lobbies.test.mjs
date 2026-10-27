@@ -106,6 +106,39 @@ test('active Endless PvE fireteams accept reinforcements for the next floor only
   } finally {manager.close();}
 });
 
+test('a wiped PvE fireteam stays together for retry and can leave without trapping the lobby',t=>{
+  t.mock.method(global,'setInterval',()=>1);
+  t.mock.method(global,'clearInterval',()=>{});
+  const io=fakeIo(),manager=lobbyModule.createLobbyServer(io);
+  const leader=new FakeSocket('leader','leader'),mate=new FakeSocket('mate','mate');
+  const late=new FakeSocket('late','late');
+  io.connect(leader);io.connect(mate);io.connect(late);
+  try {
+    const created=request(leader,'lobby:create',{mode:'pve'});
+    assert.equal(request(mate,'lobby:join',{lobbyId:created.lobby.id}).ok,true);
+    assert.equal(request(leader,'lobby:start').ok,true);
+    const lobby=manager.lobbies.get(created.lobby.id);
+    for(const player of lobby.engine.activePlayers)if(!player.isBot){player.alive=false;player.health=0;}
+    lobby.engine.runBotsTick();
+    assert.equal(lobby.engine.floorState.phase,'wiped');
+    assert.equal(manager.lobbies.has(lobby.id),true);
+    assert.equal(request(late,'lobby:join',{lobbyId:lobby.id}).ok,false);
+    assert.equal(request(mate,'lobby:leave').ok,true);
+    assert.equal(manager.lobbies.has(lobby.id),true,'one surviving member can still retry');
+    let retry;
+    leader.trigger('retryFloor',result=>{retry=result;});
+    assert.equal(retry.ok,true);
+    assert.equal(lobby.engine.activePlayers.filter(player=>!player.isBot&&player.alive).length,1);
+    assert.equal(lobby.engine.gameMap.floor,1);
+    const remaining=lobby.engine.activePlayers.find(player=>player.id==='leader');
+    remaining.alive=false;remaining.health=0;lobby.engine.runBotsTick();
+    assert.equal(request(leader,'lobby:leave').ok,true);
+    assert.equal(manager.lobbies.has(lobby.id),false);
+    assert.equal(request(leader,'lobby:create',{mode:'pve'}).ok,true,
+      'the last member can create a new fireteam after leaving a wipe');
+  } finally {manager.close();}
+});
+
 test('full waiting fireteams are not advertised as joinable',t=>{
   t.mock.method(global,'setInterval',()=>1);
   t.mock.method(global,'clearInterval',()=>{});

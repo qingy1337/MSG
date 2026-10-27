@@ -499,9 +499,14 @@ test('friendly fire is off and eliminating the last bot unlocks the elevator wit
   } finally {game.close();}
 });
 
-test('PvE defeat triggers when the last human disconnects; ordinary PvP stays free-for-all', () => {
+test('an empty PvE fireteam resets immediately; ordinary PvP stays free-for-all', () => {
   const pve=fixture(1);
-  try {pve.handlers.disconnect();assert.equal(pve.events.find(e=>e.name==='gameOver').data.team,'bots');}
+  try {
+    pve.handlers.disconnect();
+    assert.equal(pve.game.gameInProgress.status,false);
+    assert.equal(pve.events.some(e=>e.name==='gameOver'),false);
+    assert.ok(pve.events.some(e=>e.name==='resetGame'));
+  }
   finally {pve.game.close();}
   const pvp=fixture(2,false);
   try {
@@ -574,9 +579,9 @@ test('Vault Annex renders structural stairs, live conveyors, columns, guards, an
     const materials=Array.isArray(object.material)?object.material:[object.material];
     for(const value of materials)if(value?.color)colors.add(`#${value.color.getHexString()}`);
   });
-  assert.ok(colors.has('#b51f32')||colors.has('#96182a')||colors.has('#9d1a2d'),
+  assert.ok(colors.has('#a92739')||colors.has('#842030'),
     'the architecture itself contains structural red rather than relying on room tint');
-  assert.ok(colors.has('#b1aaa2')&&colors.has('#211e21'),
+  assert.ok((colors.has('#959c9e')||colors.has('#9da4a6'))&&colors.has('#292d30'),
     'silver edge channels and near-black shells match the Red Vault material language');
   const conveyors=map.terrain.filter(s=>s.kind==='vaultConveyor').map(createTerrainModel);
   assert.equal(conveyors.length,3);
@@ -596,8 +601,11 @@ test('Vault Annex renders structural stairs, live conveyors, columns, guards, an
   const columns=map.terrain.filter(s=>s.kind==='vaultColumn').map(createTerrainModel);
   assert.equal(columns.length,6);
   assert.ok(columns.every(column=>column.name==='red-vault-column'));
+  const barriers=map.terrain.filter(s=>s.kind==='vaultBarrier').map(createTerrainModel);
+  assert.equal(barriers.length,2);
+  assert.ok(barriers.every(barrier=>barrier.name==='red-vault-barrier'));
   for(const model of models)model.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});
-  for(const model of [...conveyors,...columns])model.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});
+  for(const model of [...conveyors,...columns,...barriers])model.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});
 });
 
 test('Terminal 7 has a finite bespoke shell, runway, aircraft and jet bridge',()=>{
@@ -635,6 +643,8 @@ test('Terminal 7 has a finite bespoke shell, runway, aircraft and jet bridge',()
   assert.equal(named('terminal-security-header').length,1,'screening lanes share one architectural threshold');
   assert.equal(named('terminal-market-art').length,3,'the marketplace has one coordinated suspended art installation');
   assert.equal(named('terminal-wayfinding').length,3,'wayfinding appears only at the three major processing thresholds');
+  assert.equal(named('terminal-gallery-screen').length,4,
+    'the four connected mezzanine returns use the same airport wall finish');
   model.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});
 });
 
@@ -654,6 +664,13 @@ test('Terminal 7 market court and lively wall-integrated shops have detailed fin
   assert.equal(market.name,'terminal-market-island');
   const marketBounds=new THREE.Box3().setFromObject(market);
   assert.ok([marketBounds.min,marketBounds.max].flatMap(v=>v.toArray()).every(Number.isFinite));
+  const screenSolid=terrain.find(s=>s.kind==='airportMarketScreen');
+  const screen=createTerrainModel(screenSolid),screenBounds=new THREE.Box3().setFromObject(screen);
+  assert.equal(screen.name,'terminal-market-screen');
+  assert.ok(Math.abs(screenBounds.min.y+screenSolid.bottom)<.01,
+    'the planted screen visibly meets the floor despite stacking on the market collider');
+  assert.ok(screenBounds.max.y+screenSolid.bottom<=screenSolid.top+.05,
+    'the screen model stays inside its authoritative collision height');
   for(const shop of terrain.filter(s=>s.kind==='airportShop')) {
     const model=createTerrainModel(shop),bounds=new THREE.Box3().setFromObject(model);
     assert.equal(model.name,`terminal-shop-${shop.shop}`);
@@ -676,6 +693,7 @@ test('Terminal 7 market court and lively wall-integrated shops have detailed fin
     model.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});
   }
   market.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});
+  screen.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});
 });
 
 test('Terminal 7 puts departures boards on the landside wall and restores compact bag-drop belts',()=>{

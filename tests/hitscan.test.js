@@ -5,7 +5,7 @@ const { createGameServer,PVP_SPAWN_SHIELD_MS } = require('../game/gameServer');
 const { BOT_COMBAT, readyToShoot, recordShot } = require('../game/botCombat');
 const { MOVEMENT, startJump, advanceJump } = require('../public/movement');
 const {WEAPONS,DEFAULT_WEAPON_KEY,SECONDARY_WEAPON_KEY,WEAPON_SWITCH_MS,
-  sniperBloomRadians,spreadSniperAim,sniperBloomPixels}=require('../public/weapons');
+  weaponBloomRadians,sniperBloomRadians,spreadSniperAim,sniperBloomPixels}=require('../public/weapons');
 const shooter = { id: 's', x: 100, y: 100, alive: true, health: 100, weapon: 'pistol' };
 const target = { id: 't', x: 250, y: 100, alive: true, health: 100 };
 
@@ -127,6 +127,43 @@ test('server owns damage, origins, cooldowns, and invalid input rejection', () =
   } finally { game.close(); }
 });
 
+test('auto rifle is a 750 RPM, 10-damage mid-range primary',t=>{
+  let connection,now=100000;
+  t.mock.method(global,'setInterval',()=>0);t.mock.method(Date,'now',()=>now);
+  const handlers={};
+  const game=createGameServer({on:(_,fn)=>{connection=fn;},emit(){},to(){return this;}});
+  try {
+    connection({id:'s',on:(name,fn)=>{handlers[name]=fn;}});
+    game.gameInProgress.status=true;
+    const attacker={...shooter,weapon:'autoRifle'},victim={...target,health:101};
+    game.activePlayers.push(attacker,victim);
+    handlers.shoot({angle:0});
+    assert.equal(victim.health,91);
+    now+=79;handlers.shoot({angle:0});assert.equal(victim.health,91);
+    now++;handlers.shoot({angle:0});assert.equal(victim.health,81);
+    assert.equal(WEAPONS.autoRifle.cooldownMs,80);
+  } finally {game.close();}
+});
+
+test('auto rifle smoothly returns to 5.75 damage at long range', () => {
+  let connection;
+  const io = { on: (_, fn) => { connection = fn; }, emit() {}, to() { return this; } };
+  const game = createGameServer(io), handlers = {};
+  try {
+    connection({ id: 's', on: (name, fn) => { handlers[name] = fn; } });
+    game.gameInProgress.status = true;
+    const attacker = { ...shooter, weapon: 'autoRifle' }, victim = { ...target };
+    game.activePlayers.push(attacker, victim);
+    for (const [distance, damage] of [[150, 10], [250, 10], [425, 7.875], [600, 5.75], [750, 5.75]]) {
+      victim.x = attacker.x + distance;
+      victim.health = 100;
+      attacker.lastShotAt = 0;
+      handlers.shoot({ angle: 0, distance: 0, damage: 999 });
+      assert.ok(Math.abs(victim.health - (100 - damage)) < 1e-9, `range ${distance}`);
+    }
+  } finally { game.close(); }
+});
+
 test('every PvP player ignores damage for exactly the first six seconds',t=>{
   let connection,now=100000;
   t.mock.method(global,'setInterval',()=>0);t.mock.method(Date,'now',()=>now);
@@ -193,6 +230,81 @@ test('sniper bloom expands while moving or airborne and settles after stopping',
   assert.ok(sniperBloomPixels(WEAPONS.sniper.bloom.movingRadians,600)>sniperBloomPixels(0,600));
 });
 
+test('auto rifle settles to exact aim while the minigun keeps a small base spread',()=>{
+  const now=1000,player={height:0,groundHeight:0,lastMovementAt:now};
+  assert.equal(weaponBloomRadians('autoRifle',player,now),WEAPONS.autoRifle.bloom.movingRadians);
+  assert.equal(weaponBloomRadians('autoRifle',player,now+WEAPONS.autoRifle.bloom.settleMs),0);
+  assert.equal(weaponBloomRadians('miniGun',player,now+WEAPONS.miniGun.bloom.settleMs),
+    WEAPONS.miniGun.bloom.baseRadians);
+  assert.equal(weaponBloomRadians('miniGun',player,now),WEAPONS.miniGun.bloom.movingRadians);
+  assert.equal(weaponBloomRadians('autoRifle',{...player,jumpStartedAt:now},now+1000),
+    WEAPONS.autoRifle.bloom.airborneRadians);
+  assert.equal(weaponBloomRadians('miniGun',{...player,jumpStartedAt:now},now+1000),
+    WEAPONS.miniGun.bloom.airborneRadians);
+});
+
+test('pistol has lighter movement bloom than the auto rifle and settles quickly',()=>{
+  const now=1000,player={height:0,groundHeight:0,lastMovementAt:now};
+  assert.ok(weaponBloomRadians('pistol',player,now)>0);
+  assert.ok(weaponBloomRadians('pistol',player,now)<weaponBloomRadians('autoRifle',player,now));
+  assert.equal(weaponBloomRadians('pistol',player,now+WEAPONS.pistol.bloom.settleMs),0);
+  assert.equal(weaponBloomRadians('pistol',{...player,jumpStartedAt:now},now+1000),
+    WEAPONS.pistol.bloom.airborneRadians);
+});
+
+test('moving pistol shots use server bloom while settled shots remain exact',t=>{
+  let connection,now=100000;const rolls=[1,.25],events=[],handlers={};
+  t.mock.method(global,'setInterval',()=>0);t.mock.method(Date,'now',()=>now);
+  t.mock.method(Math,'random',()=>rolls.shift()??0);
+  const game=createGameServer({on:(_,fn)=>{connection=fn;},emit:(name,data)=>events.push({name,data}),to(){return this;}});
+  connection({id:'s',on:(name,fn)=>{handlers[name]=fn;}});
+  try {
+    game.gameInProgress.status=true;
+    const attacker={...shooter,weapon:'pistol',lastMovementAt:now},victim={...target,x:800,health:101};
+    game.activePlayers.push(attacker,victim);
+    handlers.shoot({angle:0,pitch:0});
+    assert.equal(victim.health,101);
+    assert.equal(events.find(event=>event.name==='shotFired').data.bloom,WEAPONS.pistol.bloom.movingRadians);
+    now+=WEAPONS.pistol.bloom.settleMs;handlers.shoot({angle:0,pitch:0});
+    assert.equal(victim.health,90.5);
+  } finally {game.close();}
+});
+
+test('moving auto-rifle bloom can miss a distant target and settled aim hits it',t=>{
+  let connection,now=100000;const rolls=[1,.25],events=[],handlers={};
+  t.mock.method(global,'setInterval',()=>0);t.mock.method(Date,'now',()=>now);
+  t.mock.method(Math,'random',()=>rolls.shift()??0);
+  const game=createGameServer({on:(_,fn)=>{connection=fn;},emit:(name,data)=>events.push({name,data}),to(){return this;}});
+  connection({id:'s',on:(name,fn)=>{handlers[name]=fn;}});
+  try {
+    game.gameInProgress.status=true;
+    const attacker={...shooter,weapon:'autoRifle',lastMovementAt:now},victim={...target,x:800,health:101};
+    game.activePlayers.push(attacker,victim);
+    handlers.shoot({angle:0,pitch:0});
+    assert.equal(victim.health,101);
+    assert.equal(events.find(event=>event.name==='shotFired').data.bloom,WEAPONS.autoRifle.bloom.movingRadians);
+    now+=WEAPONS.autoRifle.bloom.settleMs;handlers.shoot({angle:0,pitch:0});
+    assert.equal(victim.health,101-5.75);
+  } finally {game.close();}
+});
+
+test('minigun retains server-authoritative spread even while standing still',t=>{
+  let connection,now=100000;const rolls=[1,.25],events=[],handlers={};
+  t.mock.method(global,'setInterval',()=>0);t.mock.method(Date,'now',()=>now);
+  t.mock.method(Math,'random',()=>rolls.shift()??0);
+  const game=createGameServer({on:(_,fn)=>{connection=fn;},emit:(name,data)=>events.push({name,data}),to(){return this;}});
+  connection({id:'s',on:(name,fn)=>{handlers[name]=fn;}});
+  try {
+    game.gameInProgress.status=true;
+    const attacker={...shooter,weapon:'miniGun',miniGunSpinStartedAt:now-WEAPONS.miniGun.spinUpMs,
+      miniGunLastAttemptAt:now},victim={...target,x:800,health:101};
+    game.activePlayers.push(attacker,victim);
+    handlers.shoot({angle:0,pitch:0});
+    assert.equal(victim.health,101);
+    assert.equal(events.find(event=>event.name==='shotFired').data.bloom,WEAPONS.miniGun.bloom.baseRadians);
+  } finally {game.close();}
+});
+
 test('server-authoritative sniper bloom can miss while moving but becomes exact after settling',t=>{
   let connection,now=100000;const rolls=[1,0],events=[],handlers={};
   t.mock.method(global,'setInterval',()=>0);t.mock.method(Date,'now',()=>now);
@@ -240,7 +352,8 @@ test('pistol is a permanent secondary and server-authoritative E swaps preserve 
   } finally {game.close();}
 });
 
-test('minigun buffs close/medium damage, eases into long-range falloff, and ignores client range', () => {
+test('minigun buffs close/medium damage, eases into long-range falloff, and ignores client range', t => {
+  t.mock.method(Math,'random',()=>0);
   let connection;
   const io = { on: (_, fn) => { connection = fn; }, emit() {}, to() { return this; } };
   const game = createGameServer(io), handlers = {};

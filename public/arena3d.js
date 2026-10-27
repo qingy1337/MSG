@@ -34,6 +34,24 @@ const world = (x, y, height = 0, target = new THREE.Vector3()) => target.set((x 
 const WARDEN_FINISHED_STATES=new Set(['complete','completed','done','ended','idle','cooldown','cancelled']);
 const STRIKE_SPAWN_SECONDS=1.2;
 
+export function resolveViewPlayer(players,localId) {
+  const local=players.find(player=>player.id===localId);
+  return local?.alive?local:players.find(player=>player.alive&&!player.isBot)||null;
+}
+
+export function healthHudState(local,viewed,mode,now) {
+  const player=local?.alive?local:viewed;
+  if(!player?.alive)return {visible:false,text:'SPECTATING',health:0,maxHealth:101,shielded:false,ariaLabel:'Health'};
+  const maxHealth=Math.max(1,Number(player.maxHealth)||101);
+  const health=Math.max(0,Math.min(maxHealth,Number(player.health??maxHealth)));
+  const shielded=mode==='pvp'&&Number.isFinite(player.spawnShieldEndsAt)&&now<player.spawnShieldEndsAt;
+  const name=player.displayName||player.name||'PLAYER';
+  return {visible:true,health,maxHealth,shielded,
+    text:local?.alive?`${Math.ceil(health)} / ${maxHealth} HP`:
+      `SPECTATING ${name} · ${Math.ceil(health)} / ${maxHealth} HP`,
+    ariaLabel:local?.alive?'Your health':`${name}'s health`};
+}
+
 export function createStrikeSpawnArrival() {
   const group=new THREE.Group();group.name='strike-enemy-arrival';
   const red=new THREE.MeshBasicMaterial({color:0xff334c,transparent:true,opacity:0,
@@ -191,10 +209,11 @@ function wardenAttackProgress(attack,time) {
   return Number.isFinite(started)?Math.max(0,Math.min(1,(time-started)/duration)):0;
 }
 
-export function poseWardenPresentation(model,phase,attack,time,healthRatio=1) {
+export function poseWardenPresentation(model,phase,attack,time,healthRatio=1,boss=null) {
   if(!model)return;
   const defeated=healthRatio<=0||attack?.defeated===true;
-  model.group.visible=!defeated&&phase>=2;
+  const targeted=attack?.kind==='forgeTargetBurst';
+  model.group.visible=!defeated&&(phase>=2||targeted);
   if(!model.group.visible)return;
   if(model.phase!==phase){model.phase=phase;model.phaseChangedAt=time;}
   const state=String(attack?.state??attack?.attackPhase??attack?.phase??'').toLowerCase();
@@ -208,6 +227,14 @@ export function poseWardenPresentation(model,phase,attack,time,healthRatio=1) {
   const radius=Number.isFinite(radiusUnits)?Math.max(3.2,Math.min(16,radiusUnits*SCALE/1.34)):4.25;
   const urgency=explicit?Math.max(.18,progress):.18;
   model.ground.visible=pressure||explicit;
+  model.sweepPivot.visible=!targeted;
+  if(targeted&&boss&&Number.isFinite(attack.originX)&&Number.isFinite(attack.originY)) {
+    const dx=(attack.originX-boss.x)*SCALE/1.34,dz=(attack.originY-boss.y)*SCALE/1.34;
+    const yaw=model.group.parent?.rotation.y||0;
+    model.ground.position.set(Math.cos(yaw)*dx-Math.sin(yaw)*dz,
+      (Number(attack.originHeight??boss.height)-Number(boss.height||0))/1.34+.035,
+      Math.sin(yaw)*dx+Math.cos(yaw)*dz);
+  } else model.ground.position.set(0,.035,0);
   model.boundary.scale.setScalar(radius/4.24);
   model.boundary.material.opacity=(explicit?.48:.13)+transition*.28;
   for(let index=0;index<model.pulseRings.length;index++) {
@@ -625,7 +652,7 @@ export class Arena3D {
     this.zoneUniforms=ambientZoneUniforms(planAmbientZones(map),map);
     this.scene.background.set(palette.sky||'#9ebbc9');
     this.scene.fog=null;
-    this.camera.far=strike?230:140;this.camera.updateProjectionMatrix();
+    this.camera.far=strike?420:140;this.camera.updateProjectionMatrix();
     this.ambient.color.set(palette.ambient||'#e3f3ff');
     this.ambient.groundColor.set(palette.ground||'#73878b');
     this.sun.color.set(palette.sun||'#ffe7c4');
@@ -638,9 +665,10 @@ export class Arena3D {
     const width = map.width*SCALE, depth = map.height*SCALE;
     const center = world(map.width/2,map.height/2);
     this.sun.target.position.copy(center);
-    this.sun.position.copy(center).add(new THREE.Vector3(-30,55,-25));
+    this.sun.position.copy(center).add(new THREE.Vector3(-30,strike?map.ceiling+45:55,-25));
     const extent = Math.max(width,depth)*0.7;
-    Object.assign(this.sun.shadow.camera,{left:-extent,right:extent,top:extent,bottom:-extent,far:180});
+    Object.assign(this.sun.shadow.camera,{left:-extent,right:extent,top:extent,bottom:-extent,
+      far:strike?map.ceiling*2+110:180});
     this.sun.shadow.camera.updateProjectionMatrix();
     this.reflectionSolids=strike?[]:[...walls,...map.terrain.filter(s => !s.nonSolid&&s.kind !== 'heightfield'&&s.kind !== 'ramp' && s.kind !== 'tree' && s.kind !== 'exitDoor')];
     this.floor = floorMaterial(this.reflectionSolids,areas,pve,this.zoneUniforms,palette,map);
@@ -700,8 +728,10 @@ export class Arena3D {
             horizontal ? temple?0.07:0.10 : length / count - 0.12,
             wallCenter.x+(horizontal ? along : face),temple?wallBottom+wallHeight*.43:wallBottom+wallHeight/2,
             wallCenter.z+(horizontal ? face : along),temple?0.025:0.045);
-          (redVault?(i%4===1?wallGeometry.red:i%4===3?wallGeometry.black:wallGeometry.panel):
-            wallGeometry.panel).push(panelGeometry);
+          // Vault Annex walls use one calm neutral panel rhythm. Red is
+          // reserved for the continuous light datum, instead of alternating
+          // every wall bay between silver, red, and black.
+          wallGeometry.panel.push(panelGeometry);
         }
       }
       if(temple) {
@@ -965,7 +995,10 @@ export class Arena3D {
     if(!ogreModel&&!guardianModel)mergeRigidMeshes(group,new Set([dreadCore]));
     // A character can contain dozens of cosmetic meshes. Only the largest
     // silhouette pieces need to render into shadow maps.
-    limitShadowCasters(group,player.botType==='ogre'?10:player.botType==='guardian'?6:warden?12:8);
+    const strikeCrowd=player.isBot&&(this.mapConfig.mode==='strike'||this.mapConfig.activity==='strike');
+    limitShadowCasters(group,strikeCrowd?
+      (warden?8:player.botType==='ogre'?6:player.botType==='guardian'?4:player.botType==='dread'?4:3):
+      player.botType==='ogre'?10:player.botType==='guardian'?6:warden?12:8);
     let spawnShieldOutline=null;
     if(this.mapConfig.mode==='pvp'&&Number.isFinite(player.spawnShieldUntil)) {
       spawnShieldOutline=createPvpSpawnShieldOutline(group);spawnShieldOutline.visible=false;group.add(spawnShieldOutline);
@@ -1218,9 +1251,10 @@ export class Arena3D {
 
   shot(shot) {
     const character = this.characters.get(shot.playerId);
+    const viewId=this.viewedId??this.localId;
     const dread=character?.dread;
     const skinKey=shot.weaponSkinKey||character?.weaponSkinKey||
-      (shot.playerId===this.localId?this.viewMuzzleState?.weaponSkinKey:null);
+      (shot.playerId===viewId?this.viewMuzzleState?.weaponSkinKey:null);
     const barrelStyle=shotgunMuzzleStyle(skinKey,shot.shotgunBarrel);
     for(const pellet of shot.pellets||[shot]) {
     const start = world(pellet.x, pellet.y, pellet.height ?? 1.84), end = world(pellet.endX, pellet.endY, pellet.endHeight ?? 1.84);
@@ -1235,12 +1269,12 @@ export class Arena3D {
     }
     if(shot.strikeTargetId)this.strikeEnvironment?.userData?.hitDestructible?.(shot.strikeTargetId,shot);
     const pistolShot=character?.weaponKey==='pistol'||
-      (shot.playerId===this.localId&&this.viewWeaponKey?.startsWith('pistol:'));
+      (shot.playerId===viewId&&this.viewWeaponKey?.startsWith('pistol:'));
     if (character) { character.recoil = shot.pellets?Math.min(0.4,(character.recoil||0)+0.22):pistolShot?0.18:0.13;character.shotAt=this.renderTime;
       if(shot.pellets)triggerShotgunChamber(character.weapon,shot.shotgunBarrel,this.renderTime);
       triggerHeavyWeaponSkin(character.weapon,this.renderTime);
       this.triggerWeaponFlash(character.muzzleFlash,character,shot); }
-    if (shot.playerId === this.localId) { this.weaponRecoil = shot.pellets?Math.min(0.36,(this.weaponRecoil||0)+0.2):pistolShot?0.16:0.1;this.viewShotAt=this.renderTime;
+    if (shot.playerId === viewId&&this.viewMuzzleFlash) { this.weaponRecoil = shot.pellets?Math.min(0.36,(this.weaponRecoil||0)+0.2):pistolShot?0.16:0.1;this.viewShotAt=this.renderTime;
       if(shot.pellets)triggerShotgunChamber(this.viewWeapon,shot.shotgunBarrel,this.renderTime);
       triggerHeavyWeaponSkin(this.viewWeapon,this.renderTime);
       this.triggerWeaponFlash(this.viewMuzzleFlash,this.viewMuzzleState,shot); }
@@ -1300,8 +1334,19 @@ export class Arena3D {
     if(id==null||!attack)return;
     const state=String(attack.state??attack.attackPhase??attack.phase??'').toLowerCase();
     const transition=String(attack.event??'').toLowerCase();
+    if(transition==='impact'&&Number.isFinite(attack.originX)&&Number.isFinite(attack.originY)) {
+      const radius=Math.max(1,Number(attack.radius||120)*SCALE);
+      const group=new THREE.Group();group.position.copy(world(attack.originX,attack.originY,(attack.originHeight||0)+.06));
+      const glow=new THREE.MeshBasicMaterial({color:0xff4b40,transparent:true,opacity:.8,
+        blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,toneMapped:false});
+      const ring=new THREE.Mesh(new THREE.RingGeometry(radius*.7,radius,48),glow);
+      ring.rotation.x=-Math.PI/2;ring.renderOrder=6;group.add(ring);
+      const flare=new THREE.Mesh(new THREE.ConeGeometry(radius*.32,Math.min(7,radius*.9),12,1,true),glow.clone());
+      flare.position.y=Math.min(7,radius*.9)*.5;flare.renderOrder=6;group.add(flare);
+      this.stage.add(group);this.effects.push({group,time:.48,duration:.48,wardenImpact:true});
+    }
     if(attack.active===false||attack.cancelled||attack.complete||WARDEN_FINISHED_STATES.has(state)||
-      transition==='end'||transition==='cancel') {
+      transition==='end'||transition==='cancel'||transition==='impact') {
       this.wardenAttacks.delete(id);return;
     }
     this.wardenAttacks.set(id,{...attack,id,phase:attack.attackPhase??attack.phase,
@@ -1375,7 +1420,7 @@ export class Arena3D {
     for(const model of this.animatedTerrain||[])model.userData.update?.(this.renderTime);
     this.localId = localId;
     const local = players.find(p => p.id === localId);
-    const viewed = local?.alive ? local : players.find(p => p.alive);
+    const viewed = resolveViewPlayer(players,localId);
     this.strikeEnvironment?.userData?.update?.(this.renderTime,viewed,this.scene);
     const strikeLighting=this.strikeEnvironment?.userData?.getLighting?.();
     if(strikeLighting&&Number.isFinite(strikeLighting.ambient)) {
@@ -1385,6 +1430,10 @@ export class Arena3D {
       this.ambient.intensity+=(target-this.ambient.intensity)*(1-Math.exp(-3.2*dt));
     }
     if (viewed) {
+      if(this.viewedId!==viewed.id){
+        this.weaponRecoil=0;this.viewShotAt=-Infinity;
+        if(this.viewMuzzleFlash)this.viewMuzzleFlash.visible=false;
+      }
       const viewPitch = viewed.id === localId ? pitch : 0;
       const foot=viewed.height||0;
       // Ease the view over small stair risers; jumps and large corrections stay immediate.
@@ -1398,29 +1447,29 @@ export class Arena3D {
       this.camera.position.y+=Math.sin(this.renderTime*65)*this.deathShake;
       this.camera.updateMatrixWorld();
     }
+    else this.viewedId=null;
     this.updateStrikeWorldWaypoint(viewed);
-    const localMaxHealth=local?.maxHealth??101;
-    const localHealth = local?.alive ? Math.max(0, Math.min(localMaxHealth, local.health ?? localMaxHealth)) : 0;
-    const localShielded=this.mapConfig.mode==='pvp'&&local?.alive&&
-      Number.isFinite(local.spawnShieldEndsAt)&&performance.now()<local.spawnShieldEndsAt;
-    const healthText=local?.alive?`${Math.ceil(localHealth)} / ${localMaxHealth} HP`:`SPECTATING${viewed?' / '+viewed.name:''}`;
-    if(this.ui.healthText.textContent!==healthText)this.ui.healthText.textContent=healthText;
+    const healthState=healthHudState(local,viewed,this.mapConfig.mode,performance.now());
+    if(this.ui.healthText.textContent!==healthState.text)this.ui.healthText.textContent=healthState.text;
     const healthBar=this.ui.healthBar;
-    if(healthBar.hidden===!!local?.alive)healthBar.hidden=!local?.alive;
-    const maxText=String(localMaxHealth),healthTextValue=String(localHealth);
+    if(healthBar.hidden===healthState.visible)healthBar.hidden=!healthState.visible;
+    if(healthBar.getAttribute('aria-label')!==healthState.ariaLabel)
+      healthBar.setAttribute('aria-label',healthState.ariaLabel);
+    const maxText=String(healthState.maxHealth),healthTextValue=String(healthState.health);
     if(healthBar.getAttribute('aria-valuemax')!==maxText)healthBar.setAttribute('aria-valuemax',maxText);
     if(healthBar.getAttribute('aria-valuenow')!==healthTextValue)healthBar.setAttribute('aria-valuenow',healthTextValue);
     const healthFill=this.ui.healthFill;
-    const localPercent=100*localHealth/localMaxHealth;
-    const localWidth=`${localPercent}%`,localColor=localShielded?SPAWN_SHIELD_BLUE:
+    const localPercent=100*healthState.health/healthState.maxHealth;
+    const localWidth=`${localPercent}%`,localColor=healthState.shielded?SPAWN_SHIELD_BLUE:
       localPercent<30?'#ff7878':localPercent<60?'#ffd48b':'#7bf0c4';
-    healthBar.classList.toggle('spawn-shielded',localShielded);
+    healthBar.classList.toggle('spawn-shielded',healthState.shielded);
     if(this.ui.healthWidth!==localWidth){this.ui.healthWidth=localWidth;healthFill.style.width=localWidth;}
     if(this.ui.healthColor!==localColor){this.ui.healthColor=localColor;healthFill.style.backgroundColor=localColor;}
-    const crosshair=this.ui.crosshair,crosshairKey=local?.alive?local.weapon:'dead';
-    if(this.crosshairKey!==crosshairKey){this.crosshairKey=crosshairKey;crosshair.hidden=!local?.alive;
-      crosshair.classList.toggle('shotgun',!!local?.alive&&local.weapon==='shotgun');
-      crosshair.classList.toggle('sniper',!!local?.alive&&local.weapon==='sniper');}
+    const crosshair=this.ui.crosshair,crosshairKey=viewed?.alive?viewed.weapon:'dead';
+    if(this.crosshairKey!==crosshairKey){this.crosshairKey=crosshairKey;crosshair.hidden=!viewed?.alive;
+      crosshair.classList.toggle('shotgun',!!viewed?.alive&&viewed.weapon==='shotgun');
+      crosshair.classList.toggle('sniper',!!viewed?.alive&&viewed.weapon==='sniper');
+      crosshair.classList.toggle('bloom',!!viewed?.alive&&['pistol','autoRifle','miniGun'].includes(viewed.weapon));}
     this.activeIds.clear();for(const player of players)this.activeIds.add(player.id);
     for (const [id, c] of this.characters) if (!this.activeIds.has(id)) {
       this.stage.remove(c.group); this.clearObject(c.group); c.label.remove(); this.characters.delete(id);this.wardenAttacks.delete(id);
@@ -1496,7 +1545,7 @@ export class Arena3D {
         const attack=player.wardenAttack??this.wardenAttacks.get(player.id)??
           (matchesBoss?(bossState?.wardenAttack??bossState?.attack??this.strikeMissionState?.wardenAttack??
             this.strikeMissionState?.bossAttack):null);
-        poseWardenPresentation(c.wardenPresentation,phase,attack,this.renderTime,healthRatio);
+        poseWardenPresentation(c.wardenPresentation,phase,attack,this.renderTime,healthRatio,player);
         if(c.dreadCore&&phase>=3) {
           const pulse=.5+.5*Math.sin(this.renderTime*11);
           c.dreadCore.material.emissiveIntensity=6.5+pulse*4.5;
@@ -1545,6 +1594,11 @@ export class Arena3D {
       }
       else if(fx.explosion)poseGrenadeExplosion(fx.group,fx.duration-fx.time,this.camera.quaternion);
       else if(fx.guardianExplosion)poseGuardianExplosion(fx.group,fx.duration-fx.time);
+      else if(fx.wardenImpact) {
+        const progress=1-fx.time/fx.duration;
+        fx.group.scale.set(0.65+progress*.55,1,0.65+progress*.55);
+        for(const child of fx.group.children)child.material.opacity=(1-progress)*.8;
+      }
       else fx.group.children.forEach(child => {
         child.material.opacity = fx.time / (fx.duration||.11);
       });
@@ -1559,19 +1613,19 @@ export class Arena3D {
       item.model.group.rotation.x+=dt*5;item.model.group.rotation.y+=dt*8;
       const pulse=1+Math.sin(item.phase*18)*.12;item.model.halo.scale.setScalar(pulse);
     }
-    this.drawMinimap(local); this.renderer.render(this.scene, this.camera);
-    if (local?.alive) {
-      this.buildViewWeapon(local);
-      if(local.weapon==='shotgun')poseShotgun(this.viewWeapon,this.renderTime-(this.viewShotAt??-10),this.renderTime);
+    this.drawMinimap(viewed); this.renderer.render(this.scene, this.camera);
+    if (viewed?.alive) {
+      this.buildViewWeapon(viewed);
+      if(viewed.weapon==='shotgun')poseShotgun(this.viewWeapon,this.renderTime-(this.viewShotAt??-10),this.renderTime);
       updateMuzzleFlash(this.viewMuzzleFlash, dt);
-      const viewFlash=this.characters.get(localId)?.damageFlash||0;
+      const viewFlash=this.characters.get(viewed.id)?.damageFlash||0;
       if(viewFlash>0||this.viewDamageFlash>0)this.applyDamageFlash(this.viewFlashMaterials,viewFlash);
       this.viewDamageFlash=viewFlash;
       // Damage flashing restores every captured material to its base emissive
       // value, so animated skin lighting must be applied after that reset.
       poseHeavyWeaponSkin(this.viewWeapon,this.renderTime);
       this.weaponRecoil = Math.max(0, this.weaponRecoil - dt);
-      const switchAt=this.weaponSwitchTimes?.get(localId)??-Infinity;
+      const switchAt=this.weaponSwitchTimes?.get(viewed.id)??-Infinity;
       const swap=Math.max(0,Math.min(1,(this.renderTime-switchAt)/WEAPON_SWAP_SECONDS));
       const swapArc=Math.sin(Math.PI*swap);
       this.viewWeapon.position.y=-0.42*swapArc;

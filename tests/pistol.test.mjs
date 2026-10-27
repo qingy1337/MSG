@@ -39,6 +39,16 @@ test('every pistol skin has compact detail in both weapon views', () => {
         assert.ok(pistol.getObjectByName('kintsugi-flow')?.isInstancedMesh);
         assert.ok(pistol.getObjectByName('kintsugi-trigger-bow'));
         assert.ok(pistol.getObjectByName('kintsugi-pistol-ridge'));
+        const muzzle=pistol.getObjectByName('muzzle-ring');
+        assert.ok(muzzle.geometry.parameters.radius+muzzle.geometry.parameters.tube>=0.12,
+          'the gold muzzle ring frames the full ceramic nose');
+        const topSeam=pistol.getObjectByName('kintsugi-pistol-top-seam');
+        assert.ok(topSeam.geometry.parameters.radius>=0.011);
+        const topBounds=new THREE.Box3().setFromObject(topSeam);
+        assert.ok(topBounds.max.z-topBounds.min.z>length*PISTOL_MODEL_SCALE*0.75,
+          'the gold top repair runs across most of the pistol');
+        assert.equal(pistol.children.filter(c=>c.name==='kintsugi-pistol-top-branch').length,3,
+          'the top repair forks into an asymmetrical ceramic fracture');
         assert.equal(pistol.getObjectByName('front-sight'),undefined,
           'the custom muzzle has no isolated front-sight block');
         assert.equal(pistol.getObjectByName('kintsugi-flow-halo'),undefined,

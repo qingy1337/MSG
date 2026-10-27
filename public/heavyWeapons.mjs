@@ -4,9 +4,9 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 export const KINTSUGI_GLOW_DURATION = 1;
 
 export function heavyWeaponViewYOffset(skinKey) {
-  // Seat Midas's integrated grip deeper into the first-person hand without
-  // changing how the weapon sits on remote character models.
-  return skinKey === 'miniGun_midas' ? -0.045 : 0;
+  // Keep Midas close to the standard heavy-weapon datum so its receiver and
+  // integrated grip both sit naturally against the first-person hand.
+  return skinKey === 'miniGun_midas' ? -0.01 : 0;
 }
 
 export function heavyWeaponMuzzleYOffset(skinKey) {
@@ -25,6 +25,7 @@ export function heavyWeaponViewZ(skinKey) {
 
 export function heavyWeaponMuzzleDepth(skinKey) {
   if (skinKey === 'miniGun_midas') return 1.234;
+  if (skinKey === 'miniGun_default') return 1.15;
   if (skinKey === 'sniper_calibrated') return 1.1;
   if (skinKey === 'sniper_kintsugi') return 1.165;
   if (skinKey === 'sniper_flatpack') return 1.055;
@@ -126,6 +127,7 @@ export function createHeavyWeapon(weapon, skinKey, length) {
   const mat = (color, metalness = 0.5) => new THREE.MeshStandardMaterial({ color, metalness, roughness: 0.38 });
   const black = mat('#151e28'), steel = mat('#bac3d1', 0.75);
   const poison = skinKey === 'miniGun_poison', infiniti = skinKey === 'miniGun_infiniti';
+  const baseMinigun = skinKey === 'miniGun_default';
   const midas = skinKey === 'miniGun_midas';
   const accent = weapon === 'sniper' || poison ? mat(poison ? '#23ad17' : '#9241b5') : steel;
   const add = (geometry, material, x, y, z, name) => {
@@ -466,15 +468,32 @@ export function createHeavyWeapon(weapon, skinKey, length) {
     group.userData.muzzleDepth = 1.049;
     return group;
   } else {
-    tube(0.22, 0.3, 0, 0, -0.18, infiniti ? steel : black, 'motor-housing');
-    for (let i = 0; i < 6; i++) {
-      const angle = i * Math.PI / 3, x = Math.cos(angle) * 0.125, y = Math.sin(angle) * 0.125;
-      tube(0.044, 0.69, x, y, -0.635, steel, 'rotary-barrel');
-      tube(0.028, 0.006, x, y, -0.983, black, 'barrel-bore');
+    tube(baseMinigun ? 0.18 : 0.22, baseMinigun ? 0.34 : 0.3,
+      0, 0, baseMinigun ? -0.22 : -0.18, infiniti ? steel : black, 'motor-housing');
+    if (baseMinigun) {
+      // A compact receiver and joined grip give the longer barrel cluster a
+      // believable rear silhouette without adding another bulky drum.
+      box(0.24, 0.19, 0.24, 0, -0.015, -0.005, black, 'base-receiver');
+      box(0.21, 0.16, 0.025, 0, -0.015, 0.118, steel, 'base-rear-cap');
+      const grip = box(0.09, 0.22, 0.105, 0, -0.175, 0.035, black, 'base-grip');
+      grip.rotation.x = -0.15;
     }
-    for (const z of [-0.36, -0.85]) add(new THREE.TorusGeometry(0.165, 0.035, 6, 24), accent, 0, 0, z, 'barrel-collar');
-    box(0.12, 0.055, 0.3, 0, 0.26, -0.18, black, 'carry-handle');
-    for (const z of [-0.07, -0.29]) box(0.05, 0.09, 0.045, 0, 0.21, z, black, 'handle-support');
+    for (let i = 0; i < 6; i++) {
+      const angle = i * Math.PI / 3;
+      const spacing = baseMinigun ? 0.108 : 0.125;
+      const x = Math.cos(angle) * spacing, y = Math.sin(angle) * spacing;
+      tube(baseMinigun ? 0.038 : 0.044, baseMinigun ? 0.89 : 0.69,
+        x, y, baseMinigun ? -0.7 : -0.635, steel, 'rotary-barrel');
+      tube(baseMinigun ? 0.024 : 0.028, 0.006,
+        x, y, baseMinigun ? -1.148 : -0.983, black, 'barrel-bore');
+    }
+    for (const z of (baseMinigun ? [-0.43, -1.03] : [-0.36, -0.85]))
+      add(new THREE.TorusGeometry(baseMinigun ? 0.145 : 0.165,
+        baseMinigun ? 0.022 : 0.035, 6, 24), accent, 0, 0, z, 'barrel-collar');
+    box(0.12, baseMinigun ? 0.045 : 0.055, baseMinigun ? 0.32 : 0.3,
+      0, baseMinigun ? 0.235 : 0.26, -0.18, black, 'carry-handle');
+    for (const z of [-0.07, -0.29]) box(0.05, baseMinigun ? 0.075 : 0.09, 0.045,
+      0, baseMinigun ? 0.205 : 0.21, z, black, 'handle-support');
     if (infiniti) {
       // Paired silver loops echo the original connected-circle skin.
       for (const side of [-1, 1]) for (const z of [-0.1, -0.25]) {

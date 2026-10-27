@@ -31,6 +31,10 @@ app.use(
   createShopRoutes({ io, getActivePlayers: () => gameState.getActivePlayers() }),
 );
 
-server.listen(3001, () => {
-  console.log("Server running on http://localhost:3001");
+const port = process.env.PORT === undefined ? 3001 : Number(process.env.PORT);
+if (!Number.isInteger(port) || port < 0 || port > 65535) {
+  throw new Error("PORT must be an integer between 0 and 65535");
+}
+server.listen(port, () => {
+  console.log(`Server running on http://localhost:${server.address().port}`);
 });
