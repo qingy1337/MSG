@@ -4,12 +4,12 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 export const KINTSUGI_GLOW_DURATION = 1;
 
 export function heavyWeaponViewYOffset(skinKey) {
-  // Keep Midas close to the standard heavy-weapon datum so its receiver and
-  // integrated grip both sit naturally against the first-person hand.
-  return skinKey === 'miniGun_midas' ? -0.01 : 0;
+  // Seat Midas slightly lower against the first-person hand.
+  return skinKey === 'miniGun_midas' ? -0.03 : 0;
 }
 
 export function heavyWeaponMuzzleYOffset(skinKey) {
+  if (skinKey === 'miniGun_crimson_guard') return 0.025;
   if (skinKey === 'sniper_calibrated') return 0.022;
   if (skinKey === 'sniper_kintsugi') return 0.01;
   return 0;
@@ -25,6 +25,7 @@ export function heavyWeaponViewZ(skinKey) {
 
 export function heavyWeaponMuzzleDepth(skinKey) {
   if (skinKey === 'miniGun_midas') return 1.234;
+  if (skinKey === 'miniGun_crimson_guard') return 1.17;
   if (skinKey === 'miniGun_default') return 1.15;
   if (skinKey === 'sniper_calibrated') return 1.1;
   if (skinKey === 'sniper_kintsugi') return 1.165;
@@ -40,6 +41,26 @@ function findKintsugiModel(root) {
   root.traverse?.(object => { if (!model && object.userData?.kintsugiGold) model = object; });
   if(root.userData)root.userData.kintsugiModelCache=model;
   return model;
+}
+
+function findCrimsonRotor(root) {
+  if (!root) return null;
+  if (root.userData?.crimsonRotor) return root;
+  let rotor = null;
+  root.traverse?.(object => { if (!rotor && object.userData?.crimsonRotor) rotor = object; });
+  return rotor;
+}
+
+export function poseMinigunRotor(root, dt = 0, triggerHeld = false) {
+  const rotor = findCrimsonRotor(root);
+  if (!rotor) return 0;
+  const target = triggerHeld ? 37 : 0;
+  const response = triggerHeld ? 9 : 4.5;
+  const step = THREE.MathUtils.clamp(dt, 0, 0.05);
+  rotor.userData.speed = THREE.MathUtils.lerp(rotor.userData.speed || 0, target, 1 - Math.exp(-response * step));
+  if (rotor.userData.speed < 0.025) rotor.userData.speed = 0;
+  rotor.rotation.z -= rotor.userData.speed * step;
+  return rotor.userData.speed;
 }
 
 export function triggerHeavyWeaponSkin(root, now = 0) {
@@ -129,6 +150,7 @@ export function createHeavyWeapon(weapon, skinKey, length) {
   const poison = skinKey === 'miniGun_poison', infiniti = skinKey === 'miniGun_infiniti';
   const baseMinigun = skinKey === 'miniGun_default';
   const midas = skinKey === 'miniGun_midas';
+  const crimsonGuard = skinKey === 'miniGun_crimson_guard';
   const accent = weapon === 'sniper' || poison ? mat(poison ? '#23ad17' : '#9241b5') : steel;
   const add = (geometry, material, x, y, z, name) => {
     const mesh = new THREE.Mesh(geometry, material); mesh.position.set(x, y, z); mesh.name = name;
@@ -278,6 +300,103 @@ export function createHeavyWeapon(weapon, skinKey, length) {
     tube(0.032, 0.006, 0, 0.12, -0.112, mat('#528ba2', 0.7), 'scope-lens');
     box(0.035, 0.018, 0.035, 0, 0.162, -0.24, steel, 'adjustment-dial');
     tube(0.045, 0.05, 0, barrelY, -1.075, steel, 'muzzle');
+  } else if(crimsonGuard) {
+    const crimson = new THREE.MeshPhysicalMaterial({
+      name:'Crimson Guard lacquer',color:'#a71930',metalness:0.48,roughness:0.23,
+      clearcoat:0.9,clearcoatRoughness:0.13,
+    });
+    const ivory = new THREE.MeshPhysicalMaterial({
+      name:'Crimson Guard ivory',color:'#e6e2d8',metalness:0.26,roughness:0.27,
+      clearcoat:0.7,clearcoatRoughness:0.16,
+    });
+    const darkSteel = mat('#303941',0.76);
+    const silver = mat('#aeb8bd',0.8);
+    const rubber = mat('#20252a',0.1);
+    const addTo = (parent,geometry,material,x,y,z,name) => {
+      const mesh=new THREE.Mesh(geometry,material);
+      mesh.position.set(x,y,z);mesh.name=name;mesh.castShadow=mesh.receiveShadow=true;
+      parent.add(mesh);return mesh;
+    };
+    const rounded = (w,h,d,r,material,x,y,z,name) =>
+      add(new RoundedBoxGeometry(w,h,d,3,r),material,x,y,z,name);
+
+    // A compact but substantial ivory receiver leaves room for the barrel
+    // cluster to read clearly from the side and from the muzzle.
+    add(new RoundedBoxGeometry(0.205,0.185,0.6,6,0.045),ivory,
+      0,0.017,-0.3,'guard-receiver');
+    add(new RoundedBoxGeometry(0.18,0.13,0.26,6,0.042),ivory,
+      0,0.005,0.07,'guard-stock');
+    rounded(0.17,0.025,0.035,0.011,crimson,0,0.005,0.2,'guard-stock-cap');
+    const grip=rounded(0.085,0.205,0.105,0.024,rubber,0,-0.15,-0.045,'guard-grip');
+    grip.rotation.x=-0.16;
+    rounded(0.093,0.02,0.1,0.009,crimson,0,-0.252,-0.022,'guard-grip-heel');
+    add(new RoundedBoxGeometry(0.195,0.185,0.23,6,0.045),ivory,
+      0,0.025,-0.57,'guard-front-socket');
+    // A low sight rail completes the receiver without covering the rotor.
+    // Its base sinks into the ivory shell; the thin red stripe sits on top.
+    rounded(0.09,0.025,0.64,0.011,ivory,0,0.116,-0.315,'guard-sight-rail');
+    rounded(0.016,0.004,0.48,0.002,crimson,0,0.1305,-0.32,'guard-rail-inset');
+    rounded(0.078,0.014,0.032,0.006,darkSteel,0,0.141,-0.055,'guard-rear-sight-base');
+    for(const side of [-1,1])
+      rounded(0.012,0.035,0.026,0.004,darkSteel,side*0.031,0.165,-0.055,'guard-rear-sight-post');
+    rounded(0.013,0.026,0.026,0.004,darkSteel,0,0.141,-0.59,'guard-front-sight');
+    // A quiet chamfered plate follows the receiver's flat side and narrows
+    // only near the socket. It sits almost flush without a dark cartoon edge.
+    const enamelShape=new THREE.Shape();
+    enamelShape.moveTo(0.145,0.013);
+    enamelShape.quadraticCurveTo(0.145,-0.018,0.17,-0.018);
+    enamelShape.lineTo(0.36,-0.018);
+    enamelShape.quadraticCurveTo(0.4,-0.018,0.44,-0.009);
+    enamelShape.lineTo(0.5,0.01);
+    enamelShape.quadraticCurveTo(0.525,0.018,0.525,0.026);
+    enamelShape.quadraticCurveTo(0.515,0.035,0.5,0.038);
+    enamelShape.lineTo(0.44,0.049);
+    enamelShape.lineTo(0.17,0.049);
+    enamelShape.quadraticCurveTo(0.145,0.048,0.145,0.013);
+    enamelShape.closePath();
+    const sideInlay=(side)=>{
+      const geometry=new THREE.ExtrudeGeometry(enamelShape,{
+        depth:0.002,bevelEnabled:true,bevelSegments:2,
+        bevelSize:0.0007,bevelThickness:0.0004,curveSegments:12,
+      });
+      geometry.translate(0,0,-0.001);
+      geometry.rotateY(Math.PI/2);
+      return add(geometry,crimson,side*0.103,0,0,'guard-side-panel');
+    };
+    for(const side of [-1,1]) {
+      sideInlay(side);
+      rounded(0.007,0.05,0.06,0.003,crimson,side*0.099,0.025,-0.57,'guard-socket-accent');
+    }
+    // Restore the longer swept front grip, seated into the motor above and
+    // reaching the supporting hand below without touching the moving rotor.
+    const support=rounded(0.09,0.145,0.105,0.025,rubber,0,-0.14,-0.64,'guard-forward-grip');
+    support.rotation.x=-0.2;
+    // Fixed lower handguard: the original black support runs forward under
+    // the exposed rotating barrels, while the short grip drops from its rear.
+    rounded(0.12,0.05,0.54,0.018,rubber,0,-0.104,-0.9,'guard-underbarrel-panel');
+
+    const rotor=new THREE.Group();rotor.name='guard-rotating-barrels';
+    rotor.position.y=0.025;rotor.userData.crimsonRotor=true;rotor.userData.speed=0;
+    group.add(rotor);
+    const spindle=addTo(rotor,new THREE.CylinderGeometry(0.045,0.045,0.12,16),
+      darkSteel,0,0,-0.68,'guard-rotor-spindle');
+    spindle.rotation.x=Math.PI/2;
+    for(let i=0;i<5;i++) {
+      const angle=i*Math.PI*2/5,x=Math.cos(angle)*0.069,y=Math.sin(angle)*0.069;
+      const barrel=addTo(rotor,new THREE.CylinderGeometry(0.023,0.023,0.465,12),
+        darkSteel,x,y,-0.9375,'guard-barrel');barrel.rotation.x=Math.PI/2;
+      const bore=addTo(rotor,new THREE.CylinderGeometry(0.014,0.014,0.004,12),
+        rubber,x,y,-1.168,'guard-bore');bore.rotation.x=Math.PI/2;
+      const tip=addTo(rotor,new THREE.CylinderGeometry(0.026,0.026,0.022,12),
+        silver,x,y,-1.153,'guard-barrel-tip');tip.rotation.x=Math.PI/2;
+    }
+    for(const z of [-0.84,-1.075]) {
+      const collar=addTo(rotor,new THREE.TorusGeometry(0.082,0.012,8,28),
+        z===-0.84?crimson:silver,0,0,z,'guard-rotor-collar');
+      collar.rotation.z=Math.PI/10;
+    }
+    group.userData.muzzleDepth=1.17;
+    return group;
   } else if(midas) {
     const gold = new THREE.MeshPhysicalMaterial({
       name: 'Midas gold', color: '#f1c232', metalness: 0.82, roughness: 0.19,

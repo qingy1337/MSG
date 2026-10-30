@@ -12,7 +12,7 @@ async function run(count,ogres=false){
   game.waitingPlayers.push({id:'p',name:'Profiler',weapon:'pistol'});handlers.startGame({enableBots:true});
   try{
     const human=game.activePlayers.find(p=>!p.isBot),base=game.activePlayers.find(p=>p.isBot),solids=[...game.gameWalls,...game.gameMap.terrain];
-    human.health=100000;
+    human.health=100000;human.maxHealth=100000;
     const candidates=[];for(let y=350;y<1000;y+=65)for(let x=1200;x<1750;x+=65)if(canOccupy(x,y,0,solids))candidates.push({x,y});
     while(game.activePlayers.filter(p=>p.isBot).length<count){const i=game.activePlayers.length,b=structuredClone(base);
       Object.assign(b,{id:'bench-'+i,botState:{},squad:Math.floor(i/3),height:0,groundHeight:0},candidates[i%candidates.length]);game.activePlayers.push(b);
@@ -28,7 +28,7 @@ async function run(count,ogres=false){
     const times=[],loopDelays=[];let paths=0;bytes=0;emits=0;
     for(let i=0;i<120;i++){
       now+=50;
-      human.health=100;human.alive=true;
+      human.health=100000;human.alive=true;
       for(const b of game.activePlayers.filter(p=>p.isBot))b.botState.lastSeen={id:human.id,x:human.x,y:human.y,height:human.height||0,seenAt:now};
       const start=performance.now();tick();times.push(performance.now()-start);
       if(!game.gameInProgress.status||!human.alive)throw new Error('Benchmark match ended; timings would be invalid');

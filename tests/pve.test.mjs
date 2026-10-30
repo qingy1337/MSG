@@ -214,6 +214,32 @@ function fixture(humans = 2, pve = true) {
   return {game,handlers,events};
 }
 
+test('PvE automatic fire lowers enemy health and publishes reliable health changes',t=>{
+  let now=100000;
+  t.mock.method(global,'setInterval',()=>0);t.mock.method(Date,'now',()=>now);
+  const {game,handlers,events}=fixture(1);
+  try {
+    game.gameWalls.length=0;game.gameMap.terrain.length=0;
+    const human=game.activePlayers.find(player=>!player.isBot);
+    const bots=game.activePlayers.filter(player=>player.isBot),target=bots[0];
+    for(const bot of bots.slice(1))bot.alive=false;
+    Object.assign(human,{x:100,y:300,height:0,weapon:'autoRifle',health:90,maxHealth:101});
+    Object.assign(target,{x:250,y:300,height:0,groundHeight:0,health:80,maxHealth:80});
+    handlers.automaticFireStart({angle:0,pitch:0});
+    assert.equal(target.health,72);
+    now+=250;game.runBotsTick();
+    const changes=events.filter(event=>event.name==='healthChanged').flatMap(event=>event.data);
+    assert.equal(changes.find(change=>change.id===target.id)?.health,72);
+    assert.ok(changes.some(change=>change.id===human.id&&change.health>90),
+      'PvE regeneration also reaches the health bar');
+    const lastFrame=events.findLastIndex(event=>event.name==='gameState');
+    const lastShots=events.findLastIndex(event=>event.name==='shotsFired');
+    const lastHealth=events.findLastIndex(event=>event.name==='healthChanged');
+    assert.ok(lastFrame<lastShots&&lastShots<lastHealth,
+      'position updates precede reliable shot and health packets');
+  } finally {game.close();}
+});
+
 test('PvE floors retain the expanded arena and non-overlapping landmarks', () => {
   const {map,walls}=createPveMap(731);
   assert.ok(map.width*map.height>=4*900*600);
@@ -448,19 +474,21 @@ test('server bots attack visible players, then investigate cover without trackin
     Object.assign(b,{x:300,y:450,angle:0,height:0,groundHeight:0});Object.assign(p,{x:600,y:450});
     let largestStep=0;
     for(let i=0;i<35;i++){const x=b.x,y=b.y;p.health=100;now+=50;tick();largestStep=Math.max(largestStep,Math.hypot(b.x-x,b.y-y));}
-    assert.ok(events.some(e=>e.name==='shotFired'),'visible target attacked after reaction time');
+    const shotCount=()=>events.reduce((count,event)=>count+(event.name==='shotsFired'?event.data.length:
+      event.name==='shotFired'?1:0),0);
+    assert.ok(shotCount()>0,'visible target attacked after reaction time');
     assert.ok(largestStep<=6.66,'movement respects combat speed below player speed');
-    const memory={...b.botState.lastSeen},shots=events.filter(e=>e.name==='shotFired').length;
+    const memory={...b.botState.lastSeen},shots=shotCount();
     Object.assign(p,{x:800,y:100});
     for(let i=0;i<15;i++){now+=50;tick();}
     assert.deepEqual(b.botState.lastSeen,memory,'memory stays at the last visible edge, not hidden coordinates');
     assert.equal(b.botState.mode,'investigate');
-    assert.equal(events.filter(e=>e.name==='shotFired').length,shots,'no firing at occluded target');
+    assert.equal(shotCount(),shots,'no firing at occluded target');
     p.x=1700;
     let furthestX=b.x;
     for(let i=0;i<140;i++){now+=50;tick();await new Promise(resolve=>setTimeout(resolve,5));furthestX=Math.max(furthestX,b.x);}
     assert.ok(furthestX>490,'investigates around the wall corner without getting stuck');
-    assert.equal(events.filter(e=>e.name==='shotFired').length,shots,'does not acquire unseen distant player');
+    assert.equal(shotCount(),shots,'does not acquire unseen distant player');
   } finally {game.close();}
 });
 

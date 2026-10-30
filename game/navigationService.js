@@ -5,7 +5,7 @@ class NavigationService {
     if(this.worker)this.worker.postMessage(this.floor);
   }
   beginTick(){this.sent=0;}
-  request(bot,goal,complete){if(this.sent>=2||this.pending.size>=2||[...this.pending.values()].some(p=>p.bot===bot.id))return false;
+  request(bot,goal,complete,fallbackGoal=null){if(this.sent>=2||this.pending.size>=2||[...this.pending.values()].some(p=>p.bot===bot.id))return false;
     if(!this.worker){
       this.worker=new Worker(require.resolve('./navigationWorker'));
       this.worker.on('message',result=>{const pending=this.pending.get(result.id);this.pending.delete(result.id);
@@ -18,6 +18,8 @@ class NavigationService {
     this.worker.postMessage({id,version:this.version,
       start:{x:bot.x,y:bot.y,height:bot.height||0,...(bot.zone?{zone:bot.zone}:{})},
       goal:{x:goal.x,y:goal.y,height:goal.height,...(goal.zone?{zone:goal.zone}:{})},
+      ...(fallbackGoal?{fallbackGoal:{x:fallbackGoal.x,y:fallbackGoal.y,
+        height:fallbackGoal.height,...(fallbackGoal.zone?{zone:fallbackGoal.zone}:{})}}:{}),
       ogre:bot.botType==='ogre'||bot.botType==='guardian'});return true;
   }
   close(){this.pending.clear();if(this.worker){void this.worker.terminate();this.worker=null;}}

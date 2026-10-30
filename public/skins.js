@@ -498,6 +498,20 @@ const WEAPON_SKINS = {
         {type:'polygon',points:[{x:0.43,y:0.04},{x:0.52,y:0.04},{x:0.55,y:0.23},{x:0.46,y:0.23}],fill:'#e6e8e5',color:'#d7a72d'},
       ],
     },
+    {
+      key: "miniGun_crimson_guard",
+      weaponKey: "miniGun",
+      name: "Crimson Guard",
+      description: "Ivory armor, crimson trim, and spinning barrels.",
+      price: 3500,
+      isDefault: false,
+      bulletColor: "#c73747",
+      shapes: [
+        {type:'line',fromX:0.08,fromY:0,toX:0.96,toY:0,lineWidth:8,color:'#e6e2d8',outlineColor:'#8c9298'},
+        {type:'line',fromX:0.24,fromY:-0.08,toX:0.78,toY:-0.08,lineWidth:3,color:'#a71930',outlineColor:'#6b1b2a'},
+        {type:'line',fromX:0.08,fromY:0.09,toX:0.4,toY:0.09,lineWidth:3,color:'#a71930'},
+      ],
+    },
   ],
   sniper: [
     {

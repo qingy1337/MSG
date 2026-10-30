@@ -7,7 +7,7 @@ import { createPistol, PISTOL_MODEL_SCALE } from './pistol.mjs';
 import {createShotgun,poseShotgun,triggerShotgunChamber,shotgunMuzzleStyle,shotgunPelletColor} from './shotgun.mjs';
 import {poseGrenadeFuse} from './grenadeFuse.mjs';
 import {createGrenadeExplosion,poseGrenadeExplosion,EXPLOSION_DURATION} from './grenadeExplosion.mjs';
-import { createHeavyWeapon, heavyWeaponMuzzleDepth, heavyWeaponMuzzleYOffset, heavyWeaponViewScale, heavyWeaponViewYOffset, heavyWeaponViewZ, poseHeavyWeaponSkin, triggerHeavyWeaponSkin } from './heavyWeapons.mjs';
+import { createHeavyWeapon, heavyWeaponMuzzleDepth, heavyWeaponMuzzleYOffset, heavyWeaponViewScale, heavyWeaponViewYOffset, heavyWeaponViewZ, poseHeavyWeaponSkin, poseMinigunRotor, triggerHeavyWeaponSkin } from './heavyWeapons.mjs';
 import { createMuzzleFlash, muzzleFlashScaleForWeapon, triggerMuzzleFlash, updateMuzzleFlash } from './muzzleFlash.mjs';
 import { createTerrainModel, poseCargoLift } from './pveEnvironment.mjs';
 import {createTempleEnvironment} from './templeEnvironment.mjs';
@@ -966,6 +966,7 @@ export class Arena3D {
       const pistol = createPistol(skin?.key, length); pistol.position.set(0.27, 1.34, -0.45); weapon.add(pistol);
     } else if (player.weapon === 'miniGun' || ['sniper_calibrated','sniper_flatpack','sniper_kintsugi'].includes(skin?.key)) {
       const model = createHeavyWeapon(player.weapon, skin?.key, length); model.position.set(0.27, 1.34, -0.45); weapon.add(model);
+      if(skin?.key==='miniGun_crimson_guard')mergeRigidMeshes(model.getObjectByName('guard-rotating-barrels'));
     } else {
       const weaponMaterial = this.material(skin?.bulletColor || '#334653', 0.75, 0.22);
       this.box(weapon, 0.24, 0.23, length, 0.27, 1.34, -0.45 - length / 2, weaponMaterial, 0.04);
@@ -1027,8 +1028,10 @@ export class Arena3D {
     record.muzzleFlash.position.set(0.27, 1.34 + length * heavyWeaponMuzzleYOffset(skin?.key),
       -0.45 - muzzleLength * heavyWeaponMuzzleDepth(skin?.key));
     if(dread)record.muzzleFlash.position.set(.27,1.37,-1.72);
-    if (player.weapon === 'miniGun'&&skin?.key!=='miniGun_midas') record.muzzleFlash.position.x += length * 0.125;
+    if (player.weapon === 'miniGun'&&!['miniGun_midas','miniGun_crimson_guard'].includes(skin?.key)) record.muzzleFlash.position.x += length * 0.125;
     record.muzzleBaseX=record.muzzleFlash.position.x;
+    record.muzzleBaseY=record.muzzleFlash.position.y;
+    if(skin?.key==='miniGun_crimson_guard')record.muzzleBarrelOffset=length*0.069;
     (ogreModel||guardianModel?group:weapon).add(record.muzzleFlash);
     this.characters.set(player.id, record); return record;
   }
@@ -1075,6 +1078,7 @@ export class Arena3D {
       model.scale.setScalar(length * heavyWeaponViewScale(skin?.key));
       model.position.set(0.23, -0.2 + heavyWeaponViewYOffset(skin?.key), heavyWeaponViewZ(skin?.key));
       this.viewWeapon.add(model);
+      if(skin?.key==='miniGun_crimson_guard')mergeRigidMeshes(model.getObjectByName('guard-rotating-barrels'));
     } else {
       const metal = this.material(skin?.bulletColor || '#354854', 0.7, 0.25);
       this.box(this.viewWeapon, 0.12, 0.14, length, 0.23, -0.2, -0.32 - length / 2, metal, 0.025);
@@ -1094,9 +1098,24 @@ export class Arena3D {
     this.viewMuzzleFlash.position.set(0.23,
       -0.2 + heavyWeaponViewYOffset(skin?.key) + length * heavyWeaponMuzzleYOffset(skin?.key),
       -0.32 - muzzleLength * heavyWeaponMuzzleDepth(skin?.key));
-    if (player.weapon === 'miniGun'&&skin?.key!=='miniGun_midas') this.viewMuzzleFlash.position.x += length * 0.125;
-    this.viewMuzzleState={weaponSkinKey:skin?.key,muzzleBaseX:this.viewMuzzleFlash.position.x,muzzleBarrelOffset:length*0.062};
+    if (player.weapon === 'miniGun'&&!['miniGun_midas','miniGun_crimson_guard'].includes(skin?.key)) this.viewMuzzleFlash.position.x += length * 0.125;
+    this.viewMuzzleState={weaponSkinKey:skin?.key,muzzleBaseX:this.viewMuzzleFlash.position.x,
+      muzzleBaseY:this.viewMuzzleFlash.position.y,
+      muzzleBarrelOffset:length*(skin?.key==='miniGun_crimson_guard'?0.069:0.062)};
     this.viewWeapon.add(this.viewMuzzleFlash);
+  }
+
+  setMinigunTriggerHeld(held) {
+    this.minigunTriggerHeld=!!held;
+  }
+
+  positionCrimsonMuzzle(flash,state,weapon) {
+    if(state?.weaponSkinKey!=='miniGun_crimson_guard')return;
+    const rotor=weapon.getObjectByName('guard-rotating-barrels');
+    const barrel=(state.crimsonShotIndex=(state.crimsonShotIndex??-1)+1)%5;
+    const angle=barrel*Math.PI*2/5+(rotor?.rotation.z||0);
+    flash.position.x=state.muzzleBaseX+Math.cos(angle)*state.muzzleBarrelOffset;
+    flash.position.y=state.muzzleBaseY+Math.sin(angle)*state.muzzleBarrelOffset;
   }
 
   triggerWeaponFlash(flash,state,shot) {
@@ -1273,11 +1292,13 @@ export class Arena3D {
     if (character) { character.recoil = shot.pellets?Math.min(0.4,(character.recoil||0)+0.22):pistolShot?0.18:0.13;character.shotAt=this.renderTime;
       if(shot.pellets)triggerShotgunChamber(character.weapon,shot.shotgunBarrel,this.renderTime);
       triggerHeavyWeaponSkin(character.weapon,this.renderTime);
-      this.triggerWeaponFlash(character.muzzleFlash,character,shot); }
+      this.triggerWeaponFlash(character.muzzleFlash,character,shot);
+      this.positionCrimsonMuzzle(character.muzzleFlash,character,character.weapon); }
     if (shot.playerId === viewId&&this.viewMuzzleFlash) { this.weaponRecoil = shot.pellets?Math.min(0.36,(this.weaponRecoil||0)+0.2):pistolShot?0.16:0.1;this.viewShotAt=this.renderTime;
       if(shot.pellets)triggerShotgunChamber(this.viewWeapon,shot.shotgunBarrel,this.renderTime);
       triggerHeavyWeaponSkin(this.viewWeapon,this.renderTime);
-      this.triggerWeaponFlash(this.viewMuzzleFlash,this.viewMuzzleState,shot); }
+      this.triggerWeaponFlash(this.viewMuzzleFlash,this.viewMuzzleState,shot);
+      this.positionCrimsonMuzzle(this.viewMuzzleFlash,this.viewMuzzleState,this.viewWeapon); }
   }
 
   setMissionState(state) {
@@ -1503,6 +1524,8 @@ export class Arena3D {
       updateMuzzleFlash(c.muzzleFlash, dt);
       if(player.weapon==='shotgun')poseShotgun(c.weapon,this.renderTime-(c.shotAt??-10),this.renderTime);
       poseHeavyWeaponSkin(c.weapon,this.renderTime);
+      if(c.weaponSkinKey==='miniGun_crimson_guard')poseMinigunRotor(c.weapon,dt,
+        player.id===localId?this.minigunTriggerHeld:this.renderTime-(c.shotAt??-10)<0.22);
       c.group.visible = !!player.alive && player.id !== viewed?.id;
       if (!player.alive) continue;
       const motion=updateCharacterMotion(c,player,dt);
@@ -1624,6 +1647,8 @@ export class Arena3D {
       // Damage flashing restores every captured material to its base emissive
       // value, so animated skin lighting must be applied after that reset.
       poseHeavyWeaponSkin(this.viewWeapon,this.renderTime);
+      if(this.viewWeaponKey==='miniGun:miniGun_crimson_guard')poseMinigunRotor(this.viewWeapon,dt,
+        viewed.id===localId?this.minigunTriggerHeld:this.renderTime-(this.viewShotAt??-10)<0.22);
       this.weaponRecoil = Math.max(0, this.weaponRecoil - dt);
       const switchAt=this.weaponSwitchTimes?.get(viewed.id)??-Infinity;
       const swap=Math.max(0,Math.min(1,(this.renderTime-switchAt)/WEAPON_SWAP_SECONDS));

@@ -56,7 +56,7 @@ const isCoopMap=(map=gameMap)=>map?.mode==='pve'||isStrikeMap(map);
 const riding = () => gameMap.mode === 'pve' && !isStrikeMap() && ['riding','opening'].includes(floorState.phase);
 const travelCabin=()=>riding()?(floorState.phase==='opening'?gameMap.arrivalElevator:gameMap.elevator):null;
 let gameActive = false, frame = 0, previousTime = 0, lastShotAt = 0, lastUpdateAt = 0;
-let firing = false, automaticFireTimer = null, dirty = false, returnTimer, messageTimer;
+let firing = false, lastAutomaticAimAt = -Infinity, dirty = false, returnTimer, messageTimer;
 const keys = new Set();
 let pitch = 0;
 function hydrateSpawnTiming(player) {
@@ -296,6 +296,7 @@ function releaseMouse() {
   cancelGrenade();
   cancelStrikeInteraction();
   resetMinigunSpool();
+  stopAutomaticFire();
   firing = false; keys.clear();jumpRequested=false;
   if (locked()) document.exitPointerLock();
 }
@@ -332,7 +333,7 @@ window.initGame = function initGame(gamePlayers, gameWalls, map = DEFAULT_MAP, s
 };
 
 function stop() {
-  gameActive = false; stopAutomaticFire(); releaseMouse(); cancelAnimationFrame(frame);
+  gameActive = false; releaseMouse(); cancelAnimationFrame(frame);
   clearKillFeed();
   pveWipe?.classList.add('hidden');
   strikeState=null;updateStrikeHud();
@@ -376,29 +377,14 @@ function attemptFire(now = performance.now()) {
   sendPosition(now); socket.emit('shoot', { angle: localPlayer.angle, pitch }); lastShotAt = now;
 }
 
-// Automatic fire must not depend on requestAnimationFrame. At 60 Hz the old
-// loop silently rounded an 80 ms weapon up to five frames (83.3 ms), and low
-// or uneven frame rates reduced its damage output further. The server remains
-// authoritative over every shot and its cooldown; this timer only schedules
-// held-trigger attempts at the weapon's authored cadence.
 function stopAutomaticFire() {
-  if (automaticFireTimer !== null) clearTimeout(automaticFireTimer);
-  automaticFireTimer = null;
+  if(firing)socket.emit('automaticFireStop');
 }
 
-function scheduleAutomaticFire() {
-  stopAutomaticFire();
-  const cfg=WEAPONS[localPlayer?.weapon];
-  if(!firing||!gameActive||!localPlayer?.alive||!locked()||riding()||!cfg?.automatic)return;
-  const now=performance.now();
-  const cadenceWait=Math.max(0,cfg.cooldownMs-(now-lastShotAt));
-  const swapWait=Math.max(0,(localPlayer.weaponSwapUntil||0)-(Date.now()+floorClockOffset));
-  automaticFireTimer=setTimeout(()=>{
-    automaticFireTimer=null;
-    if(!firing)return;
-    attemptFire(performance.now());
-    scheduleAutomaticFire();
-  },Math.max(1,cadenceWait,swapWait));
+function updateAutomaticAim(now=performance.now()) {
+  if(!firing||!WEAPONS[localPlayer?.weapon]?.automatic||now-lastAutomaticAimAt<30)return;
+  lastAutomaticAimAt=now;
+  socket.emit('automaticFireAim',{angle:localPlayer.angle,pitch});
 }
 
 function gameLoop(now) {
@@ -416,6 +402,7 @@ function gameLoop(now) {
   const bloomRadius=`${bloomPixels.toFixed(2)}px`;
   if(previousBloomRadius!==bloomRadius){previousBloomRadius=bloomRadius;
     crosshair.style.setProperty('--sniper-bloom-radius',bloomRadius);}
+  arena.setMinigunTriggerHeld(firing&&localPlayer?.alive&&localPlayer.weapon==='miniGun');
   arena.render(renderedPlayers, socket.id, dt, pitch);
   const canInteract=updateStrikeInteractionHud(now);
   updateGrenadeHud(viewed?.grenades??0,grenadeChargeAt==null||!localPlayer?.alive?null:performance.now()-grenadeChargeAt);
@@ -456,13 +443,13 @@ window.addEventListener('keydown', e => {
     const aim=strikeInteractionAim();
     if(aim.eligible) {
       if(!e.repeat&&!strikeInteractHeld&&!aim.active?.occupiedBy) {
-        firing=false;resetMinigunSpool();sendPosition(performance.now());
+        stopAutomaticFire();firing=false;resetMinigunSpool();sendPosition(performance.now());
         strikeInteractHeld=true;strikeInteractStartedAt=performance.now();
         socket.emit('strikeInteractStart',{kind:aim.active.kind,targetId:aim.active.targetId,
           angle:localPlayer.angle,pitch});
       }
     } else if(!e.repeat&&localPlayer?.alive&&localPlayer.primaryWeapon) {
-      firing=false;resetMinigunSpool();socket.emit('switchWeapon');
+      stopAutomaticFire();firing=false;resetMinigunSpool();socket.emit('switchWeapon');
     }
     return;
   }
@@ -489,18 +476,19 @@ window.addEventListener('keyup', e => {
   }
 });
 window.addEventListener('blur', releaseMouse);
-document.addEventListener('visibilitychange', () => { if (document.hidden) { cancelGrenade();cancelStrikeInteraction();resetMinigunSpool();keys.clear(); firing = false; } });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { cancelGrenade();cancelStrikeInteraction();resetMinigunSpool();keys.clear();stopAutomaticFire();firing = false; } });
 document.addEventListener('mousemove', e => {
   if (!locked() || !gameActive || !localPlayer?.alive) return;
   localPlayer.angle += e.movementX * MOVEMENT.mouseSensitivity;
   pitch = Math.max(-1.35, Math.min(1.35, pitch - e.movementY * MOVEMENT.mouseSensitivity));
   dirty = true;
+  updateAutomaticAim();
 });
 document.addEventListener('pointerlockchange', () => {
   cancelGrenade();
   if(!locked())cancelStrikeInteraction();
   if(!locked())resetMinigunSpool();
-  firing = false; stopAutomaticFire(); keys.clear();
+  stopAutomaticFire();firing = false;keys.clear();
   lookPrompt.hidden = locked() || !gameActive || !localPlayer?.alive;
 });
 document.addEventListener('pointerlockerror', () => {
@@ -516,11 +504,16 @@ canvas.addEventListener('pointerdown', e => {
   const now=performance.now();
   if(localPlayer.weapon==='miniGun'&&
     (minigunSpinAt==null||now-minigunReleasedAt>WEAPONS.miniGun.triggerReleaseMs))minigunSpinAt=now;
-  firing = true; attemptFire(now); scheduleAutomaticFire();
+  firing = true;
+  if(WEAPONS[localPlayer.weapon]?.automatic){
+    sendPosition(now);
+    socket.emit('automaticFireStart',{angle:localPlayer.angle,pitch});
+    lastAutomaticAimAt=now;
+  } else attemptFire(now);
 });
 window.addEventListener('pointerup', () => {
   if(firing&&localPlayer?.weapon==='miniGun')minigunReleasedAt=performance.now();
-  firing = false; stopAutomaticFire();
+  stopAutomaticFire();firing = false;
 });
 document.getElementById('raytracing-toggle').addEventListener('change', e => {
   if (arena?.floor) arena.floor.uniforms.reflections.value = e.target.checked;
@@ -572,6 +565,16 @@ socket.on('gameState', (updated,meta) => {
   }
   updateGameInfo();
 });
+socket.on('healthChanged',updates=>{
+  if(!gameActive||!Array.isArray(updates))return;
+  const byId=new Map(players.map(player=>[player.id,player]));
+  for(const update of updates){
+    const player=byId.get(update?.id);
+    if(!player||!Number.isFinite(update.health))continue;
+    player.health=update.health;
+    if(Number.isFinite(update.maxHealth))player.maxHealth=update.maxHealth;
+  }
+});
 socket.on('playersAdded',added=>{
   if(!gameActive||!Array.isArray(added)||!added.length)return;
   const previous=new Map(players.map(player=>[player.id,player]));
@@ -621,6 +624,10 @@ socket.on('strikeComplete',state=>{
   gameMessage.textContent=`THE RED VAULT SECURED${coins?` · +${coins} COINS`:''}`;
 });
 socket.on('shotFired', shot => { if (arena && gameActive) arena.shot(shot); });
+socket.on('shotsFired',shots=>{
+  if(!arena||!gameActive||!Array.isArray(shots))return;
+  for(const shot of shots)arena.shot(shot);
+});
 socket.on('weaponSwitched',data=>{
   const player=players.find(p=>p.id===data?.id);
   if(!player)return;

@@ -193,6 +193,9 @@ test('authoritative Strike runtime stages waves, revives checkpoints, operates g
     assert.equal(added?.args[0]?.length,2,'deferred Strike spawns publish one reliable identity packet');
     assert.ok(added.args[0].every(bot=>bot.botType&&bot.weapon&&bot.bodyHeight),
       'the identity packet carries renderer-critical bot fields');
+    assert.ok(game.activePlayers.filter(value=>value.isBot&&value.alive)
+      .every(bot=>Math.cos(bot.angle)<0),
+    'Strike defenders face the approaching fireteam instead of all facing map east');
 
     fixture.advance(901);
     assert.equal(game.strikeState.phase,'combat');

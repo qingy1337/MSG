@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createMinigunSpoolHud,READY_FLASH_MS} from '../public/minigunSpoolHud.mjs';
 import * as THREE from 'three';
 import skins from '../public/skins.js';
-import { createHeavyWeapon,heavyWeaponMuzzleDepth,heavyWeaponMuzzleYOffset,heavyWeaponViewScale,heavyWeaponViewYOffset,heavyWeaponViewZ,KINTSUGI_GLOW_DURATION,poseHeavyWeaponSkin,triggerHeavyWeaponSkin } from '../public/heavyWeapons.mjs';
+import { createHeavyWeapon,heavyWeaponMuzzleDepth,heavyWeaponMuzzleYOffset,heavyWeaponViewScale,heavyWeaponViewYOffset,heavyWeaponViewZ,KINTSUGI_GLOW_DURATION,poseHeavyWeaponSkin,poseMinigunRotor,triggerHeavyWeaponSkin } from '../public/heavyWeapons.mjs';
 import { createMuzzleFlash, triggerMuzzleFlash, updateMuzzleFlash } from '../public/muzzleFlash.mjs';
 
 function dispose(group) {
@@ -215,6 +215,72 @@ test('minigun skins retain their themes while Midas is an original streamlined S
         'the diagonal grip sits distinctly ahead of the firing hand');
       assert.ok(forwardGripBounds.max.y>receiverBounds.min.y,
         'the diagonal grip is visibly integrated into the receiver underside');
+    } else if(skin.key==='miniGun_crimson_guard') {
+      const receiver=model.getObjectByName('guard-receiver');
+      const socket=model.getObjectByName('guard-front-socket');
+      assert.equal(receiver.geometry.type,'RoundedBoxGeometry');
+      assert.equal(socket.geometry.type,'RoundedBoxGeometry');
+      assert.equal(receiver.material.color.getHexString(),'e6e2d8');
+      assert.equal(model.getObjectByName('guard-upper-shroud'),undefined);
+      assert.equal(model.getObjectByName('guard-upper-rear'),undefined);
+      model.updateMatrixWorld(true);
+      const receiverBounds=new THREE.Box3().setFromObject(receiver);
+      const socketBounds=new THREE.Box3().setFromObject(socket);
+      const railBounds=new THREE.Box3().setFromObject(model.getObjectByName('guard-sight-rail'));
+      assert.ok(railBounds.min.y<receiverBounds.max.y,
+        'sight rail is seated into the receiver');
+      assert.ok(railBounds.min.z>socketBounds.min.z,
+        'sight rail stops at the front socket and leaves the barrels exposed');
+      assert.equal(model.children.filter(child=>child.name==='guard-rear-sight-post').length,2);
+      assert.ok(model.getObjectByName('guard-front-sight'));
+      const supportBounds=new THREE.Box3().setFromObject(model.getObjectByName('guard-forward-grip'));
+      const panelBounds=new THREE.Box3().setFromObject(model.getObjectByName('guard-underbarrel-panel'));
+      assert.equal(model.getObjectByName('guard-barrel-shroud'),undefined);
+      assert.ok(receiverBounds.min.z<socketBounds.max.z,'compact motor joins the receiver');
+      assert.ok(socketBounds.min.z>-0.7*length,'motor ends early enough to expose the barrels');
+      assert.ok(supportBounds.max.y>socketBounds.min.y,'front grip is seated into the motor');
+      assert.ok(supportBounds.max.y-supportBounds.min.y>0.14*length,
+        'front grip reaches down to the supporting hand');
+      assert.ok(panelBounds.max.z>supportBounds.min.z,
+        'black support panel connects to the front grip');
+      assert.ok(Math.abs(panelBounds.min.z+heavyWeaponMuzzleDepth(skin.key)*length)<0.005*length,
+        'black support panel reaches the end of the barrels');
+      assert.ok(panelBounds.max.y<0,'support panel stays below the rotating barrels');
+      const rotor=model.getObjectByName('guard-rotating-barrels');
+      assert.equal(rotor.children.filter(child=>child.name==='guard-barrel').length,5);
+      const barrel=rotor.getObjectByName('guard-barrel');
+      const barrelRear=barrel.position.z+barrel.geometry.parameters.height/2;
+      const barrelFront=barrel.position.z-barrel.geometry.parameters.height/2;
+      assert.ok(barrelRear<=-0.7&&barrelRear>=-0.71,
+        'visible barrels begin beyond the rounded motor face');
+      assert.ok(Math.abs(barrelFront+heavyWeaponMuzzleDepth(skin.key))<0.005,
+        'shorter barrels retain the same muzzle position');
+      assert.ok(rotor.getObjectByName('guard-rotor-spindle'));
+      assert.equal(model.getObjectByName('guard-side-rail'),undefined);
+      assert.equal(model.getObjectByName('guard-lower-spine'),undefined);
+      assert.equal(model.children.filter(child=>child.name==='guard-side-panel').length,2);
+      const inlay=model.getObjectByName('guard-side-panel');
+      assert.equal(inlay.geometry.type,'ExtrudeGeometry');
+      assert.equal(inlay.material.color.getHexString(),'a71930');
+      assert.equal(model.getObjectByName('guard-side-recess'),undefined);
+      const inlayPositions=inlay.geometry.attributes.position;
+      const span=([start,end])=>{
+        let low=Infinity,high=-Infinity;
+        for(let i=0;i<inlayPositions.count;i++) {
+          const u=-inlayPositions.getZ(i);
+          if(u<start||u>end)continue;
+          low=Math.min(low,inlayPositions.getY(i));
+          high=Math.max(high,inlayPositions.getY(i));
+        }
+        return high-low;
+      };
+      assert.ok(span([0.47,0.52])<span([0.12,0.25])*0.55,
+        'red inlay tapers toward the barrel socket');
+      const size=new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3());
+      assert.ok(size.x<0.25*length,'open barrel assembly avoids the old broad housing');
+      assert.ok(size.z>1.3*length,'silhouette has a long, visible barrel cluster');
+      assert.equal(heavyWeaponMuzzleDepth(skin.key),1.17);
+      assert.equal(heavyWeaponMuzzleYOffset(skin.key),0.025);
     } else {
       assert.equal(model.children.filter(c => c.name === 'rotary-barrel').length, 6);
       assert.equal(model.children.filter(c => c.name === 'barrel-bore').length, 6);
@@ -236,8 +302,23 @@ test('minigun skins retain their themes while Midas is an original streamlined S
   }
 });
 
+test('Crimson Guard barrels accelerate under fire and coast to a stop',()=>{
+  const model=createHeavyWeapon('miniGun','miniGun_crimson_guard',0.5);
+  const rotor=model.getObjectByName('guard-rotating-barrels');
+  assert.equal(poseMinigunRotor(model,0.016,false),0);
+  for(let index=0;index<25;index++)poseMinigunRotor(model,0.016,true);
+  const firingSpeed=rotor.userData.speed,angle=rotor.rotation.z;
+  assert.ok(firingSpeed>30);
+  assert.ok(angle<0);
+  poseMinigunRotor(model,0.016,false);
+  assert.ok(rotor.userData.speed>0&&rotor.userData.speed<firingSpeed);
+  for(let index=0;index<130;index++)poseMinigunRotor(model,0.016,false);
+  assert.equal(rotor.userData.speed,0);
+  dispose(model);
+});
+
 test('Midas sits naturally in the first-person hand without shifting other heavy weapons', () => {
-  assert.equal(heavyWeaponViewYOffset('miniGun_midas'),-0.01);
+  assert.equal(heavyWeaponViewYOffset('miniGun_midas'),-0.03);
   assert.equal(heavyWeaponViewYOffset('miniGun_default'),0);
   assert.equal(heavyWeaponViewYOffset('sniper_calibrated'),0);
   assert.equal(heavyWeaponMuzzleYOffset('sniper_calibrated'),0.022);

@@ -48,7 +48,7 @@ const WEAPONS = {
     spinUpMs: 200,
     triggerReleaseMs: 150,
     cooldownMs: 16,
-    bloom: {baseRadians:0.018,movingRadians:0.042,airborneRadians:0.058,settleMs:280},
+    bloom: {baseRadians:0.012,movingRadians:0.022,airborneRadians:0.032,settleMs:280},
     automatic: true,
   },
   sniper: {

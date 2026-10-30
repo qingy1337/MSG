@@ -127,7 +127,7 @@ test('server owns damage, origins, cooldowns, and invalid input rejection', () =
   } finally { game.close(); }
 });
 
-test('auto rifle is a 750 RPM, 10-damage mid-range primary',t=>{
+test('auto rifle is a 750 RPM, 8-damage close-range primary',t=>{
   let connection,now=100000;
   t.mock.method(global,'setInterval',()=>0);t.mock.method(Date,'now',()=>now);
   const handlers={};
@@ -138,9 +138,9 @@ test('auto rifle is a 750 RPM, 10-damage mid-range primary',t=>{
     const attacker={...shooter,weapon:'autoRifle'},victim={...target,health:101};
     game.activePlayers.push(attacker,victim);
     handlers.shoot({angle:0});
-    assert.equal(victim.health,91);
-    now+=79;handlers.shoot({angle:0});assert.equal(victim.health,91);
-    now++;handlers.shoot({angle:0});assert.equal(victim.health,81);
+    assert.equal(victim.health,93);
+    now+=79;handlers.shoot({angle:0});assert.equal(victim.health,93);
+    now++;handlers.shoot({angle:0});assert.equal(victim.health,85);
     assert.equal(WEAPONS.autoRifle.cooldownMs,80);
   } finally {game.close();}
 });
@@ -154,7 +154,7 @@ test('auto rifle smoothly returns to 5.75 damage at long range', () => {
     game.gameInProgress.status = true;
     const attacker = { ...shooter, weapon: 'autoRifle' }, victim = { ...target };
     game.activePlayers.push(attacker, victim);
-    for (const [distance, damage] of [[150, 10], [250, 10], [425, 7.875], [600, 5.75], [750, 5.75]]) {
+    for (const [distance, damage] of [[150, 8], [250, 8], [350, 8], [425, 7.875], [600, 5.75], [750, 5.75]]) {
       victim.x = attacker.x + distance;
       victim.health = 100;
       attacker.lastShotAt = 0;
@@ -402,6 +402,51 @@ test('human miniguns must spin up and obey their nerfed server cadence',t=>{
     assert.equal(victim.health,97,'releasing long enough requires a fresh spin-up');
     assert.equal(events.filter(event=>event.name==='shotFired').length,2);
   } finally {game.close();}
+});
+
+test('held automatic fire deals the same damage across sparse and frequent client frames',t=>{
+  let now=100000;
+  t.mock.method(global,'setInterval',()=>0);t.mock.method(Date,'now',()=>now);
+  t.mock.method(Math,'random',()=>0);
+  for(const [weapon,tickTimes,expectedShots] of [
+    ['autoRifle',[50,100,150,200,250,300,350,400],6],
+    ['autoRifle',[100,200,300,400],6],
+    ['miniGun',[50,100,150,200,250,300,350,400],13],
+    ['miniGun',[100,200,300,400],13],
+  ]) {
+    let connection;const handlers={},events=[];
+    const io={on:(_,fn)=>{connection=fn;},emit:(name,data)=>events.push({name,data}),to(){return this;}};
+    const game=createGameServer(io);
+    try {
+      connection({id:'s',on:(name,fn)=>{handlers[name]=fn;}});
+      game.gameInProgress.status=true;
+      const attacker={...shooter,weapon},victim={...target,health:1000,maxHealth:1000};
+      game.activePlayers.push(attacker,victim);
+      now=100000;
+      handlers.automaticFireStart({angle:0,pitch:0});
+      for(const elapsed of tickTimes){now=100000+elapsed;game.runBotsTick();}
+      const fired=events.flatMap(event=>event.name==='shotFired'?[event.data]:
+        event.name==='shotsFired'?event.data:[]);
+      assert.equal(fired.length,expectedShots,
+        `${weapon} with ${tickTimes.length} updates`);
+      assert.equal(victim.health,1000-expectedShots*(weapon==='miniGun'?2:8),
+        `${weapon} damage with ${tickTimes.length} updates`);
+      const firstFrame=events.findIndex(event=>event.name==='gameState');
+      const firstHealth=events.findIndex(event=>event.name==='healthChanged');
+      assert.ok(firstFrame>=0&&firstHealth>firstFrame,
+        'replaceable movement is sent before reliable health');
+      const firstShotBatch=events.findIndex(event=>event.name==='shotsFired');
+      assert.ok(firstShotBatch>firstFrame,
+        'automatic shot effects are batched after the movement frame');
+      handlers.automaticFireStop();
+      const health=victim.health;
+      now+=250;game.runBotsTick();
+      assert.equal(victim.health,health,'releasing the trigger stops further rounds');
+      const healthUpdates=events.filter(event=>event.name==='healthChanged').flatMap(event=>event.data);
+      assert.equal(healthUpdates.at(-1)?.health,victim.health,
+        'the client eventually receives the latest health over a reliable event');
+    } finally {game.close();}
+  }
 });
 
 test('slimmer movement collider fits a 34-unit gap but still rejects wall overlap', () => {

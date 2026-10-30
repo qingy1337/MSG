@@ -398,6 +398,11 @@ class NavigationGraph {
   }
 
   find(start,goal) {return this.sectorMode?this.findSector(start,goal):this.findLegacy(start,goal);}
+
+  findWithFallback(start,goal,fallback) {
+    const preferred=this.find(start,goal);
+    return preferred.length||!fallback?preferred:this.find(start,fallback);
+  }
 }
 
 module.exports={NavigationGraph,sectorBounds,belongsToSector};

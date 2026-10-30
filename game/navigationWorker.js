@@ -7,7 +7,7 @@ parentPort.on('message',message=>{
   try {
     const key=!!message.ogre;
     if(!graphs.has(key))graphs.set(key,new NavigationGraph(floor.map,floor.walls,key));
-    const graph=graphs.get(key),path=graph.find(message.start,message.goal);
+    const graph=graphs.get(key),path=graph.findWithFallback(message.start,message.goal,message.fallbackGoal);
     parentPort.postMessage({id:message.id,version:message.version,path});
   } catch(error){parentPort.postMessage({id:message.id,version:message.version,path:[],error:error.message});}
 });

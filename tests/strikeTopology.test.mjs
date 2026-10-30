@@ -703,6 +703,22 @@ test('Strike gantry defenders can route to the east landing through the actual p
     assert.ok(graph.clear(route[index-1],route[index]),`blocked route segment ${index}`);
 });
 
+test('Strike bots pursue a reachable sighting when their preferred firing position is blocked',()=>{
+  const {map,walls}=strike.createRedVaultMap(),graph=new navigation.NavigationGraph(map,walls);
+  const encounter=map.encounters.find(value=>value.id==='secure-receiving');
+  const defender=encounter.spawnGroups[0].bots[0],player=encounter.checkpointSpawns[0];
+  const distance=Math.hypot(defender.x-player.x,defender.y-player.y);
+  const preferred={x:player.x+(defender.x-player.x)*230/distance,
+    y:player.y+(defender.y-player.y)*230/distance,height:player.height,zone:player.zone};
+  assert.deepEqual(graph.find(defender,preferred),[],
+    'this real Strike firing position is blocked by architecture');
+  const route=graph.findWithFallback(defender,preferred,player);
+  assert.ok(route.length>1,'the bot should still be able to advance');
+  assert.deepEqual(route.at(-1),player);
+  for(let index=1;index<route.length;index++)
+    assert.ok(graph.clear(route[index-1],route[index]),`blocked fallback route segment ${index}`);
+});
+
 test('Red Vault renderer stays finite, bounded, and reacts to authored machinery state',()=>{
   const {map}=strike.createRedVaultMap(),root=createRedVaultEnvironment(map);
   try {

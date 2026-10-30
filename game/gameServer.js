@@ -64,7 +64,7 @@ const colors = [
 const MAX_HEALTH = 101;
 const WEAPON_DAMAGE = {
   pistol: 10.5,
-  autoRifle: 10,    // 750 RPM: 125 sustained DPS before accuracy.
+  autoRifle: 10,    // Original falloff curve; its final damage is capped below.
   sniper: 90,
   miniGun: 4,
 };
@@ -72,14 +72,16 @@ const WEAPON_DAMAGE = {
 const AUTO_RIFLE_FALLOFF_START = 250;
 const AUTO_RIFLE_FALLOFF_END = 600;
 const AUTO_RIFLE_LONG_RANGE_DAMAGE = 5.75;
+const AUTO_RIFLE_MAX_DAMAGE = 8;
 
 function autoRifleDamageAtDistance(distance) {
   const closeDamage = WEAPON_DAMAGE.autoRifle;
-  if (distance <= AUTO_RIFLE_FALLOFF_START) return closeDamage;
+  if (distance <= AUTO_RIFLE_FALLOFF_START) return AUTO_RIFLE_MAX_DAMAGE;
   if (distance >= AUTO_RIFLE_FALLOFF_END) return AUTO_RIFLE_LONG_RANGE_DAMAGE;
   const progress = (distance - AUTO_RIFLE_FALLOFF_START) /
     (AUTO_RIFLE_FALLOFF_END - AUTO_RIFLE_FALLOFF_START);
-  return closeDamage + (AUTO_RIFLE_LONG_RANGE_DAMAGE - closeDamage) * progress;
+  return Math.min(AUTO_RIFLE_MAX_DAMAGE,
+    closeDamage + (AUTO_RIFLE_LONG_RANGE_DAMAGE - closeDamage) * progress);
 }
 
 function killCoinReward(target) {
@@ -93,6 +95,9 @@ function createGameServer(io, options = {}) {
   let lastTickMs=0;
   const navigation=new NavigationService();
   let snapshotDirty=false,snapshotSequence=0;
+  const pendingHealth=new Map();
+  const pendingCombatShots=[];
+  let lastHealthPublishAt=-Infinity;
   const queueSnapshot=()=>{snapshotDirty=true;};
   function publishSnapshot(){
     // One replaceable packet for all moving entities. A separate reliable
@@ -102,12 +107,21 @@ function createGameServer(io, options = {}) {
       ...waitingPlayers.map(player=>player.id),
     ])];
     const channel=humanRooms.length&&typeof io.to==='function'?io.to(humanRooms):io;
+    const now=Date.now();
     (channel.volatile||channel).emit('gameState',activePlayers.map(playerFrame),{
-      serverNow:Date.now(),sequence:++snapshotSequence,
+      serverNow:now,sequence:++snapshotSequence,
       grenades:grenades.map(({id,x,y,height,vx,vy,vz,expiresAt})=>({id,x,y,height,vx,vy,vz,expiresAt})),
       guardianProjectiles:guardianProjectiles.map(({id,x,y,height,vx,vy,vz,expiresAt})=>({id,x,y,height,vx,vy,vz,expiresAt})),
       pickups:pickups.map(({id,kind,x,y,height})=>({id,kind,x,y,height})),
     });
+    if(pendingCombatShots.length)channel.emit('shotsFired',pendingCombatShots.splice(0));
+    // A reliable emit just before a volatile frame can make Socket.IO drop
+    // that frame. Send motion first, then coalesce health at 4 Hz so PvE's
+    // 5 HP/s regeneration cannot starve every bot-position update.
+    if(pendingHealth.size&&now-lastHealthPublishAt>=250){
+      channel.emit('healthChanged',[...pendingHealth.values()]);
+      pendingHealth.clear();lastHealthPublishAt=now;
+    }
     snapshotDirty=false;
   }
   // Game state
@@ -257,6 +271,9 @@ function createGameServer(io, options = {}) {
     }
     bind("playerUpdate", (data) => handlePlayerUpdate(socket, data));
     bind("shoot", (bulletData) => handleShoot(socket, bulletData));
+    bind('automaticFireStart', aim => handleAutomaticFireStart(socket, aim));
+    bind('automaticFireAim', aim => handleAutomaticFireAim(socket, aim));
+    bind('automaticFireStop', () => handleAutomaticFireStop(socket));
     bind("switchWeapon", () => handleSwitchWeapon(socket));
     bind('retryFloor', reply => {
       const ok=retryWipedFloor(socket);
@@ -551,7 +568,61 @@ function createGameServer(io, options = {}) {
     if (!bulletData || !Number.isFinite(bulletData.angle)) return;
     const pitch = bulletData.pitch ?? 0;
     if (!Number.isFinite(pitch) || Math.abs(pitch) > 1.35) return;
+    if(player?.automaticFire&&WEAPONS[player.weapon]?.automatic)return;
     fireHitscan(player, bulletData.angle, pitch);
+  }
+
+  function validAutomaticAim(aim) {
+    return aim&&Number.isFinite(aim.angle)&&Number.isFinite(aim.pitch)&&Math.abs(aim.pitch)<=1.35;
+  }
+
+  function handleAutomaticFireStart(socket, aim) {
+    const player=activePlayers.find(p=>p.id===socket.id);
+    if(!player?.alive||player.isBot||!WEAPONS[player.weapon]?.automatic||!validAutomaticAim(aim)||
+      !gameInProgress.status||gameOverTimeout||riding())return;
+    if(player.automaticFire)return;
+    const now=Date.now(),config=WEAPONS[player.weapon];
+    let nextShotAt=Math.max(now,(player.lastShotAt||0)+config.cooldownMs);
+    if(player.weapon==='miniGun'){
+      if(player.miniGunSpinStartedAt==null||player.miniGunLastAttemptAt==null||
+        now-player.miniGunLastAttemptAt>config.triggerReleaseMs)player.miniGunSpinStartedAt=now;
+      player.miniGunLastAttemptAt=now;
+      nextShotAt=Math.max(nextShotAt,player.miniGunSpinStartedAt+config.spinUpMs);
+    }
+    player.automaticFire={weapon:player.weapon,angle:aim.angle,pitch:aim.pitch,
+      nextShotAt};
+    processAutomaticFire(now);
+    if(pendingCombatShots.length)publishSnapshot();
+  }
+
+  function handleAutomaticFireAim(socket, aim) {
+    const player=activePlayers.find(p=>p.id===socket.id);
+    if(!player?.automaticFire||!validAutomaticAim(aim))return;
+    player.automaticFire.angle=aim.angle;player.automaticFire.pitch=aim.pitch;
+  }
+
+  function handleAutomaticFireStop(socket) {
+    const player=activePlayers.find(p=>p.id===socket.id);
+    if(player?.automaticFire?.weapon==='miniGun')player.miniGunLastAttemptAt=Date.now();
+    if(player)player.automaticFire=null;
+  }
+
+  function processAutomaticFire(now) {
+    for(const player of activePlayers) {
+      const held=player.automaticFire;
+      if(!held)continue;
+      if(!player.alive||!gameInProgress.status||gameOverTimeout||riding()||
+        held.weapon!==player.weapon){player.automaticFire=null;continue;}
+      const interval=WEAPONS[player.weapon].cooldownMs;
+      // A late server tick catches up the rounds due during that tick. Cap a
+      // pathological stall so one client cannot create an unbounded burst.
+      for(let rounds=0;held.nextShotAt<=now&&rounds<16;rounds++) {
+        fireHitscan(player,held.angle,held.pitch,held.nextShotAt,true);
+        held.nextShotAt+=interval;
+        if(!player.alive||player.automaticFire!==held||gameOverTimeout)break;
+      }
+      if(held.nextShotAt<=now)held.nextShotAt=now+interval;
+    }
   }
 
   function handleSwitchWeapon(socket) {
@@ -564,18 +635,19 @@ function createGameServer(io, options = {}) {
     player.weaponSkinKey=useSecondary?player.secondaryWeaponSkinKey:player.primaryWeaponSkinKey;
     player.miniGunSpinStartedAt=null;
     player.miniGunLastAttemptAt=null;
+    player.automaticFire=null;
     player.weaponSwapUntil=now+WEAPON_SWITCH_MS;
     io.emit('weaponSwitched',{id:player.id,weapon:player.weapon,weaponSkinKey:player.weaponSkinKey,
       weaponSwapUntil:player.weaponSwapUntil});
     queueSnapshot();return true;
   }
 
-  function fireHitscan(player, angle, pitch = 0) {
+  function fireHitscan(player, angle, pitch = 0, shotTime = Date.now(), batchShot = false) {
     if (!gameInProgress.status || gameOverTimeout || riding() || !player || !player.alive) return false;
     const now = Date.now();
     if(now<(player.weaponSwapUntil||0))return false;
     const weaponConfig=WEAPONS[player.weapon] || WEAPONS.pistol;
-    if(player.weapon==='miniGun'&&!player.isBot) {
+    if(player.weapon==='miniGun'&&!player.isBot&&!player.automaticFire) {
       const released=player.miniGunLastAttemptAt==null||
         now-player.miniGunLastAttemptAt>weaponConfig.triggerReleaseMs;
       if(released)player.miniGunSpinStartedAt=now;
@@ -583,7 +655,7 @@ function createGameServer(io, options = {}) {
       if(now-(player.miniGunSpinStartedAt??now)<weaponConfig.spinUpMs)return false;
     }
     const cooldown = weaponConfig.cooldownMs;
-    if (now - (player.lastShotAt || 0) < cooldown) return false;
+    if (shotTime - (player.lastShotAt || 0) < cooldown) return false;
     if(player.weapon==='shotgun') {
       if(now<(player.shotgunReloadUntil||0))return false;
       if(player.shotgunShotsRemaining==null||player.shotgunShotsRemaining===0)
@@ -593,7 +665,7 @@ function createGameServer(io, options = {}) {
       queueSnapshot();
     }
     if(!player.isBot)activatePveEncounter();
-    player.lastShotAt = now;
+    player.lastShotAt = shotTime;
     player.angle = angle;
     updateCargoLifts(gameMap,activePlayers,now);
     for (const active of activePlayers) advanceJump(active, now);
@@ -628,7 +700,8 @@ function createGameServer(io, options = {}) {
       reactorHit.damage=strikeWeaponDamage(player,reactorHit.distance);
       shot.strikeTargetId=reactorHit.target.id;shot.strikeTargetDamage=reactorHit.damage;
     }
-    io.emit("shotFired", shot);
+    if(batchShot)pendingCombatShots.push(shot);
+    else io.emit("shotFired", shot);
     for(const targetId of shot.targetIds||(shot.targetId?[shot.targetId]:[]))
       handlePlayerHit({ targetId, shooterId: player.id });
     if(reactorHit)damageStrikeDestructible(reactorHit,player,now);
@@ -689,6 +762,7 @@ function createGameServer(io, options = {}) {
     if (specialDamage !== undefined) damage = specialDamage;
 
     target.health = Math.max(0, (target.health ?? MAX_HEALTH) - damage);
+    pendingHealth.set(target.id,{id:target.id,health:target.health,maxHealth:target.maxHealth??MAX_HEALTH});
     if(gameMap.activity==='strike'&&(target.boss||target.botType==='warden'))
       updateStrikeBossState(target,now);
     if(target.isBot && target.health>0 && damage>0) {
@@ -944,6 +1018,9 @@ function createGameServer(io, options = {}) {
       gameOverTimeout = null;
     }
     activePlayers.length = 0;
+    pendingHealth.clear();
+    pendingCombatShots.length=0;
+    lastHealthPublishAt=-Infinity;
     gameWalls.length = 0;
     gameInProgress.status = false;
     nextBotId = 1;
@@ -1841,7 +1918,7 @@ function createGameServer(io, options = {}) {
           DEFAULT_SKIN_BY_WEAPON[spawn.weapon||BOT_CONFIG.weaponKey] || null,
         x: spawn.x,
         y: spawn.y,
-        angle: 0,
+        angle: spawn.angle??0,
         alive: true,
         health: spawn.health??defaultHealth,maxHealth:spawn.maxHealth??spawn.health??defaultHealth,
         botType: authoredType||(ogre ? 'ogre' : guardian ? 'guardian' : dread ? 'dread' : 'soldier'),
@@ -2433,6 +2510,10 @@ function createGameServer(io, options = {}) {
       const requestedGoal={...goal,height:retreat?(bot.height||0):target?.height??state.lastSeen?.height??bot.height??0,
         zone:retreat?(bot.zone??bot.sectorId):target?.zone??target?.sectorId??state.lastSeen?.zone??
           state.lastSeen?.sectorId??bot.zone??bot.sectorId},requestedState=state;
+      const strikeFallback=gameMap.activity==='strike'&&!retreat&&(target||state.lastSeen)?{
+        x:target?.x??state.lastSeen.x,y:target?.y??state.lastSeen.y,
+        height:target?.height??state.lastSeen.height??0,
+        zone:target?.zone??target?.sectorId??state.lastSeen.zone??bot.zone??bot.sectorId}:null;
       if(navigation.request(bot,requestedGoal,path=>{
         if(bot.alive&&bot.botState===requestedState){
           if(path.length) {
@@ -2458,7 +2539,7 @@ function createGameServer(io, options = {}) {
             state.wanderUntil=0;
           }
         }
-      })){
+      },strikeFallback)){
         state.pathRequestAt=now;state.squadRepathAt=now+1200+(Number(bot.id.replace(/\D/g,''))%7)*75;
       }
     }
@@ -2526,7 +2607,7 @@ function createGameServer(io, options = {}) {
   }
 
   function fireBulletFromBot(bot) {
-    return fireHitscan(bot, bot.angle, bot.aimPitch || 0);
+    return fireHitscan(bot, bot.angle, bot.aimPitch || 0, Date.now(), true);
   }
 
   function applyBotAction(bot, action, now) {
@@ -3205,11 +3286,19 @@ function createGameServer(io, options = {}) {
 
   function spawnStrikeGroup(encounter,descriptor,phaseIndex) {
     const {group,groupIndex,positions}=descriptor;
-    const spawns=positions.map((spawn,slot)=>({...spawn,
+    const humans=activePlayers.filter(player=>player.alive&&!player.isBot);
+    const spawns=positions.map((spawn,slot)=>{
+      const approach=humans.reduce((nearest,player)=>{
+        const distance=Math.hypot(player.x-spawn.x,player.y-spawn.y);
+        return !nearest||distance<nearest.distance?{player,distance}:nearest;
+      },null)?.player||encounter.checkpointSpawns?.[0]||encounter.objectivePoint;
+      return {...spawn,angle:spawn.angle??(approach?
+        Math.atan2(approach.y-spawn.y,approach.x-spawn.x):0),
       strikeSpawnGroup:group.id||`group-${groupIndex}`,strikeSpawnRole:group.role||'line',
       strikeSpawnGroupIndex:groupIndex,strikeSpawnSlot:slot,
       zone:spawn.zone??spawn.sectorId??encounter.zoneId??encounter.sectorId,
-      sectorId:spawn.sectorId??spawn.zone??encounter.sectorId??encounter.zoneId}));
+      sectorId:spawn.sectorId??spawn.zone??encounter.sectorId??encounter.zoneId};
+    });
     gameMap.botSpawns=spawns;if(spawns[0])gameMap.botSpawn=spawns[0];
     const before=activePlayers.length;
     if(spawns.length)createBotsForCurrentMatch(spawns.length);
@@ -3874,9 +3963,15 @@ function createGameServer(io, options = {}) {
     if(floorState.phase==='wiped')return;
     if (!Array.isArray(activePlayers) || activePlayers.length === 0) return;
     const jumpNow = Date.now();
+    processAutomaticFire(jumpNow);
     navigation.beginTick();
     if (cooperative()) {
+      const beforeHealth=activePlayers.map(player=>player.health);
       regeneratePlayers(activePlayers, Math.max(0, (jumpNow - lastRegenAt) / 1000));
+      for(let i=0;i<activePlayers.length;i++)if(activePlayers[i].health!==beforeHealth[i]){
+        const player=activePlayers[i];
+        pendingHealth.set(player.id,{id:player.id,health:player.health,maxHealth:player.maxHealth??MAX_HEALTH});
+      }
       lastRegenAt = jumpNow;
       if(gameMap.activity==='strike'){advanceStrike(jumpNow);advanceStrikeHazards(jumpNow);}
       else {
@@ -3940,7 +4035,8 @@ function createGameServer(io, options = {}) {
         }
       }
     }
-    if (bots.length === 0) {if(snapshotDirty||jumping||cooperative())publishSnapshot();return;}
+    const healthDue=pendingHealth.size&&jumpNow-lastHealthPublishAt>=250;
+    if (bots.length === 0) {if(snapshotDirty||jumping||cooperative()||pendingCombatShots.length||healthDue)publishSnapshot();return;}
 
     const snapshotPlayers = activePlayers.slice();
     const now = Date.now();
@@ -3950,7 +4046,7 @@ function createGameServer(io, options = {}) {
       // Keep newly announced Strike reinforcements inert while clients show
       // their arrival column. They cannot move, acquire targets, or fire until
       // the same server timestamp that ends their materialization.
-      if(bot.spawnReadyAt>now)continue;
+      if(bot.spawnReadyAt>now||bot.strikeInvalidSince!=null)continue;
       const action = cooperative() ? computeSquadAction(bot, bots, now) : computeScriptedBotAction(bot, snapshotPlayers, gameWalls);
       const moved = applyBotAction(bot, action, now);
       if (moved) {
@@ -3958,7 +4054,7 @@ function createGameServer(io, options = {}) {
       }
     }
 
-    if (anyBotMoved||snapshotDirty||jumping||cooperative())publishSnapshot();
+    if (anyBotMoved||snapshotDirty||jumping||cooperative()||pendingCombatShots.length||healthDue)publishSnapshot();
   }
 
   const BOT_TICK_MS = 50;

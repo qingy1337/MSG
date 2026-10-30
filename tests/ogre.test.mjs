@@ -67,7 +67,8 @@ test('floor 21 keeps a large wave with three coin-rich Dread Captains',t=>{
       botState:{lastShotAt:0,nextAimAt:Infinity,aimOffset:0}});
     tick();assert.equal(dread.dreadAttack.phase,'charge');assert.equal(human.health,101);
     for(const elapsed of [550,750,950]){now=100000+elapsed;tick();}
-    assert.equal(events.filter(e=>e.name==='shotFired'&&e.data.playerId===dread.id).length,3);
+    assert.equal(events.flatMap(e=>e.name==='shotsFired'?e.data:
+      e.name==='shotFired'?[e.data]:[]).filter(shot=>shot.playerId===dread.id).length,3);
     assert.equal(human.health,76,'three 9-damage hits, with one HP regenerated between later hits');
     assert.equal(dread.dreadAttack,null);
   } finally {game.close();}
