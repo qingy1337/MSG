@@ -7,10 +7,10 @@ import maps from '../public/arenaMap.js';
 import jumpPhysics from '../public/movement.js';
 const {applyMovementInput}=movement;
 
-test('Vault Annex conveyors carry grounded players in their visible direction',()=>{
-  const {map,walls}=maps.createPvpMap(0,'vaultAnnex'),solids=[...walls,...map.terrain];
-  const belts=map.terrain.filter(s=>s.kind==='vaultConveyor');
-  assert.equal(belts.length,3);
+test('Candy Factory conveyors carry grounded players in their visible direction',()=>{
+  const {map,walls}=maps.createPvpMap(0,'candyFactory'),solids=[...walls,...map.terrain];
+  const belts=map.terrain.filter(s=>s.kind==='candyConveyor');
+  assert.equal(belts.length,2);
   for(const [index,belt] of belts.entries()) {
     const player={alive:true,x:belt.x+belt.width/2,y:belt.y+belt.height/2,
       height:belt.top,groundHeight:belt.top,jumpStartedAt:null,bodyHeight:2.2};

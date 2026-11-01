@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createMarioPipe } from './marioPipe.mjs';
-import { createAutoRifle } from './autoRifle.mjs';
+import { createAutoRifle, poseAutoRifleSkin, triggerAutoRifleSkin } from './autoRifle.mjs';
 import { createPistol, PISTOL_MODEL_SCALE } from './pistol.mjs';
 import {createShotgun,poseShotgun,triggerShotgunChamber,shotgunMuzzleStyle,shotgunPelletColor} from './shotgun.mjs';
 import {poseGrenadeFuse} from './grenadeFuse.mjs';
@@ -13,7 +13,6 @@ import { createTerrainModel, poseCargoLift } from './pveEnvironment.mjs';
 import {createTempleEnvironment} from './templeEnvironment.mjs';
 import {createSpaceEnvironment} from './spaceEnvironment.mjs';
 import {createAirportEnvironment} from './airportEnvironment.mjs';
-import {createRedVaultEnvironment} from './strikeEnvironment.mjs';
 import { createElevatorModel, poseElevator, elevatorDisplay } from './elevator.mjs';
 import { updateCharacterMotion } from './characterMotion.mjs';
 import { createOgreModel, poseOgre } from './ogre.mjs';
@@ -85,15 +84,6 @@ export function createPvpSpawnShieldOutline(source) {
     else if(object.isLine||object.isPoints)object.visible=false;
   });
   outline.userData.shieldMaterial=material;return outline;
-}
-
-export function finiteMetricTree(value) {
-  if(typeof value==='number')return Number.isFinite(value);
-  if(Array.isArray(value))return value.every(finiteMetricTree);
-  if(value&&typeof value==='object')return Object.values(value).every(finiteMetricTree);
-  // Metric records include descriptive ids; only numeric leaves need a
-  // finiteness check.
-  return true;
 }
 
 function captureMaterialization(group,excluded) {
@@ -428,7 +418,8 @@ function floorMaterial(walls, areas = [], pve = false, zoneUniforms, palette = {
       floorHigh:{value:new THREE.Color(palette.floorHigh||'#4d6166')},
       reflectionBase:{value:new THREE.Color(palette.reflection||'#526b73')},
       reflectionGlow:{value:new THREE.Color(palette.reflectionGlow||'#2ed9e3')},
-      groundStyle:{value:palette.groundStyle==='grass'?1:palette.groundStyle==='airport'?2:0},
+      groundStyle:{value:palette.groundStyle==='grass'?1:palette.groundStyle==='airport'?2:
+        palette.groundStyle==='candy'?3:0},
     },
     vertexShader: `varying vec3 point;
       void main() { vec4 p = modelMatrix * vec4(position, 1.0); point = p.xyz;
@@ -456,7 +447,14 @@ function floorMaterial(walls, areas = [], pve = false, zoneUniforms, palette = {
         vec2 grid = abs(fract(point.xz / 2.5 - 0.5) - 0.5) / max(fwidth(point.xz / 2.5), vec2(0.001));
         float seam = 1.0 - min(min(grid.x,grid.y),1.0);
         vec3 base = mix(floorLow,floorHigh,seam*0.48);
-        if(groundStyle>1.5) {
+        if(groundStyle>2.5) {
+          // Broad glazed floor panels give the candy works color and scale
+          // without adding a second coplanar floor mesh.
+          vec2 tile=abs(fract(point.xz/2.75)-.5);
+          float joint=smoothstep(.465,.49,max(tile.x,tile.y));
+          float clay=sin(point.x*.57+sin(point.z*.29))*.04+sin(point.z*.61-point.x*.18)*.035;
+          base=mix(floorHigh,floorLow,joint*.48+clay);
+        } else if(groundStyle>1.5) {
           // Large polished terrazzo tiles with fine aggregate and restrained
           // grout. This remains a single draw call across the whole terminal.
           vec2 tile=abs(fract(point.xz/1.55)-.5);
@@ -647,7 +645,7 @@ export class Arena3D {
     const pve=map.mode==='pve',strike=map.mode==='strike'||map.activity==='strike';
     const palette=map.palette||{};
     const temple=map.style==='temple',orbital=map.style==='orbital',airport=map.style==='airport',
-      redVault=map.style==='redVault';
+      candy=map.id==='candyFactory',foundry=map.style==='foundry',tower=map.style==='tower';
     const areas=strike?[]:planAreaLighting(map,walls);
     this.zoneUniforms=ambientZoneUniforms(planAmbientZones(map),map);
     this.scene.background.set(palette.sky||'#9ebbc9');
@@ -660,7 +658,7 @@ export class Arena3D {
     this.ambient.intensity=palette.ambientIntensity??(pve?1.9:3.2);
     this.sun.intensity=palette.sunIntensity??(pve?1.5:3.5);
     this.rim.intensity=palette.rimIntensity??(pve?0.65:2);
-    this.cargoModels=[];this.animatedTerrain=[];this.strikeEnvironment=null;this.strikeMissionState=null;
+    this.cargoModels=[];this.animatedTerrain=[];this.strikeMissionState=null;
     this.liftRise=0;this.liftSway=0;this.elevatorModel=null;this.arrivalModel=null;
     const width = map.width*SCALE, depth = map.height*SCALE;
     const center = world(map.width/2,map.height/2);
@@ -695,15 +693,15 @@ export class Arena3D {
     const glowColor=palette.glow||'#69e8df';
     const glow = new THREE.MeshStandardMaterial({ color: glowColor, emissive: glowColor,
       emissiveIntensity:temple?0.08:1.5,roughness:temple?0.92:0.4 });
-    const vaultRed=redVault?this.material('#891626',.78,.25):null,
-      vaultBlack=redVault?this.material('#151319',.86,.28):null;
     if(!strike) {
       for(const rectangle of floorRectangles) {
         const p=world(rectangle.x+rectangle.width/2,rectangle.y+rectangle.height/2);
         this.box(this.stage,rectangle.width*SCALE+.05,.45,rectangle.height*SCALE+.05,p.x,-.26,p.z,dark,.08);
       }
     }
-    const wallGeometry={body:[],cap:[],panel:[],glow:[],red:[],black:[]};
+    const wallGeometry={body:[],cap:[],panel:[],glow:[],
+      candyPlate:[],candyRib:[],candyBand:[],
+      foundryPlate:[],foundryRib:[],foundryCopper:[],towerPlate:[],towerRib:[],towerAmber:[]};
     for (const wall of strike?[]:walls) {
       // Temple collision is deliberately invisible; a dedicated architectural
       // model below replaces the shared arena wall language completely.
@@ -711,9 +709,103 @@ export class Arena3D {
       const wallCenter=world(wall.x+wall.width/2,wall.y+wall.height/2);
       const w = wall.width * SCALE, d = wall.height * SCALE;
       const wallBottom=wall.bottom||0,wallTop=wall.top??WALL_HEIGHT,wallHeight=wallTop-wallBottom;
-      wallGeometry.body.push(roundedGeometry(w,wallHeight,d,wallCenter.x,wallBottom+wallHeight/2,wallCenter.z,0.15));
+      // Exposed walls use one cap as their walking surface. Walls that meet the
+      // roof need no cap, which would lie directly against the ceiling slab.
+      const exposedTop=map.roof===false||!map.ceiling||wallTop<map.ceiling-.01;
+      const bodyHeight=wallHeight-(exposedTop?Math.min(.08,wallHeight*.1):0);
+      wallGeometry.body.push(roundedGeometry(w,bodyHeight,d,wallCenter.x,wallBottom+bodyHeight/2,wallCenter.z,0.15));
+      if(candy) {
+        const horizontal=w>d,length=horizontal?w:d,thickness=horizontal?d:w;
+        const bays=Math.max(1,Math.min(12,Math.ceil(length/3.25))),pitch=length/bays;
+        wallGeometry.cap.push(roundedGeometry(w-.03,.22,d-.03,wallCenter.x,wallBottom+.11,wallCenter.z,.025));
+        if(exposedTop)wallGeometry.cap.push(roundedGeometry(w-.03,.18,d-.03,wallCenter.x,wallTop-.09,wallCenter.z,.025));
+        for(const sign of [-1,1]) {
+          const face=sign*(thickness/2+.065),ribFace=sign*(thickness/2+.14);
+          for(let i=0;i<bays;i++) {
+            const along=(i+.5)*pitch-length/2;
+            wallGeometry.candyPlate.push(roundedGeometry(horizontal?Math.max(.14,pitch-.23):.08,
+              Math.max(.4,wallHeight-.95),horizontal?.08:Math.max(.14,pitch-.23),
+              wallCenter.x+(horizontal?along:face),wallBottom+wallHeight/2,
+              wallCenter.z+(horizontal?face:along),.02));
+          }
+          for(let i=0;i<=bays;i++) {
+            const along=i*pitch-length/2;
+            wallGeometry.candyRib.push(roundedGeometry(horizontal?.12:.09,
+              Math.max(.3,wallHeight-.40),horizontal?.09:.12,
+              wallCenter.x+(horizontal?along:ribFace),wallBottom+wallHeight/2,
+              wallCenter.z+(horizontal?ribFace:along),.015));
+          }
+          if(wallHeight>4)wallGeometry.candyBand.push(roundedGeometry(
+            horizontal?Math.max(.15,length-.18):.03,.055,
+            horizontal?.03:Math.max(.15,length-.18),
+            wallCenter.x+(horizontal?0:ribFace+sign*.07),wallBottom+3.55,
+            wallCenter.z+(horizontal?ribFace+sign*.07:0),.006));
+        }
+        continue;
+      }
+      if(tower) {
+        const horizontal=w>d,length=horizontal?w:d,thickness=horizontal?d:w;
+        const bays=Math.max(1,Math.min(12,Math.ceil(length/2.8))),pitch=length/bays;
+        wallGeometry.cap.push(roundedGeometry(w-.03,.24,d-.03,wallCenter.x,wallBottom+.12,wallCenter.z,.03));
+        if(exposedTop)wallGeometry.cap.push(roundedGeometry(w-.03,.18,d-.03,wallCenter.x,wallTop-.09,wallCenter.z,.025));
+        for(const sign of [-1,1]) {
+          const face=sign*(thickness/2+.055);
+          for(let i=0;i<bays;i++) {
+            const along=(i+.5)*pitch-length/2;
+            wallGeometry.towerPlate.push(roundedGeometry(horizontal?pitch-.18:.075,
+              Math.min(5.8,Math.max(.55,wallHeight-.76)),horizontal?.075:pitch-.18,
+              wallCenter.x+(horizontal?along:face),wallBottom+Math.min(wallHeight/2,3.3),
+              wallCenter.z+(horizontal?face:along),.025));
+          }
+          for(let i=0;i<=bays;i++) {
+            const along=i*pitch-length/2;
+            wallGeometry.towerRib.push(roundedGeometry(horizontal?.09:.08,
+              Math.max(.55,wallHeight-.32),horizontal?.08:.09,
+              wallCenter.x+(horizontal?along:face+sign*.07),wallBottom+wallHeight/2,
+              wallCenter.z+(horizontal?face+sign*.07:along),.018));
+          }
+          const amberFace=sign*(thickness/2+.12);
+          for(let y=wallBottom+2.6;y<wallTop-.35;y+=3.25)
+            wallGeometry.towerAmber.push(roundedGeometry(horizontal?length-.18:.025,.035,
+              horizontal?.025:length-.18,wallCenter.x+(horizontal?0:amberFace),y,
+              wallCenter.z+(horizontal?amberFace:0),.006));
+        }
+        continue;
+      }
+      if(foundry) {
+        const horizontal=w>d,length=horizontal?w:d,thickness=horizontal?d:w;
+        const bays=Math.max(1,Math.min(8,Math.ceil(length/3.3))),pitch=length/bays;
+        // Broad framed steel bays repeat across both internal and boundary
+        // walls. Their visible layers sit clear of the solid face, avoiding
+        // coplanar panels and the generic arena's glowing wall stripes.
+        wallGeometry.cap.push(roundedGeometry(w-.025,.26,d-.025,wallCenter.x,wallBottom+.13,wallCenter.z,.03));
+        if(exposedTop)wallGeometry.cap.push(roundedGeometry(w-.025,.2,d-.025,wallCenter.x,wallTop-.1,wallCenter.z,.025));
+        for(const sign of [-1,1]) {
+          const plateFace=sign*(thickness/2+.055),ribFace=sign*(thickness/2+.12),
+            copperFace=sign*(thickness/2+.19);
+          for(let i=0;i<bays;i++) {
+            const along=(i+.5)*pitch-length/2;
+            wallGeometry.foundryPlate.push(roundedGeometry(horizontal?pitch-.22:.075,
+              Math.max(.4,wallHeight-1.25),horizontal?.075:pitch-.22,
+              wallCenter.x+(horizontal?along:plateFace),wallBottom+wallHeight/2,
+              wallCenter.z+(horizontal?plateFace:along),.025));
+          }
+          for(let i=0;i<=bays;i++) {
+            const along=i*pitch-length/2;
+            wallGeometry.foundryRib.push(roundedGeometry(horizontal?.14:.09,
+              Math.max(.45,wallHeight-.48),horizontal?.09:.14,
+              wallCenter.x+(horizontal?along:ribFace),wallBottom+wallHeight/2,
+              wallCenter.z+(horizontal?ribFace:along),.02));
+          }
+          wallGeometry.foundryCopper.push(roundedGeometry(horizontal?Math.max(.1,length-.22):.035,
+            .045,horizontal?.035:Math.max(.1,length-.22),
+            wallCenter.x+(horizontal?0:copperFace),wallTop-.43,
+            wallCenter.z+(horizontal?copperFace:0),.008));
+        }
+        continue;
+      }
       wallGeometry.cap.push(roundedGeometry(w-0.06,0.24,d-0.06,wallCenter.x,wallBottom+0.18,wallCenter.z));
-      wallGeometry.cap.push(roundedGeometry(w-0.02,0.22,d-0.02,wallCenter.x,wallTop-0.12,wallCenter.z));
+      if(exposedTop)wallGeometry.cap.push(roundedGeometry(w-0.02,0.22,d-0.02,wallCenter.x,wallTop-0.11,wallCenter.z));
       const horizontal = w > d, length = horizontal ? w : d;
       const count = Math.max(1, Math.floor(length / 1.7));
       for (let i = 0; i < count; i++) {
@@ -728,9 +820,8 @@ export class Arena3D {
             horizontal ? temple?0.07:0.10 : length / count - 0.12,
             wallCenter.x+(horizontal ? along : face),temple?wallBottom+wallHeight*.43:wallBottom+wallHeight/2,
             wallCenter.z+(horizontal ? face : along),temple?0.025:0.045);
-          // Vault Annex walls use one calm neutral panel rhythm. Red is
-          // reserved for the continuous light datum, instead of alternating
-          // every wall bay between silver, red, and black.
+          // Shared arena walls retain their existing panel rhythm. The
+          // Transfer's freight bulkheads use their own material treatment.
           wallGeometry.panel.push(panelGeometry);
         }
       }
@@ -753,8 +844,18 @@ export class Arena3D {
     const wallCaps=mergedMesh(wallGeometry.cap,cap);
     const wallPanels=mergedMesh(wallGeometry.panel,panel);
     const wallGlow=mergedMesh(wallGeometry.glow,glow,{receiveShadow:false});
-    const wallRed=mergedMesh(wallGeometry.red,vaultRed),wallBlack=mergedMesh(wallGeometry.black,vaultBlack);
-    for(const mesh of [wallBody,wallCaps,wallPanels,wallRed,wallBlack,wallGlow])if(mesh)this.stage.add(mesh);
+    const candyPlate=mergedMesh(wallGeometry.candyPlate,candy?this.material('#edcfaa',.32,.35):null);
+    const candyRib=mergedMesh(wallGeometry.candyRib,candy?this.material('#c95646',.48,.3):null);
+    const candyBand=mergedMesh(wallGeometry.candyBand,candy?this.material('#477774',.43,.42):null);
+    const foundryPlate=mergedMesh(wallGeometry.foundryPlate,foundry?this.material('#a1b1aa',.54,.48):null);
+    const foundryRib=mergedMesh(wallGeometry.foundryRib,foundry?this.material('#65797b',.68,.4):null);
+    const foundryCopper=mergedMesh(wallGeometry.foundryCopper,foundry?this.material('#d4a676',.58,.42):null);
+    const towerPlate=mergedMesh(wallGeometry.towerPlate,tower?this.material('#91a9aa',.5,.55):null);
+    const towerRib=mergedMesh(wallGeometry.towerRib,tower?this.material('#e3e9df',.64,.43):null);
+    const towerAmber=mergedMesh(wallGeometry.towerAmber,tower?this.material('#eabb76',.44,.55):null);
+    for(const mesh of [wallBody,wallCaps,wallPanels,wallGlow,candyPlate,candyRib,candyBand,
+      foundryPlate,foundryRib,foundryCopper,towerPlate,towerRib,towerAmber])
+      if(mesh)this.stage.add(mesh);
     if(wallBody){wallBody.layers.enable(1);this.wallOccluders.push(wallBody);}
     const terrainBatches=new Map();
     const occluderMaterial=new THREE.MeshBasicMaterial({colorWrite:false,depthWrite:false});
@@ -787,7 +888,8 @@ export class Arena3D {
       if(solid.kind==='exitDoor'||solid.kind==='heightfield'||solid.collisionOnly)continue;
       const model = createTerrainModel(solid);
       const position=world(solid.x,solid.y,solid.kind==='rail'?0:solid.bottom||0);
-      if(solid.kind==='vaultConveyor') {
+      if(solid.kind==='candyConveyor'||solid.kind==='candyVat'||solid.kind==='candyTemperingDrum'||solid.kind==='foundryCastingLine'||solid.kind==='foundryPress'||solid.kind==='towerCore'||
+        (solid.kind==='furnace'&&solid.style==='foundry')) {
         model.position.copy(position);this.stage.add(model);this.animatedTerrain.push(model);
         model.traverse(mesh=>{if(mesh.isMesh){mesh.layers.enable(1);this.wallOccluders.push(mesh);}});
       } else if(solid.kind==='lift'||solid.liftId) {
@@ -808,31 +910,26 @@ export class Arena3D {
       if(mesh)this.stage.add(mesh);
     }
     if(map.ceiling&&map.roof!==false&&!strike) {
-      const ceilingMat=this.material(redVault?'#27252a':'#b5c7c6',redVault ? .72 : .12,redVault ? .36 : .8);
+      const ceilingMat=this.material(candy?'#ead5b2':foundry?'#87978e':tower?'#d9e1d8':'#b5c7c6',
+        candy?.28:foundry ? .42 : tower ? .48 : .12,
+        candy?.35:foundry ? .62 : tower ? .6 : .8);
       for(const rectangle of floorRectangles) {
         const p=world(rectangle.x+rectangle.width/2,rectangle.y+rectangle.height/2);
         this.box(this.stage,rectangle.width*SCALE,0.2,rectangle.height*SCALE,p.x,map.ceiling+0.1,p.z,ceilingMat);
       }
       // Broad emissive luminaires and inset beams; no costly per-fixture lights.
       const whiteLamp=new THREE.MeshBasicMaterial({color:'#f6ffed'});
-      const redLamp=new THREE.MeshBasicMaterial({color:'#ff314a'});
-      for(let x=240;!pve&&x<map.width;x+=300) for(let y=180;y<map.height;y+=300) {
+      const foundryLamp=new THREE.MeshBasicMaterial({color:'#f1bd7d'});
+      for(let x=240;!pve&&!candy&&x<map.width;x+=300) for(let y=180;y<map.height;y+=300) {
         if(map.floorRects&&!map.floorRects.some(rect=>x>=rect.x&&x<=rect.x+rect.width&&y>=rect.y&&y<=rect.y+rect.height))continue;
         const p=world(x,y,map.ceiling-0.08);
-        const lamp=redVault&&((Math.floor(x/300)+Math.floor(y/300))%3===0)?redLamp:whiteLamp;
-        this.box(this.stage,4,0.07,0.7,p.x,p.y,p.z,lamp);
+        const lamp=foundry?foundryLamp:whiteLamp;
+        this.box(this.stage,foundry?2.8:4,foundry?.055:.07,foundry?.5:.7,p.x,p.y,p.z,lamp);
       }
       for(let y=120;!map.floorRects&&y<map.height;y+=360) {
         const p=world(map.width/2,y,map.ceiling-0.15);
         this.box(this.stage,width,0.3,0.22,p.x,p.y,p.z,panel);
       }
-    }
-    if(strike) {
-      this.strikeEnvironment=createRedVaultEnvironment(map);
-      this.stage.add(this.strikeEnvironment);
-      for(const mesh of this.strikeEnvironment.userData.occluders||[])this.wallOccluders.push(mesh);
-      const metrics=this.strikeEnvironment.userData.metrics?.();
-      if(metrics&&!finiteMetricTree(metrics))throw new Error('Non-finite Red Vault render metrics');
     }
     this.areaLights=createAreaLighting(areas,world);
     this.areaLightObjects=[];
@@ -1122,6 +1219,7 @@ export class Arena3D {
     const style=shotgunMuzzleStyle(state?.weaponSkinKey,shot.shotgunBarrel);
     flash.position.x=(state?.muzzleBaseX??flash.position.x)+(style?.barrel||0)*(state?.muzzleBarrelOffset||0);
     const skinColor=state?.weaponSkinKey==='pistol_pocket_dragon'?'#ff8426':
+      state?.weaponSkinKey==='autoRifle_thunderbird'?'#ffe26d':
       ['sniper_kintsugi','pistol_kintsugi'].includes(state?.weaponSkinKey)?'#ffc857':null;
     triggerMuzzleFlash(flash,Math.random,state?.dread?'#ff263f':style?.color||skinColor);
   }
@@ -1277,33 +1375,35 @@ export class Arena3D {
     const barrelStyle=shotgunMuzzleStyle(skinKey,shot.shotgunBarrel);
     for(const pellet of shot.pellets||[shot]) {
     const start = world(pellet.x, pellet.y, pellet.height ?? 1.84), end = world(pellet.endX, pellet.endY, pellet.endHeight ?? 1.84);
-    const pelletColor=dread?0xff253d:['sniper_kintsugi','pistol_kintsugi'].includes(skinKey)?0xf2b94f:
+    const pelletColor=dread?0xff253d:skinKey==='autoRifle_thunderbird'?0xffd84d:
+      ['sniper_kintsugi','pistol_kintsugi'].includes(skinKey)?0xf2b94f:
       shotgunPelletColor(skinKey,shot.shotgunBarrel,pellet.hit==='player');
     const tracer=this.acquireTracer(),positions=tracer.line.geometry.attributes.position;
     positions.setXYZ(0,start.x,start.y,start.z);positions.setXYZ(1,end.x,end.y,end.z);positions.needsUpdate=true;
     tracer.line.material.color.setHex(pelletColor);tracer.line.material.opacity=.9;
-    tracer.spark.material.color.set(dread?0xff4053:(barrelStyle?.color||0xffdfaa));tracer.spark.material.opacity=1;
+    tracer.spark.material.color.set(dread?0xff4053:skinKey==='autoRifle_thunderbird'?0xffe26d:
+      (barrelStyle?.color||0xffdfaa));tracer.spark.material.opacity=1;
     tracer.spark.position.copy(end);tracer.group.visible=true;
     this.effects.push({group:tracer.group,time:.11,duration:.11,tracer});
     }
-    if(shot.strikeTargetId)this.strikeEnvironment?.userData?.hitDestructible?.(shot.strikeTargetId,shot);
     const pistolShot=character?.weaponKey==='pistol'||
       (shot.playerId===viewId&&this.viewWeaponKey?.startsWith('pistol:'));
     if (character) { character.recoil = shot.pellets?Math.min(0.4,(character.recoil||0)+0.22):pistolShot?0.18:0.13;character.shotAt=this.renderTime;
       if(shot.pellets)triggerShotgunChamber(character.weapon,shot.shotgunBarrel,this.renderTime);
       triggerHeavyWeaponSkin(character.weapon,this.renderTime);
+      if(character.weaponSkinKey==='autoRifle_thunderbird')triggerAutoRifleSkin(character.weapon,this.renderTime);
       this.triggerWeaponFlash(character.muzzleFlash,character,shot);
       this.positionCrimsonMuzzle(character.muzzleFlash,character,character.weapon); }
     if (shot.playerId === viewId&&this.viewMuzzleFlash) { this.weaponRecoil = shot.pellets?Math.min(0.36,(this.weaponRecoil||0)+0.2):pistolShot?0.16:0.1;this.viewShotAt=this.renderTime;
       if(shot.pellets)triggerShotgunChamber(this.viewWeapon,shot.shotgunBarrel,this.renderTime);
       triggerHeavyWeaponSkin(this.viewWeapon,this.renderTime);
+      if(this.viewMuzzleState?.weaponSkinKey==='autoRifle_thunderbird')triggerAutoRifleSkin(this.viewWeapon,this.renderTime);
       this.triggerWeaponFlash(this.viewMuzzleFlash,this.viewMuzzleState,shot);
       this.positionCrimsonMuzzle(this.viewMuzzleFlash,this.viewMuzzleState,this.viewWeapon); }
   }
 
   setMissionState(state) {
     this.strikeMissionState=state||null;
-    this.strikeEnvironment?.userData?.setMissionState?.(state);
     const nested=state?.wardenAttack??state?.bossAttack??state?.bossState?.wardenAttack??state?.bossState?.attack;
     if(nested)this.setWardenAttack({...nested,id:nested.id??state?.bossId??state?.bossState?.id});
     if(state?.bossDefeated||state?.bossState?.defeated) {
@@ -1442,14 +1542,6 @@ export class Arena3D {
     this.localId = localId;
     const local = players.find(p => p.id === localId);
     const viewed = resolveViewPlayer(players,localId);
-    this.strikeEnvironment?.userData?.update?.(this.renderTime,viewed,this.scene);
-    const strikeLighting=this.strikeEnvironment?.userData?.getLighting?.();
-    if(strikeLighting&&Number.isFinite(strikeLighting.ambient)) {
-      // Districts retain their warm/cool contrast, but never fall back to the
-      // near-black baseline that made routes and floor edges unreadable.
-      const target=Math.max(1.35,strikeLighting.ambient);
-      this.ambient.intensity+=(target-this.ambient.intensity)*(1-Math.exp(-3.2*dt));
-    }
     if (viewed) {
       if(this.viewedId!==viewed.id){
         this.weaponRecoil=0;this.viewShotAt=-Infinity;
@@ -1524,6 +1616,7 @@ export class Arena3D {
       updateMuzzleFlash(c.muzzleFlash, dt);
       if(player.weapon==='shotgun')poseShotgun(c.weapon,this.renderTime-(c.shotAt??-10),this.renderTime);
       poseHeavyWeaponSkin(c.weapon,this.renderTime);
+      if(c.weaponSkinKey==='autoRifle_thunderbird')poseAutoRifleSkin(c.weapon,this.renderTime);
       if(c.weaponSkinKey==='miniGun_crimson_guard')poseMinigunRotor(c.weapon,dt,
         player.id===localId?this.minigunTriggerHeld:this.renderTime-(c.shotAt??-10)<0.22);
       c.group.visible = !!player.alive && player.id !== viewed?.id;
@@ -1647,6 +1740,7 @@ export class Arena3D {
       // Damage flashing restores every captured material to its base emissive
       // value, so animated skin lighting must be applied after that reset.
       poseHeavyWeaponSkin(this.viewWeapon,this.renderTime);
+      if(this.viewMuzzleState?.weaponSkinKey==='autoRifle_thunderbird')poseAutoRifleSkin(this.viewWeapon,this.renderTime);
       if(this.viewWeaponKey==='miniGun:miniGun_crimson_guard')poseMinigunRotor(this.viewWeapon,dt,
         viewed.id===localId?this.minigunTriggerHeld:this.renderTime-(this.viewShotAt??-10)<0.22);
       this.weaponRecoil = Math.max(0, this.weaponRecoil - dt);

@@ -2,6 +2,38 @@ import * as THREE from 'three';
 
 // Architectural anchors, not a random grid. Six local lights is a fixed budget.
 export function planAreaLighting(map,walls=[]) {
+  if(map.id==='candyFactory') {
+    // Warm production lighting reveals the terracotta, ivory and teal
+    // materials without tinting the entire room strawberry pink.
+    return [
+      {kind:'candy-mixing',x:map.width*.23,y:map.height*.40,height:5.2,sourceHeight:map.ceiling-.55,
+        color:'#ffe6b8',intensity:96,radius:12,castsShadow:false},
+      {kind:'candy-loading',x:map.width*.42,y:map.height*.69,height:0,sourceHeight:map.ceiling-.55,
+        color:'#fff0d2',intensity:92,radius:10.5,castsShadow:false},
+      {kind:'candy-packing',x:map.width*.60,y:map.height*.52,height:0,sourceHeight:map.ceiling-.55,
+        color:'#e3fff1',intensity:94,radius:10.5,castsShadow:false},
+      {kind:'candy-press',x:map.width*.82,y:map.height*.31,height:0,sourceHeight:map.ceiling-.55,
+        color:'#ffe4c5',intensity:102,radius:11,castsShadow:false},
+      {kind:'candy-return',x:map.width*.55,y:map.height*.86,height:0,sourceHeight:map.ceiling-.55,
+        color:'#ffe8c4',intensity:92,radius:11,castsShadow:false},
+      {kind:'candy-lower-mixing',x:map.width*.25,y:map.height*.46,height:0,sourceHeight:3.82,
+        color:'#ffe7c0',intensity:74,radius:9,castsShadow:false},
+    ];
+  }
+  if(map.style==='tower') {
+    // Warm ceiling pools reveal the three gallery heights and keep the shaft
+    // bright without adding another shadow-map pass.
+    return [
+      {kind:'tower-north-west',x:map.width*.24,y:map.height*.19,height:3,sourceHeight:map.ceiling-.55,
+        color:'#fff0d1',intensity:72,radius:10.5,castsShadow:false},
+      {kind:'tower-north-east',x:map.width*.76,y:map.height*.19,height:3,sourceHeight:map.ceiling-.55,
+        color:'#fff0d1',intensity:72,radius:10.5,castsShadow:false},
+      {kind:'tower-south-west',x:map.width*.25,y:map.height*.72,height:6,sourceHeight:map.ceiling-.55,
+        color:'#ffe1b4',intensity:78,radius:10.5,castsShadow:false},
+      {kind:'tower-south-east',x:map.width*.76,y:map.height*.72,height:6,sourceHeight:map.ceiling-.55,
+        color:'#fff0d1',intensity:78,radius:10.5,castsShadow:false},
+    ];
+  }
   if(map.style==='airport') {
     const roofAt=ratio=>map.ceiling-.40-1.28*(ratio*2-1)**2;
     // Six shadow-free architectural pools follow the rebuilt terminal's real

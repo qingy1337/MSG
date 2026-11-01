@@ -15,7 +15,7 @@ function surfaceHeight(solid, x, y) {
   if(solid.kind==='heightfield')return sampleHeightfield(solid,x,y);
   if(solid.kind==='rail') {
     // Sloped authored rails carry their vertical span in top-bottom. Using a
-    // hard-coded metre left the upper 15 cm of Red Vault parapets visible but
+    // hard-coded metre left the upper part of tall parapets visible but
     // intangible, while hitscan already respected the full authored height.
     const railHeight=Math.max(0,(solid.top??((solid.bottom||0)+1))-(solid.bottom||0));
     return bottomHeight(solid,x,y)+railHeight;
@@ -212,7 +212,7 @@ function conveyorVelocityAt(player,solids,radius=16) {
   if(!player?.alive||player.jumpStartedAt!=null)return null;
   const foot=player.height||0;
   for(const belt of solids||[]) {
-    if(belt.kind!=='vaultConveyor'||!Number.isFinite(belt.speed)||belt.speed===0)continue;
+    if(belt.kind!=='candyConveyor'||!Number.isFinite(belt.speed)||belt.speed===0)continue;
     if(horizontalClearance(belt,player.x,player.y)>=radius-.1)continue;
     if(Math.abs(walkingHeight(belt,player.x,player.y)-foot)>.035)continue;
     const alongX=belt.width>=belt.height,direction=belt.direction===-1?-1:1;

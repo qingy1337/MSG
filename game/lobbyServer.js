@@ -8,7 +8,6 @@ const {
 const MODES = Object.freeze({
   pvp: { id: 'pvp', name: 'Arena PvP', maxPlayers: 8 },
   pve: { id: 'pve', name: 'Endless PvE', maxPlayers: 4 },
-  strike: { id: 'strike', name: 'The Red Vault', maxPlayers: 4 },
 });
 
 function scopedEmitter(io, roomName) {
@@ -213,7 +212,8 @@ function createLobbyServer(io) {
   }
 
   function createLobby(socket, payload, reply) {
-    const mode = MODES[payload?.mode] ? payload.mode : 'pvp';
+    const mode = payload?.mode||'pvp';
+    if(!MODES[mode])return reply?.({ok:false,error:'That activity is unavailable.'});
     const state = socketState.get(socket.id);
     if (!state || !socket.user) return reply?.({ ok: false, error: 'Sign in before creating a fireteam.' });
     if (state.lobbyId) return reply?.({ ok: false, error: 'Leave your current fireteam first.' });
@@ -271,7 +271,6 @@ function createLobbyServer(io) {
     }
     const options = {
       enableBots: lobby.mode !== 'pvp',
-      strikeId:lobby.mode==='strike'?(payload?.strikeId||'red-vault'):undefined,
       startFloor: payload?.startFloor,
       pvpMap: payload?.pvpMap,
       debugDouble: qingDebug,

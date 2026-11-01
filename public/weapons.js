@@ -45,9 +45,9 @@ const WEAPONS = {
     bulletRadius: 5,
     // Its close-range damage stays heavy, but it must spool before firing and
     // cannot turn a high-refresh display into a higher fire rate.
-    spinUpMs: 200,
+    spinUpMs: 225,
     triggerReleaseMs: 150,
-    cooldownMs: 16,
+    cooldownMs: 18,
     bloom: {baseRadians:0.012,movingRadians:0.022,airborneRadians:0.032,settleMs:280},
     automatic: true,
   },

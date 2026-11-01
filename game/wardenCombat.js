@@ -13,8 +13,8 @@ const WARDEN_PRESSURE_DEFAULTS=Object.freeze({
   damage:34,
   knockback:240,
   direction:1,
-  sourceId:'red-vault-core',
-  crownId:'vault-rotating-crown',
+  sourceId:'warden-core',
+  crownId:'warden-rotating-crown',
 });
 
 function finite(value,fallback,min=0) {

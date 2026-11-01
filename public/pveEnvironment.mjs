@@ -45,17 +45,15 @@ export function createTerrainModel(s) {
     add(new THREE.CylinderGeometry(r*.75,r,.24,16),iron,cx,bodyBottom-.08,cz);
     const halo=add(new THREE.TorusGeometry(r*.72,.035,6,32),glow,cx,bodyMid,cz);halo.rotation.x=Math.PI/2;
   } else if(s.kind==='ceilingPanel') {
-    const vault=s.style==='redVault';
-    const frame=material(vault?'#17151a':'#3b4d51',vault ? .86 : .72);
-    const panel=material(vault?'#4b484d':'#74878a',vault ? .72 : .48);
+    const frame=material('#3b4d51',.72);
+    const panel=material('#74878a',.48);
     const light=material(s.accent||'#d9b978',0.34);
-    if(vault){light.emissive.set(s.accent||'#ff2944');light.emissiveIntensity=3.2;light.toneMapped=false;}
     box(w,h,d,w/2,h/2,d/2,frame);
     const alongX=w>=d,count=Math.max(2,Math.min(8,Math.floor((alongX?w:d)/2.5)));
     for(let i=0;i<count;i++){
       const t=(i+.5)/count;
       box(alongX?0.08:w-.18,0.035,alongX?d-.18:0.08,
-        alongX?w*t:w/2,-.025,alongX?d/2:d*t,vault?(i===Math.floor(count/2)?light:panel):(i%3===1?light:panel));
+        alongX?w*t:w/2,-.025,alongX?d/2:d*t,i%3===1?light:panel);
     }
   } else if(s.kind==='lift') {
     const temple=s.style==='temple';
@@ -80,31 +78,87 @@ export function createTerrainModel(s) {
     poseCargoLift(group,s.top);
   } else if(s.kind==='rail') {
     const base=(x,z)=>s.axis?(s.bottom||0)+s.rise*(s.reverse?1-(s.axis==='y'?z/d:x/w):(s.axis==='y'?z/d:x/w)):(s.liftId?0:s.bottom||0);
-    if(s.style==='redVault') {
+    if(s.style==='tower') {
+      const steel=material('#465b66',.72),edge=material('#d5dfdd',.62),
+        amber=material('#d6a45d',.48);
+      const glass=new THREE.MeshStandardMaterial({color:'#a9c4c9',metalness:.24,roughness:.22,
+        transparent:true,opacity:.48,depthWrite:false,side:THREE.DoubleSide});
+      const alongX=w>d,length=alongX?w:d,rise=s.axis?(s.reverse?-s.rise:s.rise):0;
+      const center=base(w/2,d/2),slope=Math.atan2(rise,length);
+      const incline=mesh=>{if(s.axis){if(alongX)mesh.rotation.z=slope;else mesh.rotation.x=-slope;}return mesh;};
+      // Insets account for the rotated glass height on steep stair flights.
+      // Without this the panel tips extend past the authored rail footprint.
+      const span=Math.max(.12,Math.hypot(length,rise)-.48);
+      incline(box(alongX?span:.10,.12,alongX?.10:span,w/2,center+.92,d/2,edge));
+      incline(box(alongX?span-.04:.055,.52,alongX?.055:span-.04,
+        w/2,center+.54,d/2,glass));
+      incline(box(alongX?span:.11,.13,alongX?.11:span,w/2,center+.10,d/2,steel));
+      const bays=Math.max(1,Math.ceil(length/2.6));
+      for(let i=0;i<=bays;i++) {
+        const t=i/bays,at=.08+(length-.16)*t,x=alongX?at:w/2,z=alongX?d/2:at,y=base(x,z);
+        box(.095,.94,.095,x,y+.47,z,steel);
+        box(.13,.055,.13,x,y+.92,z,amber);
+      }
+      group.name=s.axis?'tower-stair-guard':'tower-gallery-guard';return group;
+    }
+    if(s.style==='foundry') {
+      const alongX=w>d,length=alongX?w:d,rise=s.axis?(s.reverse?-s.rise:s.rise):0;
+      const steel=material('#56696a',.72),cap=material('#cba276',.62),
+        kick=material('#83918b',.62);
+      const sloped=Math.hypot(length,rise),endInset=.12,
+        memberLength=sloped*Math.max(.2,length-endInset*2)/length,centerBase=base(w/2,d/2);
+      const members=[
+        box(alongX?memberLength:.14,.14,alongX?.14:memberLength,w/2,centerBase+.95,d/2,cap),
+        box(alongX?memberLength:.065,.065,alongX?.065:memberLength,w/2,centerBase+.53,d/2,steel),
+        box(alongX?memberLength:.11,.17,alongX?.11:memberLength,w/2,centerBase+.13,d/2,kick),
+      ];
+      for(const part of members) {
+        if(alongX)part.rotation.z=Math.atan2(rise,length);
+        else part.rotation.x=-Math.atan2(rise,length);
+      }
+      const bays=Math.max(1,Math.ceil(length/2.35));
+      for(let i=0;i<=bays;i++) {
+        const at=endInset+(length-endInset*2)*i/bays,x=alongX?at:w/2,
+          z=alongX?d/2:at,y=base(x,z);
+        box(.12,.91,.12,x,y+.455,z,steel);
+        box(.17,.11,.17,x,y+.77,z,cap);
+        if(i===bays)continue;
+        const next=endInset+(length-endInset*2)*(i+1)/bays,
+          nx=alongX?next:w/2,nz=alongX?d/2:next;
+        // Diagonal steel struts turn the open spans into fabricated trusses.
+        // They follow the real stair slope and remain inside the rail collider.
+        beam([x,y+.24,z],[nx,base(nx,nz)+.72,nz],.027,steel,7,.027);
+      }
+      group.name=s.axis?'foundry-stair-guard':'foundry-platform-guard';return group;
+    }
+    if(s.style==='candy') {
       const alongX=w>d,length=alongX?w:d,minor=alongX?d:w;
-      const shell=material('#292d30',.78),inset=material('#555b5e',.66),edge=material('#9da4a6',.82);
-      const glow=new THREE.MeshStandardMaterial({color:'#842030',emissive:'#e6344b',
-        emissiveIntensity:1.35,roughness:.3,metalness:.4,toneMapped:false});
-      const centerBase=base(w/2,d/2),railHeight=Math.max(.4,h),rise=s.axis?(s.reverse?-s.rise:s.rise):0;
+      const shell=material('#973d38',.78),
+        inset=material('#c2664d',.66),edge=material('#f0d9b5',.82);
+      const glow=new THREE.MeshStandardMaterial({color:'#d7825a',
+        emissive:'#e05b43',emissiveIntensity:.55,
+        roughness:.3,metalness:.4,toneMapped:false});
+      const centerBase=base(w/2,d/2),railHeight=Math.max(.4,h),rise=s.axis?(s.reverse?-s.rise:s.rise):0,
+        span=Math.max(.12,Math.hypot(length,rise)-.18);
       const follow=mesh=>{if(!s.axis)return mesh;if(alongX)mesh.rotation.z=Math.atan2(rise,length);
         else mesh.rotation.x=-Math.atan2(rise,length);return mesh;};
       // A restrained four-part assembly: dark curb, one neutral infill,
       // hairline red datum, and a silver cap. Sparse supports keep long runs
       // reading as a single manufactured object rather than stacked trim.
-      follow(box(alongX?Math.hypot(length,rise):minor,.18,alongX?minor:Math.hypot(length,rise),
+      follow(box(alongX?span:minor,.18,alongX?minor:span,
         w/2,centerBase+.09,d/2,shell,.015));
-      follow(box(alongX?Math.hypot(length,rise)-.06:minor-.02,.46,
-        alongX?minor-.02:Math.hypot(length,rise)-.06,w/2,centerBase+.39,d/2,inset,.012));
-      follow(box(alongX?Math.hypot(length,rise)-.10:minor+.012,.035,
-        alongX?minor+.012:Math.hypot(length,rise)-.10,w/2,centerBase+.58,d/2,glow,.006));
-      follow(box(alongX?Math.hypot(length,rise):minor+.025,.12,
-        alongX?minor+.025:Math.hypot(length,rise),w/2,centerBase+railHeight-.06,d/2,edge,.018));
+      follow(box(alongX?span-.06:minor-.02,.46,
+        alongX?minor-.02:span-.06,w/2,centerBase+.39,d/2,inset,.012));
+      follow(box(alongX?span-.10:minor,.035,
+        alongX?minor:span-.10,w/2,centerBase+.58,d/2,glow,.006));
+      follow(box(alongX?span:minor,.12,
+        alongX?minor:span,w/2,centerBase+railHeight-.06,d/2,edge,.018));
       for(let i=0,n=Math.max(1,Math.ceil(length/2.6));i<=n;i++) {
-        const t=i/n,x=alongX?length*t:w/2,z=alongX?d/2:length*t;
-        box(alongX?.09:minor+.025,railHeight-.08,alongX?minor+.025:.09,
+        const t=i/n,at=.05+(length-.10)*t,x=alongX?at:w/2,z=alongX?d/2:at;
+        box(alongX?.09:minor,railHeight-.08,alongX?minor:.09,
           x,base(x,z)+(railHeight-.08)/2,z,edge,.012);
       }
-      group.name='red-vault-guard';return group;
+      group.name='candy-gallery-guard';return group;
     }
     if(s.style==='temple') {
       const alongX=w>d,length=alongX?w:d,minor=alongX?d:w;
@@ -219,42 +273,54 @@ export function createTerrainModel(s) {
       box(0.09,1.04,0.09,x,base(x,z)+0.5,z,dark);
     }
     const rise=s.axis?(s.reverse?-s.rise:s.rise):0;
-    const beam=box(alongX?Math.hypot(length,rise):0.10,0.10,alongX?0.10:Math.hypot(length,rise),w/2,base(w/2,d/2)+1,d/2,trim);
-    if(alongX)beam.rotation.z=Math.atan2(rise,length);else beam.rotation.x=-Math.atan2(rise,length);
+    const handrail=box(alongX?Math.hypot(length,rise):0.10,0.10,alongX?0.10:Math.hypot(length,rise),w/2,base(w/2,d/2)+1,d/2,trim);
+    if(alongX)handrail.rotation.z=Math.atan2(rise,length);else handrail.rotation.x=-Math.atan2(rise,length);
   } else if (s.kind === 'ramp' && s.stairs) {
-    const vault=s.style==='redVault';
+    if(s.style==='candy') {
+      const frame=material('#9e5546',.64),tread=material('#d7a376',.34),
+        edge=material('#f0d8b8',.58),vertical=s.axis==='y',length=vertical?d:w,
+        stepLength=length/s.steps;
+      for(let i=0;i<s.steps;i++) {
+        const rise=h*(i+1)/s.steps,t=s.reverse?s.steps-1-i:i;
+        const x=vertical?w/2:(t+.5)*stepLength,z=vertical?(t+.5)*stepLength:d/2;
+        const bodyHeight=rise-.016;
+        add(new THREE.BoxGeometry(vertical?w:stepLength,bodyHeight,vertical?stepLength:d),
+          frame,x,bodyHeight/2,z);
+        add(new THREE.BoxGeometry(vertical?w-.035:stepLength-.018,.016,
+          vertical?stepLength-.018:d-.035),tread,x,rise-.008,z);
+        const front=(s.reverse?1:-1)*stepLength*.45;
+        box(vertical?w-.12:.045,.018,vertical?.045:d-.12,
+          vertical?w/2:x+front,rise-.012,vertical?z+front:d/2,edge);
+      }
+      group.name='candy-enclosed-stair';return group;
+    }
     const stairBody=s.style==='temple'?material('#596553'):s.style==='orbital'?material('#7b8792',.72):
-      s.style==='airport'?material('#727e84',.56):dark;
+      s.style==='airport'?material('#727e84',.56):s.style==='foundry'?material('#3e4d50',.7):
+      s.style==='tower'?material('#637d7f',.64):dark;
     const stairTop=s.style==='temple'?material('#9a9b79'):s.style==='orbital'?material('#e8edf1',.56):
-      s.style==='airport'?material('#e9e5dc',.16):vault?material('#55565a',.83):trim;
-    const vaultEdge=vault?material('#b1aaa2',.82):null,vaultBlack=vault?material('#121216',.88):null;
-    const vaultRed=vault?material('#b51f32',.72):null;
+      s.style==='airport'?material('#e9e5dc',.16):s.style==='foundry'?material('#aeb7ad',.58):
+      s.style==='tower'?material('#d9e5df',.52):trim;
     const moss=s.style==='temple'?material('#63804b',0.02):null;
     const vertical=s.axis==='y',length=vertical?d:w;
     for(let i=0;i<s.steps;i++) {
       const rise=h*(i+1)/s.steps,t=s.reverse?s.steps-1-i:i;
       const x=vertical?w/2:(t+0.5)*length/s.steps,z=vertical?(t+0.5)*length/s.steps:d/2;
-      box(vertical?w:length/s.steps,rise,vertical?length/s.steps:d,x,rise/2,z,vault?vaultBlack:stairBody);
+      box(vertical?w:length/s.steps,rise,vertical?length/s.steps:d,x,rise/2,z,stairBody);
       box(vertical?w-0.08:length/s.steps-0.04,0.018,vertical?length/s.steps-0.04:d-0.08,x,rise+0.012,z,stairTop);
-      if(vault) {
-        // Red Vault stairs are load-bearing assemblies: silver side channels
-        // and red nosings frame every dark grated tread, all within the exact
-        // authored stair footprint and step height.
-        for(const side of [-1,1])box(vertical?.13:length/s.steps-.045,.12,
-          vertical?length/s.steps-.045:.13,vertical?w/2+side*(w/2-.075):x,
-          Math.max(.06,rise-.06),vertical?z:d/2+side*(d/2-.075),vaultEdge,.012);
-        box(vertical?w-.28:.075,.035,vertical?.075:d-.28,
-          vertical?w/2:(s.reverse?x-length/s.steps*.43:x+length/s.steps*.43),rise+.032,
-          vertical?(s.reverse?z-length/s.steps*.43:z+length/s.steps*.43):d/2,
-          i%3===1?vaultRed:vaultEdge,.006);
+      if(s.style==='tower') {
+        const nosing=material(i%4===0?'#d7a660':'#657c84',.5);
+        box(vertical?w-.18:.045,.025,vertical?.045:d-.18,
+          vertical?w/2:(s.reverse?x-length/s.steps*.4:x+length/s.steps*.4),rise+.027,
+          vertical?(s.reverse?z-length/s.steps*.4:z+length/s.steps*.4):d/2,nosing);
       }
       if(moss&&i%4===1)box(vertical?w*0.28:length/s.steps-0.05,0.022,
         vertical?length/s.steps-0.05:d*0.24,vertical?w*0.7:x,rise+0.026,vertical?z:d*0.72,moss);
     }
-    if(vault)group.name='red-vault-stair';
-  } else if(s.kind==='ramp'&&s.style==='redVault') {
-    const shell=material('#211e21',.78),edge=material('#b1aaa2',.84),grate=material('#55565a',.84);
-    const red=material('#b51f32',.76),black=material('#0d1014',.9),depth=s.structureDepth??.72;
+  } else if(s.kind==='ramp'&&s.style==='candy') {
+    const shell=material('#9e5546',.78),
+      edge=material('#eed9b9',.84),grate=material('#c47755',.84);
+    const red=material('#dc4b3f',.76),
+      black=material('#416f6d',.9),depth=s.structureDepth??.72;
     const point=(t,lateral=.5)=>new THREE.Vector3(s.axis==='y'?w*lateral:w*t,
       h*(s.reverse?1-t:t),s.axis==='y'?d*t:d*lateral);
     const forward=point(1).sub(point(0)).normalize();
@@ -289,7 +355,7 @@ export function createTerrainModel(s) {
     }
     for(const t of [.025,.975])oriented(Math.max(0,t-.018),Math.min(1,t+.018),Math.min(.28,depth*.42),
       crossWidth-.05,-depth*.55,0,edge);
-    group.name='red-vault-stair';
+    group.name='candy-industrial-stair';
   } else if (s.kind === 'ramp') {
     const roof = (x,z) => h * (s.reverse ? 1 - (s.axis === 'y' ? z/d : x/w) : (s.axis === 'y' ? z/d : x/w));
     const geometry = new THREE.BufferGeometry();
@@ -554,6 +620,264 @@ export function createTerrainModel(s) {
         box(bw*.72,.025,d*.70,(slot+.5)*w/3,y+.10+bh*.72,d/2,shelf,.008);
       }
     }
+  } else if(s.kind==='candyMixingFloor'||s.kind==='candyGallery') {
+    const apron=s.kind==='candyMixingFloor';
+    const foundation=material('#ad5a46',.38),edge=material('#f0d6ae',.32),
+      deck=material(apron?'#cb7654':'#d59768',.28),rib=material('#427574',.42),red=material('#dd4b40',.36);
+    if(s.seamless) {
+      add(new THREE.BoxGeometry(w,h,d),deck,w/2,h/2,d/2);
+      group.name=apron?'candy-mixing-floor':'candy-packing-gallery';return group;
+    }
+    box(w-.12,Math.max(.04,h-.04),d-.12,w/2,Math.max(.04,h-.04)/2,d/2,foundation);
+    box(w-.055,.07,d-.055,w/2,h-.035,d/2,deck);
+    const alongX=w>=d,long=alongX?w:d;
+    for(let t=.85;t<long-.45;t+=1.65) {
+      box(alongX?.024:w-.25,.012,alongX?d-.25:.024,
+        alongX?t:w/2,h+.006,alongX?d/2:t,edge);
+    }
+    if(apron) {
+      // Panelled foundation walls are the actual sides of the cargo trench.
+      // Their red and cream fields are attached to the solid dock, not props.
+      for(const side of [.028,d-.028]) {
+        box(w-.20,h*.46,.045,w/2,h*.52,side,edge);
+        box(w-.26,.105,.055,w/2,h*.23,side,red);
+      }
+      for(const side of [.028,w-.028]) {
+        box(.045,h*.46,d-.20,side,h*.52,d/2,edge);
+        box(.055,.105,d-.26,side,h*.23,d/2,red);
+      }
+    } else {
+      if(alongX)for(const z of [.07,d-.07]) {
+        box(w-.06,.16,.085,w/2,.13,z,rib);
+        box(w-.12,.065,.075,w/2,h-.07,z,red);
+      } else for(const x of [.07,w-.07]) {
+        box(.085,.16,d-.06,x,.13,d/2,rib);
+        box(.075,.065,d-.12,x,h-.07,d/2,red);
+      }
+    }
+    group.name=apron?'candy-mixing-floor':'candy-packing-gallery';return group;
+  } else if(s.kind==='candyPress') {
+    const red=material('#bd3d37',.55),deep=material('#703530',.67),
+      cream=material('#ecd6b6',.42),teal=material('#477674',.62);
+    const lamp=new THREE.MeshStandardMaterial({color:'#e8684e',emissive:'#f34238',
+      emissiveIntensity:1.3,roughness:.25,metalness:.18,toneMapped:false});
+    const face=d*.76;
+    box(w-.02,h-.04,d*.70,w/2,h/2,d*.35,deep);
+    box(w-.30,h-.40,d*.20,w/2,h/2,face,red);
+    for(const x of [.20,w-.20]) {
+      box(.27,h-.16,d*.24,x,h/2,face,cream);
+      box(.08,h-.34,d*.27,x,h/2,face,teal);
+    }
+    for(const y of [.24,h-.24])box(w-.10,.26,d*.24,w/2,y,face,cream);
+    for(let i=1;i<7;i++) {
+      const x=w*i/7;
+      box(.085,h-.68,d*.24,x,h/2,face,deep);
+      box(.095,.15,d*.25,x,h*.18,face,teal);
+    }
+    const rollerZ=d*.66,rollerR=Math.min(.28,d*.18);
+    for(const y of [h*.43,h*.60]) {
+      const roller=add(new THREE.CylinderGeometry(rollerR,rollerR,w*.59,18),cream,w/2,y,rollerZ);
+      roller.rotation.z=Math.PI/2;
+      for(const x of [w*.205,w*.795]) {
+        const bearing=add(new THREE.TorusGeometry(rollerR+.035,.055,7,20),teal,x,y,rollerZ);
+        bearing.rotation.y=Math.PI/2;
+      }
+    }
+    for(let i=0;i<8;i++) {
+      const x=w*(i+.5)/8;
+      const mold=add(new THREE.SphereGeometry(.12,10,8),i%2?teal:cream,x,h*.52,d*.90);
+      mold.scale.z=.42;
+    }
+    for(const x of [w*.16,w*.84])for(const y of [h*.25,h*.8]) {
+      const light=box(.22,.06,.035,x,y,d*.91,lamp);light.castShadow=false;
+    }
+    group.name='candy-rotary-sugar-press';return group;
+  } else if(s.kind==='candyPiston') {
+    const red=material('#ac443a',.6),cream=material('#ead4b0',.47),steel=material('#537b78',.72);
+    const cx=w/2,cz=d/2,r=Math.min(w,d)*.36;
+    add(new THREE.CylinderGeometry(r*.95,r*1.08,.34,16),red,cx,.17,cz);
+    add(new THREE.CylinderGeometry(r*.64,r*.75,h-.72,16),cream,cx,h/2,cz);
+    add(new THREE.CylinderGeometry(r*.42,r*.42,h*.56,16),steel,cx,h*.53,cz);
+    for(const y of [.6,h*.35,h*.72,h-.3]) {
+      const ring=add(new THREE.TorusGeometry(r*.76,.075,7,20),red,cx,y,cz);
+      ring.rotation.x=Math.PI/2;
+    }
+    add(new THREE.CylinderGeometry(r*.9,r*.9,.3,16),red,cx,h-.15,cz);
+    group.name='candy-press-actuator';return group;
+  } else if(s.kind==='candyVat') {
+    const shell=material('#f0d9b7',.32),rim=material('#c35c50',.48),
+      mint=material('#69a9a0',.4),syrup=material('#8f4d70',.18);
+    const cx=w/2,cz=d/2,r=Math.min(w,d)*.36;
+    add(new THREE.CylinderGeometry(r*.94,r,.28,20),rim,cx,.14,cz);
+    add(new THREE.CylinderGeometry(r*.82,r*.9,h-.47,20),shell,cx,(h-.47)/2+.25,cz);
+    for(const y of [.45,h*.48,h-.24]) {
+      const hoop=add(new THREE.TorusGeometry(r*.84,.06,7,24),y===h*.48?mint:rim,cx,y,cz);
+      hoop.rotation.x=Math.PI/2;
+    }
+    add(new THREE.CylinderGeometry(r*.69,r*.69,.055,20),syrup,cx,h-.55,cz);
+    const lip=add(new THREE.TorusGeometry(r*.79,.09,8,24),rim,cx,h-.12,cz);
+    lip.rotation.x=Math.PI/2;
+    const mixer=new THREE.Group();mixer.position.set(cx,h-.35,cz);group.add(mixer);
+    const stem=new THREE.Mesh(new THREE.CylinderGeometry(.08,.08,.35,10),mint);
+    stem.position.y=.09;mixer.add(stem);
+    for(let i=0;i<3;i++) {
+      const blade=new THREE.Mesh(new RoundedBoxGeometry(r*.58,.055,.13,2,.025),mint);
+      blade.position.set(Math.cos(i*Math.PI*2/3)*r*.28,.06,Math.sin(i*Math.PI*2/3)*r*.28);
+      blade.rotation.y=-i*Math.PI*2/3;mixer.add(blade);
+    }
+    group.userData.update=time=>{mixer.rotation.y=time*.65;};
+    group.name='candy-syrup-mixer';return group;
+  } else if(s.kind==='candySupplyTank') {
+    const shell=material('#e9d0ac',.42),band=material('#9f5145',.58),
+      valve=material('#4c7775',.68),cx=w/2,cz=d/2,r=Math.min(w,d)*.34;
+    add(new THREE.CylinderGeometry(r,r*.92,h-.18,16),shell,cx,(h-.18)/2,cz);
+    for(const y of [.20,h*.48,h-.14])
+      add(new THREE.TorusGeometry(r,.055,6,20),band,cx,y,cz).rotation.x=Math.PI/2;
+    add(new THREE.CylinderGeometry(.20,.20,.16,12),valve,cx,h-.08,cz);
+    box(.18,.54,.10,cx,.90,cz+r+.04,valve);
+    group.name='candy-ingredient-reservoir';return group;
+  } else if(s.kind==='candyTemperingDrum') {
+    const base=material('#a55143',.54),frame=material('#f0d9b6',.56),
+      steel=material('#4b7775',.68),coral=material('#dc7154',.18),
+      cream=material('#f4d29a',.12),mint=material('#76ada2',.14);
+    const glass=new THREE.MeshPhysicalMaterial({color:'#a6d8ce',metalness:.12,roughness:.13,
+      transparent:true,opacity:.32,depthWrite:false,side:THREE.DoubleSide});
+    const cx=w/2,cz=d/2,cy=h*.58,r=Math.min(d*.42,h*.36),length=w-.44;
+    box(w-.04,.64,d-.04,cx,.32,cz,base);
+    for(const x of [.88,w-.88])box(.44,.72,d*.46,x,1.0,cz,frame);
+    const drum=add(new THREE.CylinderGeometry(r,r,length,24,1,true),glass,cx,cy,cz);
+    drum.rotation.z=Math.PI/2;drum.castShadow=false;drum.name='candy-tempering-inspection-glass';
+    for(const x of [.32,w-.32]) {
+      const cap=add(new THREE.CylinderGeometry(r,r,.18,24),base,x,cy,cz);
+      cap.rotation.z=Math.PI/2;
+      const ring=add(new THREE.TorusGeometry(r+.025,.075,8,24),frame,x,cy,cz);
+      ring.rotation.y=Math.PI/2;
+    }
+    for(const x of [w*.28,w*.5,w*.72]) {
+      const band=add(new THREE.TorusGeometry(r+.018,.045,6,24),steel,x,cy,cz);
+      band.rotation.y=Math.PI/2;
+    }
+    for(const x of [.17,w-.17]) {
+      const fitting=add(new THREE.CylinderGeometry(.15,.15,.34,12),steel,x,h-.18,cz);
+      fitting.rotation.z=Math.PI/2;
+    }
+    const rotor=new THREE.Group();rotor.position.set(cx,cy,cz);
+    rotor.name='candy-tempering-contents';group.add(rotor);
+    const shaft=new THREE.Mesh(new THREE.CylinderGeometry(.14,.14,length-.25,12),steel);
+    shaft.rotation.z=Math.PI/2;rotor.add(shaft);
+    for(let i=0;i<12;i++) {
+      const angle=i*Math.PI*.72,x=(i-5.5)*(length-.65)/12,
+        sweet=new THREE.Mesh(new THREE.SphereGeometry(.20,10,8),[coral,cream,mint][i%3]);
+      sweet.position.set(x,Math.cos(angle)*r*.62,Math.sin(angle)*r*.62);
+      sweet.scale.set(1.25,.78,.78);rotor.add(sweet);
+    }
+    group.userData.update=time=>{rotor.rotation.x=time*.38;};
+    group.name='candy-tempering-drum';return group;
+  } else if(s.kind==='candyWallHandrail') {
+    const ivory=material('#f0d9b6',.58),teal=material('#4f7d79',.58),
+      alongX=w>=d,length=alongX?w:d,cx=w/2,cz=d/2;
+    for(const [height,mat] of [[.48,teal],[.96,ivory]]) {
+      const bar=add(new THREE.CylinderGeometry(.055,.055,length-.12,8),mat,cx,height,cz);
+      if(alongX)bar.rotation.z=Math.PI/2;else bar.rotation.x=Math.PI/2;
+    }
+    const count=Math.max(2,Math.ceil(length/2.4));
+    for(let i=0;i<=count;i++) {
+      const at=.07+(length-.14)*i/count;
+      box(alongX?.085:Math.min(.085,w-.02),.91,
+        alongX?Math.min(.085,d-.02):.085,
+        alongX?at:cx,.455,alongX?cz:at,ivory);
+    }
+    group.name='candy-wall-maintenance-rail';return group;
+  } else if(s.kind==='candyControl') {
+    const red=material('#b7473c',.48),cream=material('#e9d4b5',.35),teal=material('#3c7274',.48);
+    const screen=new THREE.MeshStandardMaterial({color:'#80d8ce',emissive:'#2caaa9',
+      emissiveIntensity:1.0,roughness:.2,metalness:.18});
+    box(w-.02,h-.05,d-.02,w/2,(h-.05)/2,d/2,red);
+    box(w-.09,.09,d-.09,w/2,h-.045,d/2,cream);
+    box(w*.64,.028,d*.52,w/2,h-.018,d*.47,screen);
+    for(let i=0;i<5;i++)box(.07,.02,.07,w*(.16+i*.17),h-.005,d*.83,i===4?red:teal);
+    group.name='candy-mixing-control';return group;
+  } else if(s.kind==='candyProcessPipe') {
+    const syrup=s.line==='syrup',body=material(syrup?'#568884':'#c95c47',.48),
+      collar=material('#f0d7b0',.68),dark=material('#71463c',.62);
+    const alongX=s.axis==='x',length=alongX?w:d,cx=w/2,cz=d/2,y=h*.52;
+    const run=add(new THREE.CylinderGeometry(.105,.105,Math.max(.1,length-.08),12),body,cx,y,cz);
+    if(alongX)run.rotation.z=Math.PI/2;else run.rotation.x=Math.PI/2;
+    for(const t of [.16,length/2,length-.16]) {
+      const x=alongX?t:cx,z=alongX?cz:t;
+      const ring=add(new THREE.TorusGeometry(.117,.026,6,12),collar,x,y,z);
+      if(alongX)ring.rotation.y=Math.PI/2;
+      box(alongX?.17:.06,.12,alongX?.06:.17,x,Math.min(h-.03,y+.19),z,dark);
+    }
+    group.name=syrup?'candy-mixer-feed':'candy-press-discharge';return group;
+  } else if(s.kind==='candyHopper') {
+    const body=material('#ce654d',.52),rim=material('#f0d7b0',.65),dark=material('#74453b',.64);
+    const cx=w/2,cz=d/2;
+    add(new THREE.CylinderGeometry(.20,.20,Math.max(.1,h-2.5),12),body,cx,(h+2.5)/2,cz);
+    add(new THREE.CylinderGeometry(.34,.16,.66,12),body,cx,2.18,cz);
+    add(new THREE.CylinderGeometry(.24,.24,.12,12),dark,cx,1.82,cz);
+    for(const y of [2.52,h-.16])add(new THREE.TorusGeometry(.22,.035,6,12),rim,cx,y,cz).rotation.x=Math.PI/2;
+    group.name='candy-press-output-hopper';return group;
+  } else if(s.kind==='candyTransfer') {
+    const frame=material('#a24b3e',.56),track=material('#527c78',.46),
+      candy=material('#efd2a2',.2);
+    // The floor channel curves the cooling belt's westward flow into the
+    // eastward packing belt. It is low and decorative, so it cannot snag feet.
+    box(w-.04,.07,d-.04,w/2,.035,d/2,track);
+    for(const x of [.08,w-.08])box(.08,.16,d-.10,x,.10,d/2,frame);
+    for(let i=0;i<5;i++)box(w*.34,.035,.16,w/2,.09,.28+i*(d-.56)/4,candy);
+    group.name='candy-belt-turnaround';return group;
+  } else if(s.kind==='candyWrapper') {
+    const frame=material('#b74f42',.58),edge=material('#f1d9b5',.56),
+      roller=material('#507e79',.67);
+    // The wrapper straddles the final belt; its open middle is deliberate.
+    for(const z of [.14,d-.14]) {
+      box(.18,h-.10,.18,w*.52,(h-.10)/2,z,frame);
+      box(w*.64,.12,.20,w*.52,h-.09,z,edge);
+    }
+    box(w*.68,.18,d-.18,w*.52,h-.12,d/2,frame);
+    for(const z of [d*.36,d*.64]) {
+      const spool=add(new THREE.CylinderGeometry(.20,.20,w*.52,12),roller,w*.52,h*.69,z);
+      spool.rotation.z=Math.PI/2;
+      for(const x of [w*.25,w*.79])add(new THREE.TorusGeometry(.21,.035,6,12),edge,x,h*.69,z).rotation.y=Math.PI/2;
+    }
+    group.name='candy-wrapper';return group;
+  } else if(s.kind==='candyDispatch') {
+    const body=material('#945146',.48),shelf=material('#f0d7b0',.34),
+      carton=material('#d47958',.18),band=material('#517c76',.48);
+    // A single solid shipping rack matches its full authored collision box.
+    box(w-.02,h-.02,d-.02,w/2,h/2,d/2,body);
+    for(let tier=0;tier<3;tier++) {
+      const y=.42+tier*.68;
+      box(w-.10,.09,d-.10,w/2,y,d/2,shelf);
+      for(let slot=0;slot<2;slot++) {
+        const x=w*(slot+.5)/2;
+        box(w*.38,.42,d*.58,x,y+.27,d*.52,carton);
+        box(w*.07,.44,d*.60,x,y+.27,d*.52,band);
+      }
+    }
+    group.name='candy-packed-dispatch';return group;
+  } else if(s.kind==='candyCrate') {
+    const red=material('#bf5d48',.39),cream=material('#e9d1ad',.31),teal=material('#4d7774',.44);
+    box(w-.02,h-.04,d-.02,w/2,(h-.04)/2,d/2,red);
+    box(w-.08,.07,d-.08,w/2,h-.035,d/2,cream);
+    for(const x of [.12,w-.12])box(.11,h-.13,d-.09,x,h*.51,d/2,teal);
+    for(const z of [.11,d-.11])box(w-.13,.08,.08,w/2,h*.47,z,cream);
+    group.name='candy-wrapped-carton';return group;
+  } else if(s.kind==='candyTrack') {
+    const teal=material('#426f70',.35),red=material('#d34b3e',.3);
+    for(const x of [w*.22,w*.78])box(.065,.025,d-.12,x,.045,d/2,teal);
+    for(let z=.45;z<d-.3;z+=.58)box(w*.68,.015,.055,w/2,.052,z,red);
+    group.name='candy-belt-floor-guides';return group;
+  } else if(s.kind==='candyLight') {
+    const red=material('#b84b3d',.47),cream=material('#f2dfbd',.22);
+    const glow=new THREE.MeshBasicMaterial({color:'#fff1cc'});
+    box(w-.02,h-.02,d-.02,w/2,h/2,d/2,red);
+    box(w-.12,.065,d-.10,w/2,.08,d/2,cream);
+    box(w-.22,.035,d-.19,w/2,.035,d/2,glow);
+    for(let i=1,n=Math.max(2,Math.ceil(w/2));i<n;i++)
+      box(.075,h-.05,d-.05,w*i/n,h/2,d/2,cream);
+    group.name='candy-ceiling-light';return group;
   } else if(s.kind==='reactorCore') {
     const base=material('#33464b',0.82),shell=material('#718488',0.78),rib=material('#9cafaf',0.86);
     const energy=material(s.accent||'#65e6bd',0.22);energy.emissive.set(s.accent||'#65e6bd');energy.emissiveIntensity=2.1;
@@ -1102,30 +1426,104 @@ export function createTerrainModel(s) {
     for(const x of [.11,w-.11])for(const z of [.11,d-.11])box(.16,h-.08,.16,x,h/2,z,edge);
     box(w*.56,.035,.025,w/2,h*.68,-.018,light,.008);
     box(w*.35,.04,d*.36,w*.66,h+.018,d*.52,edge,.01);
+  } else if(s.kind==='towerColumn') {
+    const shell=material('#415763',.7),edge=material('#cfdbd9',.54),accent=material('#d2a15b',.55);
+    box(w-.015,h,d-.015,w/2,h/2,d/2,shell);
+    for(let y=2.8;y<h-.4;y+=3.1)box(w-.025,.10,d-.025,w/2,y,d/2,edge);
+    for(const x of [.12,w-.12])for(const z of [.12,d-.12])
+      box(.12,h-.24,.12,x,h/2,z,edge);
+    for(const z of [.11,d-.11])box(w*.45,.035,.025,w/2,h*.72,z,accent);
+    group.name='tower-structural-column';return group;
+  } else if(s.kind==='towerCore') {
+    const shell=material('#30444f',.77),alloy=material('#7d949b',.68),
+      pale=material('#dce5e0',.48),accent=material('#d4a25b',.56);
+    const energy=new THREE.MeshStandardMaterial({color:'#8fdae4',emissive:'#59c9db',
+      emissiveIntensity:1.8,metalness:.25,roughness:.27,toneMapped:false});
+    const cx=w/2,cz=d/2,r=Math.min(w,d)*.39;
+    const cylinder=(radiusTop,radiusBottom,height,y,mat,sides=12)=>
+      add(new THREE.CylinderGeometry(radiusTop,radiusBottom,height,sides),mat,cx,y,cz);
+    cylinder(r,r,.48,.24,shell);
+    cylinder(r*.8,r*.9,h-.9,h/2+.05,alloy);
+    cylinder(r*.73,r*.73,h-.82,h/2+.06,shell);
+    cylinder(r*.67,r*.67,h*.53,h*.55,energy,16);
+    cylinder(r*.93,r*.93,.32,h-.16,pale);
+    for(const y of [1.2,h*.27,h*.76,h-.72]) {
+      cylinder(r*.9,r*.9,.15,y,accent);
+    }
+    for(let i=0;i<8;i++) {
+      const a=i*Math.PI/4,x=cx+Math.cos(a)*r*.83,z=cz+Math.sin(a)*r*.83;
+      const spine=box(.14,h-.9,.14,x,h/2,z,pale);
+      spine.rotation.y=-a;
+    }
+    const ring=add(new THREE.TorusGeometry(r*.65,.06,8,32),accent,cx,h*.58,cz);
+    ring.rotation.x=Math.PI/2;
+    group.userData.update=time=>{
+      ring.rotation.z=time*.28;
+      energy.emissiveIntensity=1.5+.38*Math.sin(time*1.7);
+    };
+    group.name='tower-power-core';return group;
+  } else if(s.kind==='towerConsole'||s.kind==='towerPowerBank') {
+    const console=s.kind==='towerConsole',shell=material('#3c505a',.68),
+      face=material('#82999c',.58),edge=material('#d4dfd9',.48),accent=material('#d3a15f',.55);
+    const display=new THREE.MeshStandardMaterial({color:'#6bb7c1',emissive:'#3e9dab',
+      emissiveIntensity:.95,metalness:.18,roughness:.3});
+    box(w-.02,h-.05,d-.02,w/2,(h-.05)/2,d/2,shell);
+    box(w-.08,.055,d-.08,w/2,h-.027,d/2,edge);
+    if(console) {
+      box(w*.57,.026,d*.48,w/2,h+.014,d*.52,display);
+      for(const x of [w*.13,w*.87])box(.055,h*.72,.055,x,h*.45,d*.5,accent);
+      box(w*.48,.045,.025,w/2,h*.48,.035,face);
+    } else {
+      for(let i=0,n=Math.max(2,Math.ceil(w/1.1));i<n;i++) {
+        const x=w*(i+.5)/n;
+        box(.07,h*.66,.035,x,h*.52,.045,face);
+        box(.08,.07,.04,x,h*.24,.02,accent);
+      }
+      box(w*.6,.025,d*.36,w/2,h+.014,d*.52,accent);
+    }
+    group.name=console?'tower-command-console':'tower-power-bank';return group;
+  } else if(s.kind==='towerCeilingTruss') {
+    const steel=material('#50646d',.7),pale=material('#aabec0',.5),accent=material('#d5a15a',.55);
+    box(w,.22,d,w/2,h-.11,d/2,steel);
+    for(let i=0,n=Math.max(2,Math.ceil(w/3.1));i<=n;i++) {
+      const x=.10+(w-.20)*i/n;
+      box(.12,h-.26,d-.06,x,(h-.26)/2,d/2,pale);
+      box(.14,.07,d-.06,x,.18,d/2,accent);
+    }
+    group.name='tower-ceiling-truss';return group;
   } else if(s.kind==='catwalk') {
-    if(s.style==='redVault') {
-      const shell=material('#292d30',.78),deck=material('#4c5255',.72),edge=material('#959c9e',.82);
-      const seam=material('#34393c',.82),red=material('#a92739',.72),black=material('#1d2124',.86);
-      box(w,Math.max(.04,h-.045),d,w/2,Math.max(.04,h-.045)/2,d/2,shell);
-      box(w-.035,.035,d-.035,w/2,h-.018,d/2,deck,.012);
-      const alongX=w>=d,length=alongX?w:d,count=Math.max(2,Math.ceil(length/2.4));
+    if(s.style==='tower') {
+      const frame=material('#697f82',.72),deck=material('#d5e2dc',.48),
+        pale=material('#f0eee4',.4),amber=material('#ddb16e',.55);
+      box(w-.02,h,d-.02,w/2,h/2,d/2,frame);
+      box(w-.08,.025,d-.08,w/2,h+.013,d/2,deck);
+      const alongX=w>=d,length=alongX?w:d,count=Math.max(2,Math.ceil(length/2.7));
       for(let i=1;i<count;i++) {
         const at=length*i/count;
-        box(alongX?.025:w-.18,.012,alongX?d-.18:.025,
-          alongX?at:w/2,h+.009,alongX?d/2:at,seam,.004);
+        box(alongX?.022:w-.24,.012,alongX?d-.24:.022,
+          alongX?at:w/2,h+.029,alongX?d/2:at,frame);
       }
-      // Two continuous edge datums replace the old alternating red grate
-      // marks, giving the whole control spine one readable visual direction.
-      if(alongX)for(const z of [.15,d-.15])box(w-.20,.026,.035,w/2,h+.015,z,red,.005);
-      else for(const x of [.15,w-.15])box(.035,.026,d-.20,x,h+.015,d/2,red,.005);
-      if(alongX)for(const z of [.10,d-.10]) {
-        box(w-.06,.22,.16,w/2,-.07,z,black,.018);
-        box(w-.08,.10,.19,w/2,h-.18,z,edge,.012);
-      } else for(const x of [.10,w-.10]) {
-        box(.16,.22,d-.06,x,-.07,d/2,black,.018);
-        box(.19,.10,d-.08,x,h-.18,d/2,edge,.012);
+      if(alongX)for(const z of [.11,d-.11]) {
+        box(w-.08,.055,.085,w/2,h+.052,z,pale);
+        box(w-.22,.018,.018,w/2,h+.088,z,amber);
+      } else for(const x of [.11,w-.11]) {
+        box(.085,.055,d-.08,x,h+.052,d/2,pale);
+        box(.018,.018,d-.22,x,h+.088,d/2,amber);
       }
-      group.name=s.bridge?'red-vault-bridge':'red-vault-gallery';return group;
+      group.name=s.bridge?'tower-bridge':'tower-gallery';return group;
+    }
+    if(s.style==='foundry') {
+      const frame=material('#586b6e',.7),deck=material('#b4c0b8',.54),edge=material('#d5ad7d',.56);
+      box(w,h,d,w/2,h/2,d/2,frame);
+      // One continuous deck plate replaces the repeated orange grate bars.
+      // The plate is inset, so its edge cannot flicker against the frame.
+      box(w-.06,.028,d-.06,w/2,h+.014,d/2,deck);
+      const alongX=w>=d;
+      if(alongX)for(const z of [.10,d-.10])
+        box(w-.08,.06,.08,w/2,h+.045,z,edge);
+      else for(const x of [.10,w-.10])
+        box(.08,.06,d-.08,x,h+.045,d/2,edge);
+      group.name=s.bridge?'foundry-gantry':'foundry-control-deck';return group;
     }
     const steel=material('#38484c',0.65),grate=material(s.accent||'#d99149',0.55);
     box(w,h,d,w/2,h/2,d/2,steel);
@@ -1139,6 +1537,116 @@ export function createTerrainModel(s) {
     // rather than another floating platform slab.
     if(alongX)for(const z of [0.10,d-0.10])box(w-0.08,0.18,0.14,w/2,-0.06,z,dark);
     else for(const x of [0.10,w-0.10])box(0.14,0.18,d-0.08,x,-0.06,d/2,dark);
+  } else if(s.kind==='foundryDuct') {
+    const casing=material('#697c7d',.7),edge=material('#bdc6ba',.54),copper=material('#c99a68',.64);
+    const alongX=w>=d,length=alongX?w:d;
+    box(w,.54,d, w/2,.85,d/2,casing);
+    for(let i=1,n=Math.max(2,Math.ceil(length/3));i<n;i++) {
+      const at=length*i/n;
+      box(alongX?.09:w-.10,.60,alongX?d-.10:.09,
+        alongX?at:w/2,.85,alongX?d/2:at,edge);
+    }
+    for(const t of [.14,.86]) {
+      const x=alongX?w*t:w/2,z=alongX?d/2:d*t;
+      box(.12,Math.max(.1,h-1.1),.12,x,(h+1.1)/2,z,casing);
+      box(.38,.12,.38,x,h-.06,z,copper);
+    }
+    box(alongX?w-.16:.10,.07,alongX?.10:d-.16,w/2,.48,d/2,copper);
+    const hoodX=s.hoodEnd==='west'?.88:w-.88;
+    add(new THREE.CylinderGeometry(.48,.72,.56,12),casing,hoodX,.35,d/2);
+    add(new THREE.CylinderGeometry(.56,.56,.025,12),material('#253234',.72),hoodX,.065,d/2);
+    add(new THREE.TorusGeometry(.66,.055,7,18),copper,hoodX,.055,d/2).rotation.x=Math.PI/2;
+    group.name='foundry-ceiling-extraction';
+  } else if(s.kind==='foundryToolRack') {
+    const shell=material('#65787a',.7),door=material('#a9b8b0',.5),edge=material('#d1a978',.58);
+    const red=material('#b64e41',.54),gauge=material('#e9dfc8',.16);
+    box(w-.22,h,d,w/2,h/2,d/2,shell);
+    const count=3;
+    const west=s.face==='west',faceX=west?.07:w-.07,handleX=west?faceX-.012:faceX+.012;
+    for(let i=0;i<count;i++) {
+      const z=d*(i+.5)/count;
+      box(.045,h-.32,d/count-.12,faceX,h/2,z,door);
+      box(.045,.38,.055,handleX,h*.53,z+d/count*.29,edge);
+      box(.045,.045,d/count-.25,handleX,h*.82,z,edge);
+    }
+    for(const z of [d*.3,d*.7]) {
+      const cylinder=add(new THREE.CylinderGeometry(.17,.17,h*.46,12),red,
+        west?.18:w-.18,h*.37,z);
+      cylinder.castShadow=false;
+      add(new THREE.CylinderGeometry(.075,.075,.09,10),edge,west?.18:w-.18,h*.65,z);
+    }
+    const dial=add(new THREE.CylinderGeometry(.14,.14,.04,16),gauge,
+      west?.055:w-.055,h*.78,d/2);
+    dial.rotation.z=Math.PI/2;
+    box(w-.12,.09,d-.12,w/2,h-.025,d/2,edge);
+    group.name='foundry-cooling-service-station';
+  } else if(s.kind==='foundryConsole') {
+    const shell=material('#53666a',.72),face=material('#b4c1b8',.52),edge=material('#d1a471',.58);
+    const screen=new THREE.MeshStandardMaterial({color:'#a8d2c6',emissive:'#2b8f7d',
+      emissiveIntensity:.65,roughness:.28,metalness:.24});
+    box(w,h,d,w/2,h/2,d/2,shell);
+    box(w-.16,.055,d-.16,w/2,h+.02,d/2,face);
+    box(w*.52,.025,d*.42,w*.52,h+.055,d*.46,screen);
+    for(const x of [w*.18,w*.82])
+      add(new THREE.CylinderGeometry(.055,.055,.026,10),edge,x,h+.057,d*.65);
+    box(w-.14,.055,.045,w/2,h*.28,.02,edge);
+    group.name='foundry-control-console';
+  } else if(s.kind==='foundryLadle') {
+    const iron=material('#303d40',.82),rim=material('#a98560',.68),cable=material('#747f7c',.76);
+    const molten=new THREE.MeshStandardMaterial({color:'#ffb35a',emissive:'#ff5e21',
+      emissiveIntensity:2.35,roughness:.36,metalness:.08,toneMapped:false});
+    const cx=w/2,cz=d/2,r=Math.min(w,d)*.31;
+    // The suspended vessel is above player height. Its actual geometry stays
+    // entirely within the decorative, non-colliding volume.
+    add(new THREE.CylinderGeometry(r*.82,r*.63,1.25,20),iron,cx,1.35,cz);
+    add(new THREE.CylinderGeometry(r*.73,r*.73,.055,20),molten,cx,2.01,cz);
+    add(new THREE.TorusGeometry(r*.82,.10,8,24),rim,cx,2.06,cz).rotation.x=Math.PI/2;
+    add(new THREE.TorusGeometry(r*.69,.065,8,24),rim,cx,.77,cz).rotation.x=Math.PI/2;
+    for(const side of [-1,1]) {
+      const x=cx+side*r*.75;
+      beam([x,1.74,cz],[x,h-.06,cz],.065,cable,9,.055);
+      box(.18,.26,.22,x,1.75,cz,rim);
+    }
+    const spoutX=cx+r*1.35;
+    beam([cx+r*.75,1.89,cz],[spoutX,1.74,cz],.13,rim,10,.10);
+    const pour=beam([spoutX,.16,cz],[spoutX,1.75,cz],.065,molten,10,.045);
+    pour.castShadow=false;
+    box(.74,.16,.74,cx,h-.08,cz,iron);
+    group.name='foundry-suspended-ladle';
+  } else if(s.kind==='foundryCastingLine') {
+    const frame=material('#4a5c60',.76),bed=material('#303a3d',.76),edge=material('#caa174',.58);
+    const hot=new THREE.MeshStandardMaterial({color:'#ffb75b',emissive:'#fa5e24',
+      emissiveIntensity:2.1,metalness:.12,roughness:.34,toneMapped:false});
+    box(w,h,d,w/2,h/2,d/2,frame);
+    box(w-.18,.065,d-.22,w/2,h-.04,d/2,bed);
+    for(const z of [.10,d-.10])box(w-.08,.11,.11,w/2,h-.045,z,edge);
+    const slugs=[];
+    for(let i=0;i<5;i++) {
+      const slug=box(.36,.025,d*.54,.3+i*(w-.6)/5,h+.004,d/2,hot);
+      slug.name='foundry-hot-ingot';slug.castShadow=false;slugs.push(slug);
+    }
+    group.userData.update=time=>{
+      const travel=time*.26;
+      for(let i=0;i<slugs.length;i++)slugs[i].position.x=.3+(w-.6)*((i/slugs.length+travel)%1);
+      hot.emissiveIntensity=1.85+.35*Math.sin(time*4);
+    };
+    group.name='foundry-hot-casting-line';
+  } else if(s.kind==='foundryPress') {
+    const shell=material('#425155',.74),inset=material('#899590',.68),copper=material('#b88359',.72);
+    const low=material('#263337',.82);
+    box(w,h,d-.08,w/2,h/2,d/2,shell);
+    box(w-.16,.12,d-.16,w/2,h-.02,d/2,inset);
+    // A recessed stamping face and two hydraulic rods read as machinery,
+    // while every solid component stays within the authoritative footprint.
+    box(w*.68,h*.42,.035,w/2,h*.52,.025,low);
+    for(const x of [w*.24,w*.76])
+      box(.12,h*.58,.035,x,h*.56,.023,copper);
+    box(w*.74,.10,.035,w/2,h*.22,.023,copper);
+    const ram=box(w*.50,.14,.07,w/2,h*.55,.006,copper);
+    ram.name='foundry-press-ram';ram.castShadow=false;
+    const phase=(s.x+s.y)*.013;
+    group.userData.update=time=>{ram.position.y=h*(.52+.11*Math.sin(time*2.2+phase));};
+    group.name='foundry-stamping-press';
   } else if(s.kind==='furnace') {
     const shell=material('#465154',0.72),hot=material('#ffb347',0.25);
     hot.emissive.set('#ff4d12');hot.emissiveIntensity=1.8;
@@ -1150,6 +1658,31 @@ export function createTerrainModel(s) {
     add(new THREE.CylinderGeometry(radius*0.68,radius*0.68,0.055,20),hot,w/2,h-0.12,d/2);
     for(const x of [w/2-radius*0.58,w/2+radius*0.58])
       box(0.24,h-0.45,0.24,x,(h-0.45)/2+0.25,d/2,dark);
+    if(s.style==='foundry') {
+      const outer=new THREE.MeshBasicMaterial({color:'#ff6926',transparent:true,opacity:.86,
+        depthWrite:false,side:THREE.DoubleSide});
+      const inner=new THREE.MeshBasicMaterial({color:'#ffd16c',transparent:true,opacity:.92,
+        depthWrite:false,side:THREE.DoubleSide});
+      const flames=[];
+      for(let i=0;i<9;i++) {
+        const angle=i*Math.PI*2/9,spread=i===8?0:radius*(.22+.25*(i%3)/2),
+          size=i===8?.78:.48+(i%3)*.10;
+        const flame=add(new THREE.ConeGeometry(.13+(i%3)*.035,size,6),i%3===0?inner:outer,
+          w/2+Math.cos(angle)*spread,h+.16,d/2+Math.sin(angle)*spread);
+        flame.name='foundry-furnace-flame';flame.castShadow=false;flame.receiveShadow=false;
+        flame.userData={phase:i*1.63,baseY:h+.16};flames.push(flame);
+      }
+      group.userData.update=time=>{
+        hot.emissiveIntensity=1.8+.4*Math.sin(time*6);
+        for(const flame of flames) {
+          const flicker=Math.sin(time*7.3+flame.userData.phase);
+          flame.scale.y=.78+.24*flicker;
+          flame.position.y=flame.userData.baseY+.045*flicker;
+          flame.rotation.y=time*.45+flame.userData.phase;
+        }
+      };
+      group.name='foundry-burning-furnace';
+    }
   } else if(s.kind==='tank') {
     const shell=material('#6e7d7e',0.82);
     const radius=Math.min(w,d)*0.38;
@@ -1171,9 +1704,11 @@ export function createTerrainModel(s) {
         alongX?w*t:w/2,h*0.62,alongX?d/2:d*t);
       if(alongX)ring.rotation.y=Math.PI/2;else ring.rotation.x=Math.PI/2;
     }
-  } else if(s.kind==='vaultConveyor') {
-    const frame=material('#211e21',.84),steel=material('#aaa6a0',.9),belt=material('#29272c',.45);
-    const red=new THREE.MeshStandardMaterial({color:'#560811',emissive:'#ff1737',emissiveIntensity:2.5,
+  } else if(s.kind==='candyConveyor') {
+    const candy=s.style==='candy';
+    const frame=material(candy?'#a34d3f':'#211e21',candy?.36:.84),
+      steel=material(candy?'#ead4ad':'#aaa6a0',candy?.22:.9),belt=material(candy?'#477976':'#29272c',.45);
+    const red=new THREE.MeshStandardMaterial({color:candy?'#d84e3f':'#560811',emissive:candy?'#e76445':'#ff1737',emissiveIntensity:candy?1.25:2.5,
       metalness:.45,roughness:.28,toneMapped:false});
     const alongX=w>=d,length=alongX?w:d,cross=alongX?d:w;
     box(w,.22,d,w/2,.11,d/2,frame);
@@ -1181,7 +1716,7 @@ export function createTerrainModel(s) {
     const rollers=Math.max(5,Math.floor(length/.48)),dummy=new THREE.Object3D();
     const rollerGeometry=new THREE.CylinderGeometry(.085,.085,cross-.18,10);
     const rollerInstances=new THREE.InstancedMesh(rollerGeometry,steel,rollers);
-    rollerInstances.name='red-vault-conveyor-rollers';
+    rollerInstances.name='candy-conveyor-rollers';
     rollerInstances.castShadow=true;rollerInstances.receiveShadow=true;
     for(let i=0;i<rollers;i++) {
       const t=(i+.5)/rollers;
@@ -1194,11 +1729,21 @@ export function createTerrainModel(s) {
     const markerCount=10,markerGeometry=new RoundedBoxGeometry(alongX?.16:cross-.28,.025,
       alongX?cross-.28:.16,2,.006);
     const markerInstances=new THREE.InstancedMesh(markerGeometry,red,markerCount);
-    markerInstances.name='red-vault-conveyor-markers';markerInstances.castShadow=false;markerInstances.receiveShadow=true;
+    markerInstances.name='candy-conveyor-markers';markerInstances.castShadow=false;markerInstances.receiveShadow=true;
     markerInstances.instanceMatrix.setUsage(THREE.DynamicDrawUsage);group.add(markerInstances);
+    const sweetCount=8,sweets=candy?new THREE.InstancedMesh(
+      new RoundedBoxGeometry(.24,.12,.19,2,.055),
+      new THREE.MeshStandardMaterial({color:'#ffffff',roughness:.34,metalness:.05}),sweetCount):null;
+    if(sweets) {
+      sweets.name='candy-conveyor-sweets';sweets.castShadow=false;sweets.receiveShadow=true;
+      sweets.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      const colors=['#f26b91','#fff0cc','#88d7bd','#f7b06f'];
+      for(let i=0;i<sweetCount;i++)sweets.setColorAt(i,new THREE.Color(colors[i%colors.length]));
+      group.add(sweets);
+    }
     for(const side of [0.11,cross-.11])box(alongX?length:.18,.28,alongX?.18:length,
       alongX?w/2:side,h-.14,alongX?side:d/2,frame,.018);
-    group.name='red-vault-moving-conveyor';
+    group.name='candy-moving-belt';
     group.userData.update=time=>{
       const travel=((time*(s.speed||.65)*(s.direction===-1?-1:1))%1+1)%1;
       for(let i=0;i<markerCount;i++) {
@@ -1207,8 +1752,16 @@ export function createTerrainModel(s) {
         dummy.rotation.set(0,0,0);dummy.updateMatrix();markerInstances.setMatrixAt(i,dummy.matrix);
       }
       markerInstances.instanceMatrix.needsUpdate=true;
+      if(sweets) {
+        for(let i=0;i<sweetCount;i++) {
+          const t=((i+.5)/sweetCount+travel)%1;
+          dummy.position.set(alongX?length*t:w/2,h+.075,alongX?d/2:length*t);
+          dummy.rotation.set(0,(i%3-1)*.12,0);dummy.updateMatrix();sweets.setMatrixAt(i,dummy.matrix);
+        }
+        sweets.instanceMatrix.needsUpdate=true;
+      }
     };
-    group.userData.update(0);markerInstances.computeBoundingSphere();
+    group.userData.update(0);markerInstances.computeBoundingSphere();sweets?.computeBoundingSphere();
   } else if(s.kind==='conveyor') {
     const frame=material('#45575a',0.75),roller=material('#879496',0.85),alongX=w>=d,length=alongX?w:d;
     box(w,0.20,d,w/2,0.10,d/2,frame);
@@ -1231,25 +1784,6 @@ export function createTerrainModel(s) {
     box(0.06,1.8,0.06,w*0.58,-1.25,d/2,black);
     const hook=add(new THREE.TorusGeometry(0.16,0.045,6,14,Math.PI*1.45),black,w*0.58,-2.16,d/2);
     hook.rotation.z=Math.PI;
-  } else if(s.kind==='vaultColumn') {
-    const shell=material('#353a3d',.8),edge=material('#969d9f',.86),black=material('#202427',.86);
-    const red=new THREE.MeshStandardMaterial({color:'#7d1d2b',emissive:'#dc3046',emissiveIntensity:1.1,
-      metalness:.48,roughness:.3,toneMapped:false});
-    const radius=Math.min(w,d)*.4,cx=w/2,cz=d/2;
-    add(new THREE.CylinderGeometry(radius,radius,Math.max(.1,h-.34),12),shell,cx,h/2,cz);
-    add(new THREE.CylinderGeometry(radius+.07,radius+.09,.22,12),black,cx,.11,cz);
-    add(new THREE.CylinderGeometry(radius+.07,radius+.07,.18,12),edge,cx,h-.09,cz);
-    add(new THREE.CylinderGeometry(radius+.035,radius+.035,.055,12),red,cx,h*.62,cz);
-    group.name='red-vault-column';
-  } else if(s.kind==='vaultBarrier') {
-    const shell=material('#303538',.8),face=material('#596064',.68),edge=material('#9ba1a3',.8);
-    const red=new THREE.MeshStandardMaterial({color:'#842030',emissive:'#df334a',emissiveIntensity:1.05,
-      metalness:.42,roughness:.3,toneMapped:false});
-    box(w,h-.12,d,w/2,(h-.12)/2,d/2,shell,.055);
-    box(w-.14,h*.46,d+.012,w/2,h*.52,-.006,face,.035);
-    box(w-.22,.035,d+.025,w/2,h*.64,-.014,red,.006);
-    box(w,.12,d,w/2,h-.06,d/2,edge,.035);
-    group.name='red-vault-barrier';
   } else if (s.kind === 'pillar' || s.kind === 'generator') {
     // Solid bevelled silhouettes keep the render and rectangular collider in
     // agreement. All trim sits inside the footprint and clear of other faces.

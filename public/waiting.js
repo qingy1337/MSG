@@ -5,11 +5,12 @@ const homeScreen = document.getElementById("home-screen");
 const lobbyScreen = document.getElementById("lobby-screen");
 const gameScreen = document.getElementById("game-screen");
 const shopScreen = document.getElementById("shop-screen");
+const settingsScreen = document.getElementById("settings-screen");
 
 // Simple screen state helper so only one main screen shows at a time
 function setActiveScreen(target) {
-  const screens = [homeScreen, lobbyScreen, gameScreen, shopScreen];
-  if (target && target !== shopScreen && screens.includes(target)) {
+  const screens = [homeScreen, lobbyScreen, gameScreen, shopScreen, settingsScreen];
+  if (target && target !== shopScreen && target !== settingsScreen && screens.includes(target)) {
     lastNonShopScreen = target;
   }
   screens.forEach((el) => {
@@ -68,7 +69,6 @@ const closeLoadoutBtn = document.getElementById('close-loadout-btn');
 const doneLoadoutBtn = document.getElementById('done-loadout-btn');
 const pvpLobbyListEl = document.getElementById('pvp-lobby-list');
 const pveLobbyListEl = document.getElementById('pve-lobby-list');
-const strikeLobbyListEl = document.getElementById('strike-lobby-list');
 const onlineLobbyCountEl = document.getElementById('online-lobby-count');
 const lobbyStatusEl = document.getElementById('lobby-status');
 const lobbyTitleEl = document.getElementById('lobby-title');
@@ -76,6 +76,11 @@ const lobbyCapacityEl = document.getElementById('lobby-capacity');
 const lobbyLeaderNoteEl = document.getElementById('lobby-leader-note');
 const lobbyActionStatusEl = document.getElementById('lobby-action-status');
 const openArmoryBtn = document.getElementById('open-armory-btn');
+const openSettingsBtn = document.getElementById('open-settings-btn');
+const settingsBackBtn = document.getElementById('settings-back-btn');
+const mouseSensitivitySlider = document.getElementById('mouse-sensitivity-slider');
+const mouseSensitivityValue = document.getElementById('mouse-sensitivity-value');
+const resetMouseSensitivityBtn = document.getElementById('reset-mouse-sensitivity-btn');
 const modeChoices = Array.from(document.querySelectorAll('.mode-choice[data-mode]'));
 const totalKillsValueEl = document.getElementById('total-kills-value');
 const pveKillsValueEl = document.getElementById('pve-kills-value');
@@ -154,6 +159,8 @@ function setAuthError(message) {
 
 function applyAuthenticatedState(user) {
   currentUser = user;
+  mouseSensitivitySettings.setUser(user.username);
+  updateMouseSensitivityControls();
   if (typeof user?.loadout?.primaryWeapon === 'string' && WEAPONS[user.loadout.primaryWeapon] && WEAPONS[user.loadout.primaryWeapon].selectable !== false) {
     selectedWeaponKey = user.loadout.primaryWeapon;
   }
@@ -185,6 +192,7 @@ function applyAuthenticatedState(user) {
 
 function applyLoggedOutState() {
   currentUser = null;
+  mouseSensitivitySettings.setUser(null);
   currentLobby = null;
   if(startFloorInput)startFloorInput.value='1';
   if(pvpDebugMap)pvpDebugMap.value='';
@@ -309,6 +317,12 @@ function showRegisterTab() {
 }
 
 // Event listeners
+function updateMouseSensitivityControls() {
+  const percent = mouseSensitivitySettings.getPercent();
+  if (mouseSensitivitySlider) mouseSensitivitySlider.value = String(percent);
+  if (mouseSensitivityValue) mouseSensitivityValue.value = `${percent}%`;
+}
+
 if (playBtn) playBtn.addEventListener('click', createFireteam);
 if (startBtn) {
   startBtn.addEventListener("click", startGame);
@@ -318,6 +332,19 @@ if(pvpDebugDouble) {
 }
 if (leaveLobbyBtn) leaveLobbyBtn.addEventListener('click', leaveFireteam);
 if (openArmoryBtn) openArmoryBtn.addEventListener('click', openShop);
+if (openSettingsBtn) openSettingsBtn.addEventListener('click', () => {
+  updateMouseSensitivityControls();
+  setActiveScreen(settingsScreen);
+});
+if (settingsBackBtn) settingsBackBtn.addEventListener('click', () => setActiveScreen(homeScreen));
+if (mouseSensitivitySlider) mouseSensitivitySlider.addEventListener('input', () => {
+  mouseSensitivitySettings.setPercent(mouseSensitivitySlider.value);
+  updateMouseSensitivityControls();
+});
+if (resetMouseSensitivityBtn) resetMouseSensitivityBtn.addEventListener('click', () => {
+  mouseSensitivitySettings.setPercent(100);
+  updateMouseSensitivityControls();
+});
 if (changeLoadoutBtn) changeLoadoutBtn.addEventListener('click', openLoadoutDrawer);
 if (loadoutDrawerDismiss) loadoutDrawerDismiss.addEventListener('click', closeLoadoutDrawer);
 if (closeLoadoutBtn) closeLoadoutBtn.addEventListener('click', closeLoadoutDrawer);
@@ -1013,7 +1040,7 @@ function startGame() {
 function updateStartButtonState() {
   const isOwner = currentLobby?.ownerId === socket.id;
   const isPve = currentLobby?.mode === 'pve';
-  const isCoop = isPve || currentLobby?.mode === 'strike';
+  const isCoop = isPve;
   startFloorRow?.classList.toggle('hidden',currentUser?.username!=='qing'||!isPve||!isOwner);
   pvpDebugRow?.classList.toggle('hidden',currentUser?.username!=='qing'||currentLobby?.mode!=='pvp'||!isOwner);
   if (!startBtn) return;
@@ -1094,7 +1121,6 @@ function renderLobbyBrowser() {
   };
   renderMode('pvp', pvpLobbyListEl);
   renderMode('pve', pveLobbyListEl);
-  renderMode('strike', strikeLobbyListEl);
 }
 
 // Socket event handlers

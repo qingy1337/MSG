@@ -406,6 +406,36 @@ const WEAPON_SKINS = {
         },
       ],
     },
+    {
+      key: "autoRifle_thunderbird",
+      weaponKey: "autoRifle",
+      name: "Thunderbird",
+      description: "Swept metal feathers crackle with electric light.",
+      price: 6000,
+      isDefault: false,
+      bulletColor: "#ffd84d",
+      shapes: [
+        { type: "line", fromX: 0, fromY: 0, toX: 1, toY: 0, lineWidth: 7, color: "#343d40" },
+        { type: "polygon", points: [
+          { x: 0.11, y: -0.12 }, { x: 0.14, y: -0.17 }, { x: 0.6, y: -0.14 },
+          { x: 0.6, y: -0.08 }, { x: 0.14, y: -0.08 },
+        ], fill: "#95a5a8", color: "#5c696c" },
+        { type: "polygon", points: [
+          { x: 0.2, y: -0.04 }, { x: 0.23, y: -0.08 }, { x: 0.67, y: -0.06 },
+          { x: 0.67, y: -0.01 }, { x: 0.23, y: 0.01 },
+        ], fill: "#88999d", color: "#5c696c" },
+        { type: "polygon", points: [
+          { x: 0.45, y: 0.035 }, { x: 0.48, y: 0.005 }, { x: 0.82, y: 0.02 },
+          { x: 0.82, y: 0.065 }, { x: 0.48, y: 0.075 },
+        ], fill: "#95a5a8", color: "#5c696c" },
+        { type: "polygon", points: [
+          { x: 0.56, y: 0.105 }, { x: 0.59, y: 0.075 }, { x: 0.86, y: 0.09 },
+          { x: 0.86, y: 0.13 }, { x: 0.59, y: 0.14 },
+        ], fill: "#88999d", color: "#5c696c" },
+        { type: "line", fromX: 0.16, fromY: -0.125, toX: 0.55, toY: -0.115, lineWidth: 1.4, color: "#ffd84d" },
+        { type: "line", fromX: 0.25, fromY: -0.035, toX: 0.63, toY: -0.035, lineWidth: 1.4, color: "#ffd84d" },
+      ],
+    },
   ],
   miniGun: [
     {

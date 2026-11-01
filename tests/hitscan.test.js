@@ -375,7 +375,9 @@ test('minigun buffs close/medium damage, eases into long-range falloff, and igno
   } finally { game.close(); }
 });
 
-test('human miniguns must spin up and obey their nerfed server cadence',t=>{
+test('human miniguns must spin up and obey their server cadence',t=>{
+  assert.equal(WEAPONS.miniGun.spinUpMs,225);
+  assert.equal(WEAPONS.miniGun.cooldownMs,18);
   let connection,now=100000;
   t.mock.method(global,'setInterval',()=>0);t.mock.method(Date,'now',()=>now);
   const handlers={},events=[];
@@ -411,8 +413,8 @@ test('held automatic fire deals the same damage across sparse and frequent clien
   for(const [weapon,tickTimes,expectedShots] of [
     ['autoRifle',[50,100,150,200,250,300,350,400],6],
     ['autoRifle',[100,200,300,400],6],
-    ['miniGun',[50,100,150,200,250,300,350,400],13],
-    ['miniGun',[100,200,300,400],13],
+    ['miniGun',[50,100,150,200,250,300,350,400],10],
+    ['miniGun',[100,200,300,400],10],
   ]) {
     let connection;const handlers={},events=[];
     const io={on:(_,fn)=>{connection=fn;},emit:(name,data)=>events.push({name,data}),to(){return this;}};

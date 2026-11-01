@@ -31,111 +31,82 @@
 
   const definitions={
     foundry:{
-      id:'foundry',name:'Foundry',description:'A tall, close-quarters smelter threaded with wall walks and stacked platforms.',
-      width:1800,height:1250,ceiling:13.5,scale:0.68,accent:'#f0a55a',
-      palette:{sky:'#82969c',wall:'#4f6268',panel:'#a08f79',cap:'#cab897',glow:'#ffad59',
-        floorLow:'#303a3d',floorHigh:'#526064',reflection:'#6b7878',reflectionGlow:'#f0a55a'},
+      id:'foundry',name:'Foundry',description:'A working casting hall with two elevated control bays and a cross-plant gantry.',
+      width:1700,height:1200,ceiling:12.8,scale:.72,style:'foundry',accent:'#d58b4c',
+      palette:{sky:'#b6c1b8',wall:'#687a78',panel:'#91a29a',cap:'#bfc5b4',glow:'#e6a265',
+        floorLow:'#4d5e5c',floorHigh:'#73847a',reflection:'#84938a',reflectionGlow:'#d58b4c',
+        ambient:'#e6d7bb',ground:'#8f9e91',sun:'#ffdfb2',rim:'#e4a875',
+        ambientIntensity:2.95,sunIntensity:3.15,rimIntensity:1.3},
+      // The hall has a clear production sequence: receiving at the south,
+      // smelting in the center, and a raised control gantry to the north.
+      // Two broad side bays give players cover and permanent routes upstairs.
       walls:[
-        wall(260,690,24,300),wall(1516,690,24,300),
-        wall(500,1040,260,24),wall(1040,1040,260,24),
-        wall(520,570,180,24),wall(1100,570,180,24),
-        wall(710,610,100,24),wall(990,610,100,24),
+        wall(180,160,300,28,4.6),wall(1220,160,300,28,4.6),
+        wall(500,90,28,160,5.4),wall(1172,90,28,160,5.4),
+        wall(250,940,270,28,4.6),wall(1180,940,270,28,4.6),
+        wall(580,790,28,210,4.6),wall(1092,790,28,210,4.6),
       ],
       terrain:[
-        // The upper works form one continuous combat route. Their raised
-        // undersides preserve a second set of lanes at ground level.
-        terrain('catwalk',180,150,330,250,3,{bottom:2.75,walkable:true}),
-        terrain('catwalk',510,235,225,85,3,{bottom:2.75,walkable:true,bridge:true}),
-        terrain('catwalk',735,110,330,330,3,{bottom:2.75,walkable:true}),
-        terrain('catwalk',1065,235,225,85,3,{bottom:2.75,walkable:true,bridge:true}),
-        terrain('catwalk',1290,150,330,250,3,{bottom:2.75,walkable:true}),
-        terrain('catwalk',855,440,90,260,3,{bottom:2.75,walkable:true,bridge:true}),
-        terrain('catwalk',750,700,300,110,3,{bottom:2.75,walkable:true}),
-        terrain('ramp',260,400,110,230,3,{axis:'y',reverse:true,stairs:true,steps:17}),
-        terrain('ramp',1430,400,110,230,3,{axis:'y',reverse:true,stairs:true,steps:17}),
-        terrain('ramp',780,810,110,210,3,{axis:'y',reverse:true,stairs:true,steps:16}),
-
-        // A second combat tier grows out from the north wall. The stairs begin
-        // on the existing three-metre works, so every high perch has a real,
-        // permanent route rather than depending on a lift or a lucky jump.
-        terrain('catwalk',12,20,500,70,6,{bottom:5.75,walkable:true}),
-        terrain('catwalk',650,20,500,70,6,{bottom:5.75,walkable:true}),
-        terrain('catwalk',1288,20,500,70,6,{bottom:5.75,walkable:true}),
-        terrain('catwalk',512,20,138,70,6,{bottom:5.75,walkable:true,bridge:true}),
-        terrain('catwalk',1150,20,138,70,6,{bottom:5.75,walkable:true,bridge:true}),
-        terrain('ramp',270,90,100,260,6,{bottom:3,axis:'y',reverse:true,stairs:true,steps:26}),
-        terrain('ramp',1430,90,100,260,6,{bottom:3,axis:'y',reverse:true,stairs:true,steps:26}),
-
-        // Guardrails hug the arena wall and the exposed inner lip. Integrated
-        // control housings interrupt what would otherwise be one dominant
-        // sniper lane across the entire upper floor.
-        terrain('rail',12,90,251,7,7,{style:'industrial',bottom:6}),
-        terrain('rail',377,90,135,7,7,{style:'industrial',bottom:6}),
-        terrain('rail',650,90,500,7,7,{style:'industrial',bottom:6}),
-        terrain('rail',1288,90,135,7,7,{style:'industrial',bottom:6}),
-        terrain('rail',1537,90,251,7,7,{style:'industrial',bottom:6}),
-        terrain('rail',512,13,138,7,7,{style:'industrial',bottom:6}),
-        terrain('rail',512,90,138,7,7,{style:'industrial',bottom:6}),
-        terrain('rail',1150,13,138,7,7,{style:'industrial',bottom:6}),
-        terrain('rail',1150,90,138,7,7,{style:'industrial',bottom:6}),
-        terrain('rail',263,90,7,260,4,{style:'industrial',bottom:3,axis:'y',rise:3,reverse:true}),
-        terrain('rail',370,90,7,260,4,{style:'industrial',bottom:3,axis:'y',rise:3,reverse:true}),
-        terrain('rail',1423,90,7,260,4,{style:'industrial',bottom:3,axis:'y',rise:3,reverse:true}),
-        terrain('rail',1530,90,7,260,4,{style:'industrial',bottom:3,axis:'y',rise:3,reverse:true}),
-        terrain('generator',720,20,85,10,8.55,{bottom:6}),
-        terrain('generator',1060,20,85,10,8.55,{bottom:6}),
-
-        // Industrial guardrails clearly communicate the walkable route while
-        // openings at stairs and bridge joins keep the network flowing.
-        terrain('rail',180,143,83,7,4,{style:'industrial',bottom:3}),terrain('rail',377,143,133,7,4,{style:'industrial',bottom:3}),
-        terrain('rail',173,150,7,250,4,{style:'industrial',bottom:3}),
-        terrain('rail',180,400,83,7,4,{style:'industrial',bottom:3}),terrain('rail',377,400,133,7,4,{style:'industrial',bottom:3}),
-        terrain('rail',253,400,7,230,1,{style:'industrial',axis:'y',rise:3,reverse:true}),
-        terrain('rail',370,400,7,230,1,{style:'industrial',axis:'y',rise:3,reverse:true}),
-        terrain('rail',510,228,218,7,4,{style:'industrial',bottom:3}),terrain('rail',510,320,218,7,4,{style:'industrial',bottom:3}),
-        terrain('rail',735,103,330,7,4,{style:'industrial',bottom:3}),
-        terrain('rail',728,110,7,125,4,{style:'industrial',bottom:3}),terrain('rail',728,320,7,120,4,{style:'industrial',bottom:3}),
-        terrain('rail',1065,110,7,125,4,{style:'industrial',bottom:3}),terrain('rail',1065,320,7,120,4,{style:'industrial',bottom:3}),
-        terrain('rail',735,440,113,7,4,{style:'industrial',bottom:3}),terrain('rail',952,440,113,7,4,{style:'industrial',bottom:3}),
-        terrain('rail',1072,228,218,7,4,{style:'industrial',bottom:3}),terrain('rail',1072,320,218,7,4,{style:'industrial',bottom:3}),
-        terrain('rail',1290,143,133,7,4,{style:'industrial',bottom:3}),terrain('rail',1537,143,83,7,4,{style:'industrial',bottom:3}),
-        terrain('rail',1620,150,7,250,4,{style:'industrial',bottom:3}),
-        terrain('rail',1290,400,133,7,4,{style:'industrial',bottom:3}),terrain('rail',1537,400,83,7,4,{style:'industrial',bottom:3}),
-        terrain('rail',1423,400,7,230,1,{style:'industrial',axis:'y',rise:3,reverse:true}),
-        terrain('rail',1540,400,7,230,1,{style:'industrial',axis:'y',rise:3,reverse:true}),
-        terrain('rail',848,440,7,260,4,{style:'industrial',bottom:3}),terrain('rail',945,440,7,260,4,{style:'industrial',bottom:3}),
-        terrain('rail',750,693,98,7,4,{style:'industrial',bottom:3}),terrain('rail',952,693,98,7,4,{style:'industrial',bottom:3}),
-        terrain('rail',743,700,7,110,4,{style:'industrial',bottom:3}),terrain('rail',1050,700,7,110,4,{style:'industrial',bottom:3}),
-        terrain('rail',750,810,30,7,4,{style:'industrial',bottom:3}),terrain('rail',890,810,160,7,4,{style:'industrial',bottom:3}),
-        terrain('rail',773,810,7,210,1,{style:'industrial',axis:'y',rise:3,reverse:true}),
-        terrain('rail',890,810,7,210,1,{style:'industrial',axis:'y',rise:3,reverse:true}),
-
-        // Recognisable foundry landmarks make the lower floor more than cover:
-        // paired smelters, process tanks, pipe runs, a conveyor and bridge crane.
-        terrain('furnace',520,760,180,180,4.65,{collisionShape:'circle',collisionRadius:72}),
-        terrain('furnace',1100,760,180,180,4.65,{collisionShape:'circle',collisionRadius:72}),
-        terrain('tank',325,1020,125,125,3.15,{collisionShape:'circle',collisionRadius:52}),
-        terrain('tank',1350,1020,125,125,3.15,{collisionShape:'circle',collisionRadius:52}),
-        terrain('pipe',395,535,105,48,1.05,{collisionShape:'capsule',collisionRadius:17}),
-        terrain('pipe',1300,535,105,48,1.05,{collisionShape:'capsule',collisionRadius:17}),
-        terrain('conveyor',1120,455,290,72,1.15),
-        terrain('generator',390,675,105,65,1.85),terrain('generator',1305,675,105,65,1.85),
-        terrain('crane',500,500,800,38,6.35,{bottom:5.35}),
+        // Broad fabricated decks replace the many narrow grates and fragments.
+        // Their thin undersides preserve generous ground-floor circulation.
+        terrain('catwalk',150,270,400,320,3.2,{bottom:2.94,walkable:true,style:'foundry'}),
+        terrain('catwalk',550,310,600,95,3.2,{bottom:2.94,walkable:true,bridge:true,style:'foundry'}),
+        terrain('catwalk',1150,270,400,320,3.2,{bottom:2.94,walkable:true,style:'foundry'}),
+        terrain('ramp',295,590,120,270,3.2,{axis:'y',reverse:true,stairs:true,steps:19,style:'foundry'}),
+        terrain('ramp',1285,590,120,270,3.2,{axis:'y',reverse:true,stairs:true,steps:19,style:'foundry'}),
+        // Sparse perimeter guards mark fall edges; mouths of both stairs and
+        // both gantry joins remain completely clear.
+        terrain('rail',143,270,7,320,4.2,{bottom:3.2,style:'foundry'}),
+        terrain('rail',150,263,400,7,4.2,{bottom:3.2,style:'foundry'}),
+        terrain('rail',150,590,145,7,4.2,{bottom:3.2,style:'foundry'}),
+        terrain('rail',415,590,135,7,4.2,{bottom:3.2,style:'foundry'}),
+        terrain('rail',550,405,7,185,4.2,{bottom:3.2,style:'foundry'}),
+        terrain('rail',550,303,600,7,4.2,{bottom:3.2,style:'foundry'}),
+        terrain('rail',557,405,586,7,4.2,{bottom:3.2,style:'foundry'}),
+        terrain('rail',1143,405,7,185,4.2,{bottom:3.2,style:'foundry'}),
+        terrain('rail',1150,263,400,7,4.2,{bottom:3.2,style:'foundry'}),
+        terrain('rail',1550,270,7,320,4.2,{bottom:3.2,style:'foundry'}),
+        terrain('rail',1150,590,135,7,4.2,{bottom:3.2,style:'foundry'}),
+        terrain('rail',1405,590,145,7,4.2,{bottom:3.2,style:'foundry'}),
+        terrain('rail',288,590,7,270,1,{axis:'y',rise:3.2,reverse:true,style:'foundry'}),
+        terrain('rail',415,590,7,270,1,{axis:'y',rise:3.2,reverse:true,style:'foundry'}),
+        terrain('rail',1278,590,7,270,1,{axis:'y',rise:3.2,reverse:true,style:'foundry'}),
+        terrain('rail',1405,590,7,270,1,{axis:'y',rise:3.2,reverse:true,style:'foundry'}),
+        // Central machinery is one coherent casting line, rather than props
+        // randomly scattered across the floor. Tanks and furnaces have round
+        // collision matching their visible silhouettes.
+        terrain('furnace',660,490,150,150,4.25,{style:'foundry',collisionShape:'circle',collisionRadius:58,burnDamage:7}),
+        terrain('furnace',890,490,150,150,4.25,{style:'foundry',collisionShape:'circle',collisionRadius:58,burnDamage:7}),
+        terrain('foundryLadle',770,490,160,160,9.1,{bottom:4.15,nonSolid:true}),
+        terrain('foundryPress',790,710,120,95,2.65),
+        terrain('foundryCastingLine',700,880,300,58,1.15),
+        terrain('tank',160,730,125,125,3.2,{collisionShape:'circle',collisionRadius:48}),
+        terrain('tank',1415,730,125,125,3.2,{collisionShape:'circle',collisionRadius:48}),
+        terrain('pipe',90,1050,320,42,1.0,{collisionShape:'capsule',collisionRadius:15}),
+        terrain('pipe',1290,1050,320,42,1.0,{collisionShape:'capsule',collisionRadius:15}),
+        terrain('foundryPress',465,680,95,100,2.1),
+        terrain('foundryPress',1140,680,95,100,2.1),
+        terrain('foundryToolRack',20,430,55,125,1.85,{face:'east'}),
+        terrain('foundryToolRack',1625,430,55,125,1.85,{face:'west'}),
+        // Ceiling-hung extraction ducts frame the furnace line without
+        // creating extra floor collision or a low obstruction above the deck.
+        terrain('foundryDuct',300,455,450,45,12.6,{bottom:7,nonSolid:true,hoodEnd:'east'}),
+        terrain('foundryDuct',950,455,450,45,12.6,{bottom:7,nonSolid:true,hoodEnd:'west'}),
+        // The overhead bridge crane frames the entire hall but stays above
+        // combat space. It never creates an invisible obstruction at eye level.
+        terrain('crane',430,80,840,35,9.4,{bottom:8.85}),
+        terrain('foundryConsole',290,320,85,55,4.35,{bottom:3.2}),
+        terrain('foundryConsole',1325,475,85,55,4.35,{bottom:3.2}),
       ],
       variants:[
-        [terrain('cover',585,1085,110,42,1.15),terrain('cover',1105,1085,110,42,1.15),
-          terrain('pipe',805,1120,190,44,0.95,{collisionShape:'capsule',collisionRadius:16})],
-        [terrain('conveyor',700,1080,400,68,1.05),terrain('cover',90,760,105,42,1.15),
-          terrain('cover',1605,760,105,42,1.15)],
-        [terrain('tank',70,920,105,105,2.75,{collisionShape:'circle',collisionRadius:44}),
-          terrain('tank',1625,920,105,105,2.75,{collisionShape:'circle',collisionRadius:44}),
-          terrain('cover',845,1075,110,42,1.15)],
+        [terrain('cover',735,1030,100,45,1.2),terrain('cover',865,1030,100,45,1.2)],
+        [terrain('cover',480,1060,115,42,1.2),terrain('cover',1105,1060,115,42,1.2)],
+        [terrain('cover',785,1010,130,50,1.35)],
       ],
       spawns:[
-        [80,80],[560,70],[1240,70],[1720,80],[80,625],[1720,625],
-        [80,1170],[500,1170],[1300,1170],[1720,1170],
-        [210,260,3],[900,200,3],[1350,260,3],[980,755,3],
-        [300,55,6],[900,55,6],
+        [100,110],[850,130],[1600,110],[100,600],[1600,600],
+        [100,1130],[480,1130],[850,1130],[1220,1130],[1600,1130],
+        [250,430,3.2],[470,490,3.2],[850,350,3.2],[1230,430,3.2],[1450,490,3.2],
       ],
     },
     courtyard:{
@@ -204,217 +175,250 @@
         [80,920],[430,920],[950,920],[1470,920],[1820,920],
       ],
     },
-    vaultAnnex:{
-      id:'vaultAnnex',name:'Vault Annex',
-      description:'A bright Red Vault reactor annex with stacked control galleries, twin bridges, and heavy machinery.',
-      width:1400,height:1000,ceiling:11.8,scale:.78,style:'redVault',accent:'#ef3347',
-      palette:{sky:'#92999d',wall:'#34383b',panel:'#686d70',cap:'#aeb3b4',glow:'#e63147',
-        floorLow:'#383b3d',floorHigh:'#55595b',reflection:'#505456',reflectionGlow:'#d83346',
-        ambient:'#fff5e8',ground:'#7e8587',sun:'#fff4df',rim:'#e95867',
-        ambientIntensity:2.95,sunIntensity:3.35,rimIntensity:1.55},
-      // A deliberate cruciform shell: one broad reactor hall and four aligned
-      // service wings. The footprint remains non-rectangular without looking
-      // like unrelated rooms were bolted onto one another.
+    candyFactory:{
+      id:'candyFactory',name:'Candy Factory',
+      description:'A working sweetworks with two production floors, a tempering drum, moving belts, and a sugar press.',
+      width:1360,height:1040,ceiling:16.2,scale:1.08,style:'candy',accent:'#df453f',
+      palette:{sky:'#e6cbb0',wall:'#ad5847',panel:'#ead3b5',cap:'#f2dfbf',glow:'#e83d40',
+        floorLow:'#b77155',floorHigh:'#dfa578',reflection:'#ae704e',reflectionGlow:'#e85d4b',groundStyle:'candy',
+        ambient:'#ffe5be',ground:'#a46b54',sun:'#fff0ca',rim:'#72b5b1',
+        ambientIntensity:3.45,sunIntensity:3.55,rimIntensity:1.55},
+      // The shell follows mixing, cooling, packing and the return belt. Each
+      // wing changes width for a production reason, not to fill an arena box.
       floorRects:[
-        {x:180,y:140,width:1040,height:720},
-        {x:60,y:300,width:120,height:400},
-        {x:1220,y:300,width:120,height:400},
-        {x:500,y:40,width:400,height:100},
-        {x:440,y:860,width:520,height:140},
+        {x:80,y:200,width:580,height:600},{x:660,y:330,width:290,height:470},
+        {x:950,y:80,width:330,height:770},{x:420,y:800,width:530,height:200},
       ],
       floorPolygon:[
-        {x:500,y:40},{x:900,y:40},{x:900,y:140},{x:1220,y:140},
-        {x:1220,y:300},{x:1340,y:300},{x:1340,y:700},{x:1220,y:700},
-        {x:1220,y:860},{x:960,y:860},{x:960,y:1000},{x:440,y:1000},
-        {x:440,y:860},{x:180,y:860},{x:180,y:700},{x:60,y:700},
-        {x:60,y:300},{x:180,y:300},{x:180,y:140},{x:500,y:140},
+        {x:950,y:80},{x:1280,y:80},{x:1280,y:850},{x:950,y:850},
+        {x:950,y:1000},{x:420,y:1000},{x:420,y:800},{x:80,y:800},
+        {x:80,y:200},{x:660,y:200},{x:660,y:330},{x:950,y:330},
       ],
       perimeter:[
-        {...wall(500,40,400,16,11.8),kind:'boundary'},
-        {...wall(884,56,16,84,11.8),kind:'boundary'},
-        {...wall(900,124,320,16,11.8),kind:'boundary'},
-        {...wall(1204,140,16,160,11.8),kind:'boundary'},
-        {...wall(1220,300,120,16,11.8),kind:'boundary'},
-        {...wall(1324,316,16,368,11.8),kind:'boundary'},
-        {...wall(1220,684,120,16,11.8),kind:'boundary'},
-        {...wall(1204,700,16,144,11.8),kind:'boundary'},
-        {...wall(960,844,260,16,11.8),kind:'boundary'},
-        {...wall(944,860,16,124,11.8),kind:'boundary'},
-        {...wall(440,984,520,16,11.8),kind:'boundary'},
-        {...wall(440,860,16,124,11.8),kind:'boundary'},
-        {...wall(180,844,260,16,11.8),kind:'boundary'},
-        {...wall(164,700,16,160,11.8),kind:'boundary'},
-        {...wall(60,684,120,16,11.8),kind:'boundary'},
-        {...wall(60,316,16,368,11.8),kind:'boundary'},
-        {...wall(60,300,120,16,11.8),kind:'boundary'},
-        {...wall(164,140,16,160,11.8),kind:'boundary'},
-        {...wall(180,124,320,16,11.8),kind:'boundary'},
-        {...wall(500,56,16,84,11.8),kind:'boundary'},
+        {...wall(950,80,330,14,16.2),kind:'boundary'},
+        {...wall(1266,94,14,742,16.2),kind:'boundary'},
+        {...wall(950,836,330,14,16.2),kind:'boundary'},
+        {...wall(936,850,14,136,16.2),kind:'boundary'},
+        {...wall(420,986,530,14,16.2),kind:'boundary'},
+        {...wall(420,800,14,186,16.2),kind:'boundary'},
+        {...wall(80,786,340,14,16.2),kind:'boundary'},
+        {...wall(80,214,14,572,16.2),kind:'boundary'},
+        {...wall(80,200,580,14,16.2),kind:'boundary'},
+        {...wall(646,214,14,116,16.2),kind:'boundary'},
+        {...wall(660,330,290,14,16.2),kind:'boundary'},
+        {...wall(936,94,14,236,16.2),kind:'boundary'},
       ],
       walls:[
-        // Three aligned structural thresholds divide storage, reactor, and
-        // shipping without fragmenting the central combat circulation.
-        wall(560,520,80,24,4.6),wall(760,520,80,24,4.6),
-        wall(520,820,120,24,5.2),wall(760,820,120,24,5.2),
+        // Load-bearing production walls leave real openings for the belts.
+        // Their positions follow the building's two changes in width.
+        wall(646,344,26,106,16.2),wall(646,700,26,100,16.2),
+        wall(935,344,30,126,16.2),wall(935,690,30,110,16.2),
       ],
       terrain:[
-        // One legible upper control spine: paired rooms, a broad inspection
-        // bridge, and symmetric inward stairs. Large uninterrupted surfaces
-        // replace the old patchwork of differently sized platforms.
-        terrain('catwalk',180,180,300,320,4,{bottom:3.75,walkable:true,style:'redVault',vaultZone:'west-control'}),
-        terrain('catwalk',480,180,440,100,4,{bottom:3.75,walkable:true,bridge:true,style:'redVault',vaultZone:'inspection'}),
-        terrain('catwalk',920,180,284,320,4,{bottom:3.75,walkable:true,style:'redVault',vaultZone:'east-control'}),
-        terrain('ramp',300,500,120,220,4,{axis:'y',reverse:true,walkable:true,platform:true,
-          structureDepth:.72,style:'redVault',industrial:'command-stair'}),
-        terrain('ramp',980,500,120,220,4,{axis:'y',reverse:true,walkable:true,platform:true,
-          structureDepth:.72,style:'redVault',industrial:'processing-stair'}),
-
-        // Guards form long continuous lines with intentional openings only at
-        // the bridge and stair mouths.
-        terrain('rail',180,180,7,320,5.15,{style:'redVault',bottom:4}),
-        terrain('rail',180,173,300,7,5.15,{style:'redVault',bottom:4}),
-        terrain('rail',180,500,120,7,5.15,{style:'redVault',bottom:4}),
-        terrain('rail',420,500,60,7,5.15,{style:'redVault',bottom:4}),
-        terrain('rail',480,287,7,93,5.15,{style:'redVault',bottom:4}),
-        terrain('rail',480,173,440,7,5.15,{style:'redVault',bottom:4}),
-        terrain('rail',480,280,440,7,5.15,{style:'redVault',bottom:4}),
-        terrain('rail',913,287,7,93,5.15,{style:'redVault',bottom:4}),
-        terrain('rail',920,173,284,7,5.15,{style:'redVault',bottom:4}),
-        terrain('rail',920,500,60,7,5.15,{style:'redVault',bottom:4}),
-        terrain('rail',1100,500,104,7,5.15,{style:'redVault',bottom:4}),
-        terrain('rail',1197,180,7,320,5.15,{style:'redVault',bottom:4}),
-        terrain('rail',293,500,7,220,1.15,{style:'redVault',bottom:0,axis:'y',rise:4,reverse:true}),
-        terrain('rail',420,500,7,220,1.15,{style:'redVault',bottom:0,axis:'y',rise:4,reverse:true}),
-        terrain('rail',973,500,7,220,1.15,{style:'redVault',bottom:0,axis:'y',rise:4,reverse:true}),
-        terrain('rail',1100,500,7,220,1.15,{style:'redVault',bottom:0,axis:'y',rise:4,reverse:true}),
-
-        // Each machine belongs to an obvious bay. Nothing sits at an arbitrary
-        // angle or floats alone in the circulation space.
-        terrain('reactorCore',620,580,160,160,6.2,{collisionShape:'circle',collisionRadius:62}),
-        terrain('turbine',550,195,300,70,2.72,{collisionShape:'capsule',collisionRadius:25}),
-        terrain('vaultConveyor',1250,380,55,240,1.18,{speed:.52,direction:1}),
-        terrain('vaultConveyor',550,880,300,45,1.15,{speed:.68,direction:1}),
-        terrain('vaultConveyor',550,935,300,40,1.15,{speed:.58,direction:-1}),
-        terrain('storageRack',196,600,90,62,2.72),
-        terrain('storageRack',1114,600,90,62,2.72),
-        terrain('consoleBank',230,250,190,58,5.25,{bottom:4}),
-        terrain('consoleBank',980,250,190,58,5.25,{bottom:4}),
-        terrain('ventStack',190,400,82,82,3.05,{collisionShape:'circle',collisionRadius:32}),
-        terrain('ventStack',1122,400,82,82,3.05,{collisionShape:'circle',collisionRadius:32}),
-
-        // Six columns land on two exact structural axes instead of wandering
-        // around the room as individual decorative props.
-        terrain('vaultColumn',500,300,44,44,10.9,{collisionShape:'circle',collisionRadius:17}),
-        terrain('vaultColumn',856,300,44,44,10.9,{collisionShape:'circle',collisionRadius:17}),
-        terrain('vaultColumn',500,520,44,44,10.9,{collisionShape:'circle',collisionRadius:17}),
-        terrain('vaultColumn',856,520,44,44,10.9,{collisionShape:'circle',collisionRadius:17}),
-        terrain('vaultColumn',500,735,44,44,10.9,{collisionShape:'circle',collisionRadius:17}),
-        terrain('vaultColumn',856,735,44,44,10.9,{collisionShape:'circle',collisionRadius:17}),
-        terrain('crane',450,575,500,34,9.6,{bottom:8.65}),
-
-        terrain('ceilingPanel',520,55,360,44,11.72,{bottom:11.28,nonSolid:true,style:'redVault'}),
-        terrain('ceilingPanel',240,160,360,44,11.72,{bottom:11.28,nonSolid:true,style:'redVault'}),
-        terrain('ceilingPanel',800,160,360,44,11.72,{bottom:11.28,nonSolid:true,style:'redVault'}),
-        terrain('ceilingPanel',260,800,360,44,11.72,{bottom:11.28,nonSolid:true,style:'redVault'}),
-        terrain('ceilingPanel',780,800,360,44,11.72,{bottom:11.28,nonSolid:true,style:'redVault'}),
-        terrain('ceilingPanel',470,950,460,32,11.72,{bottom:11.28,nonSolid:true,style:'redVault'}),
+        // A complete second storey meets the mixing wing's perimeter walls.
+        // Its stair mouth and inspection well are deliberate openings; a thin
+        // slab leaves the lower mixing room usable.
+        // A small inspection opening looks into the ingredient room below.
+        // Four flush slab pieces form one continuous room around that cutout.
+        terrain('candyMixingFloor',94,214,386,326,4.4,{bottom:4.15,walkable:true,seamless:true}),
+        terrain('candyMixingFloor',94,630,386,156,4.4,{bottom:4.15,walkable:true,seamless:true}),
+        terrain('candyMixingFloor',94,540,86,90,4.4,{bottom:4.15,walkable:true,seamless:true}),
+        terrain('candyMixingFloor',280,540,200,90,4.4,{bottom:4.15,walkable:true,seamless:true}),
+        terrain('candyMixingFloor',480,214,166,406,4.4,{bottom:4.15,walkable:true,seamless:true}),
+        terrain('candyMixingFloor',480,692,166,94,4.4,{bottom:4.15,walkable:true,seamless:true}),
+        terrain('candyMixingFloor',646,330,14,14,4.4,{bottom:4.15,walkable:true,seamless:true}),
+        terrain('candyMixingFloor',646,692,14,8,4.4,{bottom:4.15,walkable:true,seamless:true}),
+        // The bridge joins a second full-width production room, not a strip
+        // floating beside the walls. Its small west jog follows the real wall.
+        terrain('candyGallery',646,470,319,100,4.4,{bottom:4.15,walkable:true,bridge:true}),
+        terrain('candyGallery',950,200,316,144,4.4,{bottom:4.15,walkable:true,seamless:true}),
+        terrain('candyGallery',965,344,301,226,4.4,{bottom:4.15,walkable:true,seamless:true}),
+        // Closed-riser stairs occupy only their dedicated openings. Their
+        // narrower treads and the physical slope agree in both directions.
+        terrain('ramp',480,627,180,58,4.4,{axis:'x',reverse:true,stairs:true,steps:16,style:'candy'}),
+        terrain('ramp',1111,570,58,170,4.4,{axis:'y',reverse:true,stairs:true,steps:16,style:'candy'}),
+        // Solid guards mark exposed edges; slim wall-side handrails follow
+        // later as decoration within the wall's existing collision clearance.
+        terrain('rail',639,450,7,20,5.45,{bottom:4.4,style:'candy'}),
+        terrain('rail',639,570,7,50,5.45,{bottom:4.4,style:'candy'}),
+        terrain('rail',646,470,319,7,5.45,{bottom:4.4,style:'candy'}),
+        terrain('rail',646,563,319,7,5.45,{bottom:4.4,style:'candy'}),
+        terrain('rail',950,200,316,7,5.45,{bottom:4.4,style:'candy'}),
+        terrain('rail',965,563,139,7,5.45,{bottom:4.4,style:'candy'}),
+        terrain('rail',1176,563,90,7,5.45,{bottom:4.4,style:'candy'}),
+        // The guard has one intentional opening on its east side for a drop
+        // into the supply room. All broad routes around the well stay open.
+        terrain('rail',180,540,100,7,5.45,{bottom:4.4,style:'candy'}),
+        terrain('rail',180,623,100,7,5.45,{bottom:4.4,style:'candy'}),
+        terrain('rail',180,547,7,76,5.45,{bottom:4.4,style:'candy'}),
+        terrain('rail',280,547,7,13,5.45,{bottom:4.4,style:'candy'}),
+        terrain('rail',280,615,7,8,5.45,{bottom:4.4,style:'candy'}),
+        terrain('rail',480,620,180,7,1.05,{style:'candy',axis:'x',rise:4.4,reverse:true}),
+        terrain('rail',480,685,180,7,1.05,{style:'candy',axis:'x',rise:4.4,reverse:true}),
+        terrain('rail',1104,570,7,170,1.05,{style:'candy',axis:'y',rise:4.4,reverse:true}),
+        terrain('rail',1169,570,7,170,1.05,{style:'candy',axis:'y',rise:4.4,reverse:true}),
+        terrain('candyVat',275,300,64,64,7.3,{bottom:4.4,collisionShape:'circle',collisionRadius:26}),
+        terrain('candyVat',330,430,64,64,7.3,{bottom:4.4,collisionShape:'circle',collisionRadius:26}),
+        terrain('candyTemperingDrum',490,455,100,70,8.2,{bottom:4.4}),
+        terrain('candySupplyTank',275,300,64,64,4.15,{collisionShape:'circle',collisionRadius:26}),
+        terrain('candySupplyTank',330,430,64,64,4.15,{collisionShape:'circle',collisionRadius:26}),
+        // The rotary sugar press and its actuators anchor the far room.
+        terrain('candyPress',1020,94,190,30,14.2),
+        terrain('candyPiston',975,124,42,52,12.2,{collisionShape:'circle',collisionRadius:19}),
+        terrain('candyPiston',1215,124,42,52,12.2,{collisionShape:'circle',collisionRadius:19}),
+        terrain('candyControl',1080,408,72,48,5.65,{bottom:4.4}),
+        // Syrup leaves the raised mixers through a closed manifold. The pipe
+        // follows the packing gallery, turns into the press, and stays above
+        // the playable space rather than inventing ground-level obstructions.
+        terrain('candyProcessPipe',300,328,155,16,8.35,{bottom:7.85,nonSolid:true,axis:'x',line:'syrup'}),
+        terrain('candyProcessPipe',360,452,95,16,8.35,{bottom:7.85,nonSolid:true,axis:'x',line:'syrup'}),
+        terrain('candyProcessPipe',447,328,16,160,8.35,{bottom:7.85,nonSolid:true,axis:'y',line:'syrup'}),
+        terrain('candyProcessPipe',447,480,43,16,8.35,{bottom:7.85,nonSolid:true,axis:'x',line:'syrup'}),
+        terrain('candyProcessPipe',590,480,507,16,8.35,{bottom:7.85,nonSolid:true,axis:'x',line:'syrup'}),
+        terrain('candyProcessPipe',1089,120,16,368,8.35,{bottom:7.85,nonSolid:true,axis:'y',line:'syrup'}),
+        // Finished candy exits the press along the east wall, then drops into
+        // the cooling belt. Both belts lead to the wrapper at the return bay.
+        terrain('candyProcessPipe',1190,120,16,560,8.35,{bottom:7.85,nonSolid:true,axis:'y',line:'pressed'}),
+        terrain('candyProcessPipe',895,672,303,16,8.35,{bottom:7.85,nonSolid:true,axis:'x',line:'pressed'}),
+        terrain('candyHopper',879,663,35,64,7.9,{nonSolid:true}),
+        terrain('candyHopperCollider',889,688,14,14,7.9,{bottom:1.4,collisionOnly:true,
+          collisionShape:'circle',collisionRadius:7}),
+        terrain('candyConveyor',730,680,170,46,1.18,{speed:.62,direction:-1,style:'candy'}),
+        terrain('candyTransfer',706,722,48,149,1.3,{nonSolid:true}),
+        terrain('candyConveyor',520,856,300,50,1.18,{speed:.58,direction:1,style:'candy'}),
+        terrain('candyWrapper',780,836,66,88,2.8,{nonSolid:true}),
+        terrain('candyWrapperPost',811,836,7,7,2.8,{collisionOnly:true}),
+        terrain('candyWrapperPost',811,917,7,7,2.8,{collisionOnly:true}),
+        terrain('candyDispatch',865,900,70,82,2.45),
+        // Belt guides and roof lighting stay decorative and above the physical
+        // floor, never as extra coplanar walking surfaces.
+        terrain('candyTrack',695,455,205,300,.03,{nonSolid:true}),
+        terrain('candyLight',150,235,420,30,16.19,{bottom:15.58,nonSolid:true}),
+        terrain('candyLight',700,360,185,30,16.19,{bottom:15.58,nonSolid:true}),
+        terrain('candyLight',990,225,245,30,16.19,{bottom:15.58,nonSolid:true}),
+        terrain('candyLight',520,935,320,28,16.19,{bottom:15.58,nonSolid:true}),
+        terrain('candyLight',130,390,170,22,4.12,{bottom:3.88,nonSolid:true}),
+        terrain('candyLight',350,390,170,22,4.12,{bottom:3.88,nonSolid:true}),
+        // Wall-side rails are maintenance handholds tucked into the wall's
+        // existing collision clearance, not extra barriers through the floor.
+        terrain('candyWallHandrail',97,242,6,490,5.45,{bottom:4.4,nonSolid:true}),
+        terrain('candyWallHandrail',120,217,500,6,5.45,{bottom:4.4,nonSolid:true}),
+        terrain('candyWallHandrail',115,778,495,6,5.45,{bottom:4.4,nonSolid:true}),
+        terrain('candyWallHandrail',639,220,6,230,5.45,{bottom:4.4,nonSolid:true}),
+        terrain('candyWallHandrail',639,700,6,80,5.45,{bottom:4.4,nonSolid:true}),
+        terrain('candyWallHandrail',1258,220,6,330,5.45,{bottom:4.4,nonSolid:true}),
+        terrain('candyWallHandrail',968,350,6,110,5.45,{bottom:4.4,nonSolid:true}),
       ],
       variants:[
-        [terrain('vaultBarrier',550,340,110,38,1.15),terrain('vaultBarrier',740,340,110,38,1.15)],
-        [terrain('vaultBarrier',550,410,110,38,1.15),terrain('vaultBarrier',740,410,110,38,1.15)],
-        [terrain('vaultBarrier',550,470,110,38,1.15),terrain('vaultBarrier',740,470,110,38,1.15)],
+        [terrain('candyCrate',520,705,96,54,1.12),terrain('candyCrate',1180,660,60,58,1.12)],
+        [terrain('candyCrate',480,705,96,54,1.12),terrain('candyCrate',750,390,92,58,1.12)],
+        [terrain('candyCrate',530,730,96,54,1.12),terrain('candyCrate',820,365,92,58,1.12)],
       ],
       spawns:[
-        [600,90],[800,90],[110,420],[110,600],[1290,340],[1150,760],
-        [500,920],[900,920],[530,600],[870,600],[700,820],
-        [260,430,4],[440,340,4],[600,230,4],[800,230,4],[980,430,4],[1140,340,4],
+        [120,710],[480,835],[720,750],[1010,800],[1220,590],[1200,280],
+        [1080,220],[870,450],[570,940],[470,870],[125,350],
+        [210,360,4.4],[420,500,4.4],[585,400,4.4],[820,520,4.4],[1120,530,4.4],
       ],
     },
     tower:{
-      id:'tower',name:'Tower',description:'A compact vertical arena of wall walks, switchback stairs, and cargo lifts.',
-      width:900,height:900,ceiling:15.5,scale:0.92,accent:'#ffd166',
-      palette:{sky:'#70818e',wall:'#3e4c57',panel:'#71818c',cap:'#c4a96c',glow:'#ffd166',
-        floorLow:'#263038',floorHigh:'#46535b',reflection:'#53616a',reflectionGlow:'#ffd166'},
-      // A tall service core prevents the entire shaft from being one open
-      // sniper sightline, without touching any stair, bridge, or lift route.
-      walls:[wall(410,250,70,130,8.5)],
+      id:'tower',name:'Tower',description:'A vertical power station with layered galleries, a suspended command deck, and two cargo lifts.',
+      width:900,height:900,ceiling:16.5,scale:1.04,style:'tower',accent:'#f3bc62',
+      palette:{sky:'#cbd8d2',wall:'#657c7d',panel:'#9db5b1',cap:'#eeeae0',glow:'#f2c27c',
+        floorLow:'#647c7b',floorHigh:'#9ab2ac',reflection:'#a6bcb5',reflectionGlow:'#e8bd76',
+        ambient:'#fff3df',ground:'#b7c9be',sun:'#fff4dc',rim:'#c4e8df',
+        ambientIntensity:3.55,sunIntensity:3.6,rimIntensity:1.5},
+      // The bulkheads form three connected ground-floor bays around a central
+      // power spindle. Every route has a second approach and clear turn space.
+      walls:[
+        wall(410,250,70,130,8.5),
+        wall(270,425,24,145,4.2),wall(650,470,24,145,4.2),
+        wall(430,650,140,24,4.2),wall(620,680,24,130,4.2),
+      ],
       terrain:[
         // Level one wraps the north wall and can be reached from either side.
-        terrain('catwalk',12,70,318,180,3,{bottom:2.75,walkable:true}),
-        terrain('catwalk',330,120,240,70,3,{bottom:2.75,walkable:true,bridge:true}),
-        terrain('catwalk',570,70,318,180,3,{bottom:2.75,walkable:true}),
-        terrain('ramp',100,250,100,210,3,{axis:'y',reverse:true,stairs:true,steps:18}),
+        terrain('catwalk',12,70,318,180,3,{bottom:2.75,walkable:true,style:'tower'}),
+        terrain('catwalk',330,120,240,70,3,{bottom:2.75,walkable:true,bridge:true,style:'tower'}),
+        terrain('catwalk',570,70,318,180,3,{bottom:2.75,walkable:true,style:'tower'}),
+        terrain('ramp',100,250,100,210,3,{axis:'y',reverse:true,stairs:true,steps:18,style:'tower'}),
 
         // A floor-to-floor switchback climbs from level one into the southern
         // wall walk, with a second long staircase rising directly from below.
-        terrain('ramp',700,250,100,250,6,{bottom:3,axis:'y',stairs:true,steps:20}),
-        terrain('catwalk',600,500,288,150,6,{bottom:5.75,walkable:true}),
-        terrain('catwalk',500,580,100,70,6,{bottom:5.75,walkable:true,bridge:true}),
-        terrain('catwalk',300,580,200,170,6,{bottom:5.75,walkable:true}),
+        terrain('ramp',700,250,100,250,6,{bottom:3,axis:'y',stairs:true,steps:20,style:'tower'}),
+        terrain('catwalk',600,500,288,150,6,{bottom:5.75,walkable:true,style:'tower'}),
+        terrain('catwalk',500,580,100,70,6,{bottom:5.75,walkable:true,bridge:true,style:'tower'}),
+        terrain('catwalk',300,580,200,170,6,{bottom:5.75,walkable:true,style:'tower'}),
         // The west cargo platform itself bridges this 90-unit opening at the
         // upper stop. Keeping the shaft clear prevents its deck entering a
         // fixed floor during travel.
-        terrain('catwalk',12,600,198,150,6,{bottom:5.75,walkable:true}),
-        terrain('catwalk',210,600,90,43,6,{bottom:5.75,walkable:true,bridge:true}),
-        terrain('ramp',12,390,70,210,6,{axis:'y',stairs:true,steps:28}),
+        terrain('catwalk',12,600,198,150,6,{bottom:5.75,walkable:true,style:'tower'}),
+        terrain('catwalk',210,600,90,43,6,{bottom:5.75,walkable:true,bridge:true,style:'tower'}),
+        terrain('ramp',12,390,70,210,6,{axis:'y',stairs:true,steps:28,style:'tower'}),
 
         // The nine-metre command walk hangs in the middle of the shaft, with
         // open sightlines down onto both lower circulation loops.
-        terrain('ramp',360,400,100,180,9,{bottom:6,axis:'y',reverse:true,stairs:true,steps:20}),
-        terrain('catwalk',280,240,260,160,9,{bottom:8.75,walkable:true}),
+        terrain('ramp',360,400,100,180,9,{bottom:6,axis:'y',reverse:true,stairs:true,steps:20,style:'tower'}),
+        terrain('catwalk',280,240,260,160,9,{bottom:8.75,walkable:true,style:'tower'}),
 
-        // Moving shortcuts serve level two and the command walk. Three-sided
-        // moving rails leave the landing-facing edge open at the top.
+        // Console banks are part of the station's working galleries. Their
+        // footprints provide useful cover without consuming the walk lanes.
+        terrain('towerConsole',220,95,70,32,4.25,{bottom:3}),
+        terrain('towerConsole',425,120,60,25,4.25,{bottom:3}),
+        terrain('towerConsole',625,190,65,30,4.25,{bottom:3}),
+        terrain('towerConsole',335,275,65,40,10.15,{bottom:9}),
+        terrain('towerConsole',475,335,50,40,10.15,{bottom:9}),
+
+        // A power spindle gives the shaft a vertical landmark and breaks the
+        // old uninterrupted view across its centre. The model fits a round
+        // collider, so circling it feels like circling the actual machinery.
+        terrain('towerCore',500,440,80,80,13.2,{collisionShape:'circle',collisionRadius:32}),
+        terrain('towerPowerBank',130,555,80,40,1.55),
+        terrain('towerPowerBank',740,540,80,42,1.55),
+        terrain('towerCeilingTruss',65,35,770,30,16.25,{bottom:14.75,nonSolid:true}),
+        terrain('towerCeilingTruss',65,825,770,30,16.25,{bottom:14.75,nonSolid:true}),
+
+        // Open cargo platforms serve level two and the command walk.
         terrain('lift',210,650,90,90,0,{id:'tower-lift-west',maxTop:6}),
-        terrain('rail',210,643,90,7,1,{style:'industrial',liftId:'tower-lift-west'}),
-        terrain('rail',210,740,90,7,1,{style:'industrial',liftId:'tower-lift-west'}),
-        terrain('rail',203,650,7,90,1,{style:'industrial',liftId:'tower-lift-west'}),
         terrain('lift',540,335,90,90,0,{id:'tower-lift-core',maxTop:9,phaseOffset:4000}),
-        terrain('rail',540,328,90,7,1,{style:'industrial',liftId:'tower-lift-core'}),
-        terrain('rail',540,425,90,7,1,{style:'industrial',liftId:'tower-lift-core'}),
-        terrain('rail',630,335,7,90,1,{style:'industrial',liftId:'tower-lift-core'}),
 
         // Fixed guardrails outline the exposed paths while deliberately
         // leaving openings at every stair, bridge, and lift landing.
-        terrain('rail',12,63,318,7,4,{style:'industrial',bottom:3}),
-        terrain('rail',12,250,88,7,4,{style:'industrial',bottom:3}),terrain('rail',200,250,130,7,4,{style:'industrial',bottom:3}),
-        terrain('rail',323,70,7,50,4,{style:'industrial',bottom:3}),terrain('rail',323,190,7,60,4,{style:'industrial',bottom:3}),
-        terrain('rail',330,113,233,7,4,{style:'industrial',bottom:3}),terrain('rail',330,190,233,7,4,{style:'industrial',bottom:3}),
-        terrain('rail',570,63,318,7,4,{style:'industrial',bottom:3}),terrain('rail',807,250,81,7,4,{style:'industrial',bottom:3}),
-        terrain('rail',563,70,7,50,4,{style:'industrial',bottom:3}),terrain('rail',563,190,7,60,4,{style:'industrial',bottom:3}),
-        terrain('rail',93,250,7,210,1,{style:'industrial',axis:'y',rise:3,reverse:true}),
-        terrain('rail',200,250,7,210,1,{style:'industrial',axis:'y',rise:3,reverse:true}),
-        terrain('rail',693,250,7,250,4,{style:'industrial',bottom:3,axis:'y',rise:3}),
-        terrain('rail',800,250,7,250,4,{style:'industrial',bottom:3,axis:'y',rise:3}),
-        terrain('rail',600,493,100,7,7,{style:'industrial',bottom:6}),terrain('rail',800,493,88,7,7,{style:'industrial',bottom:6}),
-        terrain('rail',600,650,288,7,7,{style:'industrial',bottom:6}),terrain('rail',593,500,7,80,7,{style:'industrial',bottom:6}),
-        terrain('rail',500,573,93,7,7,{style:'industrial',bottom:6}),terrain('rail',500,650,100,7,7,{style:'industrial',bottom:6}),
-        terrain('rail',300,573,53,7,7,{style:'industrial',bottom:6}),terrain('rail',467,573,33,7,7,{style:'industrial',bottom:6}),
-        terrain('rail',300,750,200,7,7,{style:'industrial',bottom:6}),
-        terrain('rail',293,580,7,13,7,{style:'industrial',bottom:6}),terrain('rail',293,740,7,10,7,{style:'industrial',bottom:6}),
-        terrain('rail',203,643,7,7,7,{style:'industrial',bottom:6}),terrain('rail',203,740,7,10,7,{style:'industrial',bottom:6}),
-        terrain('rail',82,593,218,7,7,{style:'industrial',bottom:6}),terrain('rail',12,750,198,7,7,{style:'industrial',bottom:6}),
-        terrain('rail',82,390,7,210,1,{style:'industrial',axis:'y',rise:6}),
-        terrain('rail',353,400,7,180,7,{style:'industrial',bottom:6,axis:'y',rise:3,reverse:true}),
-        terrain('rail',460,400,7,180,7,{style:'industrial',bottom:6,axis:'y',rise:3,reverse:true}),
-        terrain('rail',280,233,260,7,10,{style:'industrial',bottom:9}),
-        terrain('rail',280,400,80,7,10,{style:'industrial',bottom:9}),terrain('rail',460,400,80,7,10,{style:'industrial',bottom:9}),
-        terrain('rail',540,240,7,88,10,{style:'industrial',bottom:9}),
+        terrain('rail',12,63,318,7,4,{style:'tower',bottom:3}),
+        terrain('rail',12,250,88,7,4,{style:'tower',bottom:3}),terrain('rail',200,250,130,7,4,{style:'tower',bottom:3}),
+        terrain('rail',323,70,7,50,4,{style:'tower',bottom:3}),terrain('rail',323,190,7,60,4,{style:'tower',bottom:3}),
+        terrain('rail',330,113,233,7,4,{style:'tower',bottom:3}),terrain('rail',330,190,233,7,4,{style:'tower',bottom:3}),
+        terrain('rail',570,63,318,7,4,{style:'tower',bottom:3}),terrain('rail',807,250,81,7,4,{style:'tower',bottom:3}),
+        terrain('rail',563,70,7,50,4,{style:'tower',bottom:3}),terrain('rail',563,190,7,60,4,{style:'tower',bottom:3}),
+        terrain('rail',93,250,7,210,1,{style:'tower',axis:'y',rise:3,reverse:true}),
+        terrain('rail',200,250,7,210,1,{style:'tower',axis:'y',rise:3,reverse:true}),
+        terrain('rail',693,250,7,250,4,{style:'tower',bottom:3,axis:'y',rise:3}),
+        terrain('rail',800,250,7,250,4,{style:'tower',bottom:3,axis:'y',rise:3}),
+        terrain('rail',600,493,100,7,7,{style:'tower',bottom:6}),terrain('rail',800,493,88,7,7,{style:'tower',bottom:6}),
+        terrain('rail',600,650,288,7,7,{style:'tower',bottom:6}),terrain('rail',593,500,7,80,7,{style:'tower',bottom:6}),
+        terrain('rail',500,573,93,7,7,{style:'tower',bottom:6}),terrain('rail',500,650,100,7,7,{style:'tower',bottom:6}),
+        terrain('rail',300,573,53,7,7,{style:'tower',bottom:6}),terrain('rail',467,573,33,7,7,{style:'tower',bottom:6}),
+        terrain('rail',300,750,200,7,7,{style:'tower',bottom:6}),
+        terrain('rail',82,593,218,7,7,{style:'tower',bottom:6}),terrain('rail',12,750,198,7,7,{style:'tower',bottom:6}),
+        terrain('rail',82,390,7,210,1,{style:'tower',axis:'y',rise:6}),
+        terrain('rail',353,400,7,180,7,{style:'tower',bottom:6,axis:'y',rise:3,reverse:true}),
+        terrain('rail',460,400,7,180,7,{style:'tower',bottom:6,axis:'y',rise:3,reverse:true}),
+        terrain('rail',280,233,260,7,10,{style:'tower',bottom:9}),
+        terrain('rail',280,400,80,7,10,{style:'tower',bottom:9}),terrain('rail',460,400,80,7,10,{style:'tower',bottom:9}),
+        terrain('rail',540,240,7,88,10,{style:'tower',bottom:9}),
 
-        terrain('pillar',240,290,40,40,14.5),terrain('pillar',430,760,40,40,14.5),
-        terrain('generator',390,12,120,50,2),terrain('pipe',720,790,120,42,0.95,{collisionShape:'capsule',collisionRadius:15}),
+        terrain('towerColumn',240,290,40,40,14.5),terrain('towerColumn',430,760,40,40,14.5),
+        terrain('towerPowerBank',390,12,120,50,2),
+        terrain('pipe',720,790,120,42,0.95,{collisionShape:'capsule',collisionRadius:15}),
       ],
       variants:[
-        [terrain('cover',310,810,100,40,1.1),terrain('cover',490,810,100,40,1.1)],
-        [terrain('tank',700,700,80,80,2.5,{collisionShape:'circle',collisionRadius:34}),
+        [terrain('towerPowerBank',310,810,100,40,1.1),terrain('towerPowerBank',490,810,100,40,1.1)],
+        [terrain('towerPowerBank',700,700,80,80,2.5),
           terrain('pipe',90,800,150,42,0.95,{collisionShape:'capsule',collisionRadius:15})],
-        [terrain('conveyor',320,820,260,50,1.05),terrain('cover',760,540,65,36,1.05)],
+        [terrain('conveyor',320,820,260,50,1.05),terrain('towerConsole',760,590,65,36,1.05)],
       ],
       spawns:[
-        [120,520],[650,850],[845,450],
-        [220,150,3],[680,150,3],[450,155,3],
+        [120,520],[650,850],[845,450],[110,770],[535,735],[710,610],
+        [150,155,3],[740,155,3],[550,155,3],
         [700,575,6],[400,680,6],[120,680,6],
-        [330,320,9],[500,320,9],
       ],
     },
     temple:{

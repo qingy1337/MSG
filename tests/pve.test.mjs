@@ -565,7 +565,7 @@ test('every terrain model has finite geometry and ramp/deck bounds match physics
 });
 
 test('authored PvP machinery, catwalks, tunnels and lifts render finite geometry',()=>{
-  for(const id of ['foundry','vaultAnnex','tower','orbital','airport'])for(const s of maps.createPvpMap(0,id).map.terrain) {
+  for(const id of ['foundry','candyFactory','tower','orbital','airport'])for(const s of maps.createPvpMap(0,id).map.terrain) {
     const model=createTerrainModel(s);
     if(s.collisionOnly) {
       assert.equal(model.children.length,0,`${id} ${s.kind} stays an invisible geometry-matched collision primitive`);
@@ -590,50 +590,59 @@ test('Overgrown Temple tower uses cohesive balustrades instead of loose crenella
   }
 });
 
-test('Vault Annex renders structural stairs, live conveyors, columns, guards, and galleries',()=>{
-  const {map}=maps.createPvpMap(0,'vaultAnnex');
-  const fixtures=[
-    ...map.terrain.filter(s=>s.kind==='ramp'),
-    ...map.terrain.filter(s=>s.kind==='rail').slice(0,2),
-    ...map.terrain.filter(s=>s.kind==='catwalk').slice(0,2),
-  ];
-  assert.ok(fixtures.every(s=>s.style==='redVault'));
+test('Candy Factory renders colorful machinery, accurate solids, and live belts',()=>{
+  const {map}=maps.createPvpMap(0,'candyFactory');
+  const fixtures=map.terrain.filter(s=>s.kind.startsWith('candy')||
+    s.kind==='ramp'||s.kind==='rail'||s.kind==='candyConveyor');
   const models=fixtures.map(createTerrainModel);
-  assert.ok(models.some(model=>model.name==='red-vault-stair'));
-  assert.ok(models.some(model=>model.name==='red-vault-guard'));
-  assert.ok(models.some(model=>model.name==='red-vault-gallery'));
+  assert.ok(models.some(model=>model.name==='candy-mixing-floor'));
+  assert.ok(models.some(model=>model.name==='candy-packing-gallery'));
+  assert.ok(models.some(model=>model.name==='candy-enclosed-stair'));
+  assert.ok(models.some(model=>model.name==='candy-gallery-guard'));
+  assert.ok(models.some(model=>model.name==='candy-rotary-sugar-press'));
+  const mixer=models.find(model=>model.name==='candy-syrup-mixer');
+  assert.ok(mixer&&typeof mixer.userData.update==='function');
+  const paddle=mixer.children.find(child=>child.isGroup),initialPaddleYaw=paddle.rotation.y;
+  mixer.userData.update(2);assert.notEqual(paddle.rotation.y,initialPaddleYaw);
+  const temperer=models.find(model=>model.name==='candy-tempering-drum');
+  assert.ok(temperer&&typeof temperer.userData.update==='function');
+  const rotor=temperer.children.find(child=>child.isGroup),initialRotorAngle=rotor.rotation.x;
+  assert.ok(temperer.getObjectByName('candy-tempering-inspection-glass')?.material.transparent&&
+    rotor.children.length>=12,'the rotating product is visible through the drum');
+  temperer.userData.update(2);assert.notEqual(rotor.rotation.x,initialRotorAngle);
+  assert.ok(models.filter(model=>model.name==='candy-wall-maintenance-rail').length>=7);
   const colors=new Set();
   for(const model of models)model.traverse(object=>{
     const materials=Array.isArray(object.material)?object.material:[object.material];
     for(const value of materials)if(value?.color)colors.add(`#${value.color.getHexString()}`);
   });
-  assert.ok(colors.has('#a92739')||colors.has('#842030'),
-    'the architecture itself contains structural red rather than relying on room tint');
-  assert.ok((colors.has('#959c9e')||colors.has('#9da4a6'))&&colors.has('#292d30'),
-    'silver edge channels and near-black shells match the Red Vault material language');
-  const conveyors=map.terrain.filter(s=>s.kind==='vaultConveyor').map(createTerrainModel);
-  assert.equal(conveyors.length,3);
+  assert.ok(colors.has('#cb7654')&&colors.has('#f0d6ae')&&colors.has('#427574'),
+    'terracotta, ivory, and teal are actual architecture materials');
+  for(const [index,solid] of fixtures.entries()) {
+    if(solid.collisionOnly)continue;
+    const bounds=new THREE.Box3().setFromObject(models[index]);
+    assert.ok([...bounds.min.toArray(),...bounds.max.toArray()].every(Number.isFinite),solid.kind);
+    if((solid.kind==='ramp'||solid.kind==='rail')&&solid.style==='candy') {
+      assert.ok(bounds.min.x>=-.01&&bounds.min.z>=-.01&&
+        bounds.max.x<=solid.width*.05+.01&&bounds.max.z<=solid.height*.05+.01,
+        `${solid.kind} render stays inside its physical footprint`);
+    }
+    if(solid.kind.startsWith('candy')&&!solid.nonSolid) {
+      assert.ok(bounds.min.x>=-.13&&bounds.min.z>=-.13&&
+        bounds.max.x<=solid.width*.05+.13&&bounds.max.z<=solid.height*.05+.13,
+        `${solid.kind} model stays within its collision footprint`);
+    }
+  }
+  const conveyors=models.filter(model=>model.name==='candy-moving-belt');
+  assert.equal(conveyors.length,2);
   for(const conveyor of conveyors) {
-    assert.equal(conveyor.name,'red-vault-moving-conveyor');
-    assert.equal(typeof conveyor.userData.update,'function');
-    const markers=conveyor.getObjectByName('red-vault-conveyor-markers');
-    const rollers=conveyor.getObjectByName('red-vault-conveyor-rollers');
+    const markers=conveyor.getObjectByName('candy-conveyor-markers');
     assert.ok(markers?.isInstancedMesh&&markers.count===10);
-    assert.ok(rollers?.isInstancedMesh&&rollers.count>=5);
     const before=Array.from(markers.instanceMatrix.array);
     conveyor.userData.update(1);
-    assert.notDeepEqual(Array.from(markers.instanceMatrix.array),before,
-      'instanced emissive belt markers visibly travel along the conveyor');
-    assert.ok(conveyor.children.length<=6,'one belt stays within a small dynamic draw-call budget');
+    assert.notDeepEqual(Array.from(markers.instanceMatrix.array),before);
   }
-  const columns=map.terrain.filter(s=>s.kind==='vaultColumn').map(createTerrainModel);
-  assert.equal(columns.length,6);
-  assert.ok(columns.every(column=>column.name==='red-vault-column'));
-  const barriers=map.terrain.filter(s=>s.kind==='vaultBarrier').map(createTerrainModel);
-  assert.equal(barriers.length,2);
-  assert.ok(barriers.every(barrier=>barrier.name==='red-vault-barrier'));
   for(const model of models)model.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});
-  for(const model of [...conveyors,...columns,...barriers])model.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});
 });
 
 test('Terminal 7 has a finite bespoke shell, runway, aircraft and jet bridge',()=>{

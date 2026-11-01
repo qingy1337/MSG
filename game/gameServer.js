@@ -4,6 +4,7 @@ const { traceShot, tracePiercingShot, rayBox } = require("./hitscan");
 const {traceShotgun}=require('./shotgun');
 const {hitsElevatorOverride}=require('./elevatorOverride');
 const {throwGrenade,stepGrenade,blastDamage}=require('./grenades');
+const {splitCoinReward}=require('./coinRewards');
 const {deathDescriptor,makeDeathPickup,collectPickups}=require('./deathEffects');
 const { floorDifficulty, tickOgre } = require('./pveDifficulty');
 const { advanceKnockback,addKnockbackImpulse } = require('../public/arenaMap');
@@ -19,10 +20,11 @@ const { perceive, chooseIntent, angleDelta, alertNearbyBots } = require('./botAw
 const { recordEnemyHit, currentEnemyFear, fearRetreatGoal, enemyCanAttack } = require('./enemyReactions');
 const { MOVEMENT, advanceJump, startJump } = require("../public/movement");
 const { DEFAULT_MAP, createPveMap, createPvpMap, moveOnTerrain, regeneratePlayers, updateCargoLifts,
-  groundHeight, supportHeight, authoredSupportAt, canOccupy } = require('../public/arenaMap');
+  groundHeight, supportHeight, authoredSupportAt, canOccupy, horizontalClearance } = require('../public/arenaMap');
 const {PVP_MAPS}=require('../public/pvpMaps');
 const { LIFT_TIMING, inElevator, floorSpawn, updateExitDoor } = require('../public/floors');
 const PVP_SPAWN_SHIELD_MS=6000;
+const HOT_SURFACE_PULSE_MS=250;
 const {
   usersByUsername,
   getUserFromCookieHeader,
@@ -92,6 +94,7 @@ function killCoinReward(target) {
 }
 
 function createGameServer(io, options = {}) {
+  const botDamageByAccount=new WeakMap();
   let lastTickMs=0;
   const navigation=new NavigationService();
   let snapshotDirty=false,snapshotSequence=0;
@@ -350,12 +353,7 @@ function createGameServer(io, options = {}) {
 
   function createAuthoredStrikeMap(strikeId) {
     if(typeof options.createStrikeMap==='function')return options.createStrikeMap(strikeId);
-    // Keep the large authored mission out of the ordinary arena/PvE module
-    // graph. This also lets headless runtime tests inject a compact fixture.
-    const authored=require('../public/strikeMap');
-    const factory=authored.createRedVaultMap||authored.createStrikeMap||authored.createStrikeValleyMap;
-    if(typeof factory!=='function')throw new Error('The authored Strike map factory is unavailable.');
-    return factory(strikeId);
+    return null;
   }
 
   function activateHumanPlayer(player, spawnPosition, now) {
@@ -761,7 +759,16 @@ function createGameServer(io, options = {}) {
     if (shooter?.botType==='warden') damage=wardenCarbineConfig(shooter).damage;
     if (specialDamage !== undefined) damage = specialDamage;
 
-    target.health = Math.max(0, (target.health ?? MAX_HEALTH) - damage);
+    const previousHealth=Math.max(0,target.health??MAX_HEALTH);
+    target.health = Math.max(0,previousHealth-damage);
+    if(cooperative()&&target.isBot&&!shooter?.isBot&&shooter?.accountUsername) {
+      const appliedDamage=previousHealth-target.health;
+      if(Number.isFinite(appliedDamage)&&appliedDamage>0) {
+        let contributions=botDamageByAccount.get(target);
+        if(!contributions){contributions=new Map();botDamageByAccount.set(target,contributions);}
+        contributions.set(shooter.accountUsername,(contributions.get(shooter.accountUsername)||0)+appliedDamage);
+      }
+    }
     pendingHealth.set(target.id,{id:target.id,health:target.health,maxHealth:target.maxHealth??MAX_HEALTH});
     if(gameMap.activity==='strike'&&(target.boss||target.botType==='warden'))
       updateStrikeBossState(target,now);
@@ -796,6 +803,22 @@ function createGameServer(io, options = {}) {
         if(pickup){if(pickups.length>=16)pickups.shift();pickups.push(pickup);}
       }
 
+      const sharedBotReward=cooperative()&&target.isBot;
+      let currenciesOrStatsChanged=false;
+      if(sharedBotReward) {
+        const shares=splitCoinReward(killCoinReward(target),botDamageByAccount.get(target));
+        for(const [username,coins] of shares) {
+          if(!coins)continue;
+          const user=usersByUsername.get(username);
+          if(!user)continue;
+          ensureUserCurrencies(user);
+          user.currencies.Coins=(Number(user.currencies.Coins)||0)+coins;
+          currenciesOrStatsChanged=true;
+          for(const player of activePlayers.filter(p=>p.accountUsername===username&&!p.isBot))
+            io.to(player.id).emit('coinsUpdated',{coins:user.currencies.Coins});
+        }
+        botDamageByAccount.delete(target);
+      }
       if (shooter && shooter.accountUsername) {
         const shooterUsername = shooter.accountUsername;
         const targetUsername = target && target.accountUsername;
@@ -814,13 +837,13 @@ function createGameServer(io, options = {}) {
               typeof accountUser.currencies.Coins === "number"
                 ? accountUser.currencies.Coins
                 : 0;
-            const newCoins = currentCoins + killCoinReward(target);
+            const newCoins = currentCoins + (sharedBotReward?0:killCoinReward(target));
             accountUser.currencies.Coins = newCoins;
             const killWeapon = payload?.kind === 'grenade' ? null : shooter.weapon;
             const stats = recordUserKill(accountUser, cooperative()?'pve':gameMap.mode, killWeapon, { persist: false });
-            saveUsers();
+            currenciesOrStatsChanged=true;
 
-            io.to(shooter.id).emit("coinsUpdated", { coins: newCoins });
+            if(!sharedBotReward)io.to(shooter.id).emit("coinsUpdated", { coins: newCoins });
             io.to(shooter.id).emit("statsUpdated", stats);
           }
         } else {
@@ -829,6 +852,7 @@ function createGameServer(io, options = {}) {
           );
         }
       }
+      if(currenciesOrStatsChanged)saveUsers();
     }
 
     queueSnapshot();
@@ -2970,7 +2994,7 @@ function createGameServer(io, options = {}) {
     const machinery={...(strikeState?.machineryState||{})};
     for(const [id,value] of strikeMachineEntries(patch.machinery||patch.machineryState)) {
       machinery[id]=value;
-      // The Red Vault hoist is machinery, not a generic always-running PvE
+      // A mission hoist is machinery, not a generic always-running PvE
       // platform. Keep its support surface at the lower dock until the
       // authored counterweight objective has actually enabled it.
       if(id==='hoist')for(const lift of gameMap.terrain||[])if(lift.kind==='lift') {
@@ -3647,11 +3671,11 @@ function createGameServer(io, options = {}) {
     if(nextIndex>=(gameMap.strikeEncounters?.length||0)) {
       const reward=grantStrikeReward(encounter.reward||gameMap.reward);
       strikeState={...strikeState,phase:'complete',objective:encounter.completionObjective||
-        gameMap.completionObjective||'The Red Vault is secure',complete:true,result:'victory',completedAt:now,
+        gameMap.completionObjective||'Mission complete',complete:true,result:'victory',completedAt:now,
         startedAt:now,...carry,revivedIds,enemyCount:0,defeatedEnemyCount,reward};
       gameMap.objective=strikeState.objective;publishStrikeState();queueSnapshot();
       io.emit('strikeComplete',{...strikeState,strikeId:gameMap.strikeId,serverNow:now});
-      scheduleGameOver({name:gameMap.name||'The Red Vault',team:'players',strike:true,result:'victory'});
+      scheduleGameOver({name:gameMap.name||'Strike',team:'players',strike:true,result:'victory'});
       return true;
     }
     strikeState={...strikeTravelState(nextIndex,now,carry),revivedIds,enemyCount:0};
@@ -3841,6 +3865,23 @@ function createGameServer(io, options = {}) {
     }
   }
 
+  function advanceHotSurfaces(now) {
+    const hot=(gameMap.terrain||[]).filter(s=>Number(s.burnDamage)>0);
+    if(!hot.length)return;
+    for(const player of activePlayers) {
+      if(!player.alive){player.hotSurfaceNextAt=0;continue;}
+      const surface=player.jumpStartedAt==null&&hot.find(s=>
+        Math.abs((player.height||0)-s.top)<.12&&
+        horizontalClearance(s,player.x,player.y)<=0);
+      if(!surface){player.hotSurfaceNextAt=0;continue;}
+      if(now<(player.hotSurfaceNextAt||0))continue;
+      player.hotSurfaceNextAt=now+HOT_SURFACE_PULSE_MS;
+      handlePlayerHit({targetId:player.id,kind:'furnace',origin:{
+        x:surface.x+surface.width/2,y:surface.y+surface.height/2,height:surface.top,
+      }},surface.burnDamage);
+    }
+  }
+
   function advanceStrike(now) {
     if(gameMap.activity!=='strike'||!strikeState||strikeState.complete)return;
     advanceStrikeRevives(now);
@@ -3988,6 +4029,7 @@ function createGameServer(io, options = {}) {
       advanceKnockback(player,jumpNow,gameMap,solids());
       if (advanceJump(player, jumpNow)) jumping = true;
     }
+    advanceHotSurfaces(jumpNow);
     if(gameMap.activity==='strike') {
       advanceStrikeFalls(jumpNow);
       advanceStrikeHostileIntegrity(jumpNow);

@@ -62,6 +62,7 @@
                         <div class="command-intro">
                             <h1>Welcome back, <span id="home-username">operator</span>.</h1>
                             <p>Choose a loadout, then launch a fireteam or join one already forming.</p>
+                            <button id="open-settings-btn" class="text-button home-settings-link" type="button">Settings</button>
                         </div>
 
                         <div class="home-overview">
@@ -125,9 +126,6 @@
                                 <button class="mode-choice" data-mode="pve">
                                     <strong>Endless PvE</strong><small>Co-op floor survival</small>
                                 </button>
-                                <button class="mode-choice" data-mode="strike">
-                                    <strong>Strikes</strong><small>Authored co-op missions</small>
-                                </button>
                             </div>
                             <button id="play-btn" class="play-button"><i>PLAY</i></button>
                         </div>
@@ -148,10 +146,6 @@
                         <div class="lobby-group">
                             <div class="lobby-group-title"><span>Endless PvE</span><i></i></div>
                             <div id="pve-lobby-list" class="lobby-list"></div>
-                        </div>
-                        <div class="lobby-group">
-                            <div class="lobby-group-title"><span>The Red Vault</span><i></i></div>
-                            <div id="strike-lobby-list" class="lobby-list"></div>
                         </div>
                     </aside>
                 </div>
@@ -219,6 +213,30 @@
                 </div>
             </div>
 
+            <div id="settings-screen" class="screen hidden">
+                <div class="settings-shell">
+                    <div class="settings-header">
+                        <div>
+                            <h1>Settings</h1>
+                            <p>Adjust how the game feels to play.</p>
+                        </div>
+                        <button id="settings-back-btn" class="btn btn-ghost" type="button">Back</button>
+                    </div>
+                    <section class="settings-card" aria-labelledby="mouse-settings-title">
+                        <div class="settings-card-heading">
+                            <div>
+                                <h2 id="mouse-settings-title">Mouse sensitivity</h2>
+                                <p>Controls how quickly your view turns. Applies to both directions.</p>
+                            </div>
+                            <output id="mouse-sensitivity-value" for="mouse-sensitivity-slider">100%</output>
+                        </div>
+                        <input id="mouse-sensitivity-slider" type="range" min="40" max="200" step="5" value="100" aria-label="Mouse sensitivity">
+                        <div class="settings-scale"><span>Slower</span><span>Default</span><span>Faster</span></div>
+                        <button id="reset-mouse-sensitivity-btn" class="text-button" type="button">Reset to default</button>
+                    </section>
+                </div>
+            </div>
+
             <div id="game-screen" class="screen hidden">
                 <div class="game-shell">
                     <div id="arena-viewport">
@@ -228,12 +246,12 @@
                         <div id="kill-feed" class="kill-feed hidden" role="log" aria-label="Recent PvP eliminations" aria-live="polite" aria-relevant="additions"></div>
                         <section id="strike-objective" class="strike-objective hidden" aria-live="polite">
                             <div class="strike-objective-meta"><span id="strike-act">ACT 1 / 5</span><span id="strike-phase">ADVANCE</span></div>
-                            <strong id="strike-objective-text">Enter the foundry</strong>
+                            <strong id="strike-objective-text">Advance to the objective</strong>
                             <div class="strike-objective-route"><span id="strike-route-arrow">↑</span><span id="strike-route-label">FOLLOW ROUTE BEACON</span><em id="strike-route-distance">--</em></div>
                             <div class="strike-objective-track" aria-hidden="true"><i id="strike-objective-fill"></i></div>
                         </section>
                         <section id="strike-boss" class="strike-boss hidden" aria-live="polite">
-                            <div><strong id="strike-boss-name">DREAD WARDEN</strong><span id="strike-boss-phase">PHASE 1</span></div>
+                            <div><strong id="strike-boss-name">BOSS</strong><span id="strike-boss-phase">PHASE 1</span></div>
                             <div class="strike-boss-track" role="progressbar" aria-label="Boss health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><i id="strike-boss-fill"></i></div>
                         </section>
                         <div id="health-labels"></div>
@@ -285,6 +303,7 @@
     <script src="/socket.io/socket.io.js"></script>
     <script src="weapons.js"></script>
     <script src="movement.js"></script>
+    <script src="mouseSensitivity.js"></script>
     <script src="arenaMap.js"></script>
     <script src="inputMovement.js"></script>
     <script src="proceduralPve.js"></script>

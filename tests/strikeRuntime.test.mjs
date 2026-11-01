@@ -1,7 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import server from '../game/gameServer.js';
-import strikeMaps from '../public/strikeMap.js';
 import lobbyModule from '../game/lobbyServer.js';
 import wardenCombat from '../game/wardenCombat.js';
 
@@ -98,15 +97,15 @@ function wardenStrike() {
         stateChanges:{machinery:{core:{state:'guarded'},crown:{state:'tracking'}}}},
       {id:'test-pressure',minHealthRatio:.33,moveScale:1.1,
         carbine:{chargeMs:280,shotIntervalMs:100,burstShots:3,recoveryMs:500,damage:5},
-        pressure:{kind:'forgePressureSweep',sourceId:'red-vault-core',
-          crownId:'vault-rotating-crown',entryDelayMs:0,windupMs:100,sweepMs:200,
+        pressure:{kind:'forgePressureSweep',sourceId:'warden-core',
+          crownId:'warden-rotating-crown',entryDelayMs:0,windupMs:100,sweepMs:200,
           cooldownMs:400,radius:300,minRadius:20,arcWidth:1,heightTolerance:5,
           damage:20,knockback:180},
         stateChanges:{machinery:{core:{state:'venting'},crown:{state:'spin'}}}},
       {id:'test-overdrive',minHealthRatio:0,moveScale:1.25,entryDelayMs:0,
         carbine:{chargeMs:240,shotIntervalMs:80,burstShots:4,recoveryMs:350,damage:6},
-        pressure:{kind:'forgePressureSweep',sourceId:'red-vault-core',
-          crownId:'vault-rotating-crown',entryDelayMs:500,windupMs:80,sweepMs:160,
+        pressure:{kind:'forgePressureSweep',sourceId:'warden-core',
+          crownId:'warden-rotating-crown',entryDelayMs:500,windupMs:80,sweepMs:160,
           cooldownMs:300,radius:320,minRadius:20,arcWidth:1.1,heightTolerance:5,
           damage:24,knockback:220,direction:-1},
         // Four authored positions deliberately exercise the hard server cap of three.
@@ -128,17 +127,17 @@ function wardenStrike() {
   return {map,walls:map.walls};
 }
 
-function runtimeFixture(t,{authored=false,humans=2,mapFactory}={}) {
+function runtimeFixture(t,{humans=2,mapFactory}={}) {
   let now=100_000,tick;
   t.mock.method(Date,'now',()=>now);
   t.mock.method(global,'setInterval',fn=>{tick=fn;return 1;});
   t.mock.method(global,'clearInterval',()=>{});
   const io=fakeIo();
   const game=server.createGameServer(io,{attachConnections:false,
-    ...(authored?{}:{createStrikeMap:mapFactory||compactStrike})});
+    createStrikeMap:mapFactory||compactStrike});
   for(let index=0;index<humans;index++)game.waitingPlayers.push(player(`p${index+1}`));
   game.handleStartGame({id:'p1',user:{username:'runtime-test'}},
-    {enableBots:true,strikeId:authored?'red-vault':'runtime-fixture'});
+    {enableBots:true,strikeId:'runtime-fixture'});
   const handlers={};
   game.registerSocketHandlers({id:'p1',user:{username:'runtime-test'},on(name,fn){handlers[name]=fn;},
     off(){},emit(){}},{lobby:false,disconnect:false});
@@ -161,10 +160,22 @@ function aimAtInteraction(actor,interaction) {
     ((actor.height||0)+(actor.eyeHeight||1.84)),Math.max(.001,distance*.05))};
 }
 
-test('Strike is a distinct lobby activity rather than an Endless PvE floor',()=>{
-  assert.equal(lobbyModule.MODES.strike?.id,'strike');
+test('Endless PvE remains available without a playable strike',()=>{
+  assert.equal(lobbyModule.MODES.strike,undefined);
   assert.equal(lobbyModule.MODES.pve?.id,'pve');
-  assert.notEqual(lobbyModule.MODES.strike,lobbyModule.MODES.pve);
+});
+
+test('the removed authored strike cannot launch through the match engine',t=>{
+  t.mock.method(global,'setInterval',()=>1);
+  t.mock.method(global,'clearInterval',()=>{});
+  const game=server.createGameServer(fakeIo(),{attachConnections:false});
+  try {
+    game.waitingPlayers.push(player('p1'));
+    game.handleStartGame({id:'p1',user:{username:'former-strike-lead'}},
+      {enableBots:true,strikeId:'red-vault'});
+    assert.equal(game.gameInProgress.status,false);
+    assert.equal(game.strikeState,null);
+  } finally {game.close();}
 });
 
 test('authoritative Strike runtime stages waves, revives checkpoints, operates gates, and completes',t=>{
@@ -360,14 +371,15 @@ test('the Warden runs authored carbine, LOS pressure, and bounded overdrive phas
     // Phase one has a distinct three-round carbine cadence and authored damage.
     boss.angle=Math.atan2(leader.y-boss.y,leader.x-boss.x);
     boss.botState.dreadReadyAt=0;boss.dreadAttack=null;
-    const shotsBefore=io.events.filter(event=>event.name==='shotFired').length;
+    const shotsBefore=io.events.length;
     fixture.tick();
     assert.equal(boss.dreadAttack?.phase,'charge');
     assert.equal(boss.dreadAttack?.burstShots,3);
     const healthBefore=leader.health;
     fixture.advance(240);fixture.advance(80);fixture.advance(80);
-    const carbineShots=io.events.slice(shotsBefore).filter(event=>
-      event.name==='shotFired'&&event.args[0]?.playerId===boss.id);
+    const carbineShots=io.events.slice(shotsBefore).flatMap(event=>
+      event.name==='shotFired'?[event.args[0]]:
+      event.name==='shotsFired'?event.args[0]:[]).filter(shot=>shot?.playerId===boss.id);
     assert.equal(carbineShots.length,3,'phase one fires exactly its authored three-round burst');
     assert.equal(boss.dreadAttack,null);
     assert.ok(healthBefore-leader.health>11&&healthBefore-leader.health<12,
@@ -400,7 +412,7 @@ test('the Warden runs authored carbine, LOS pressure, and bounded overdrive phas
     const startEvent=io.events.find(event=>event.name==='wardenAttack'&&event.args[0]?.event==='start');
     assert.deepEqual({sourceId:startEvent?.args[0]?.sourceId,crownId:startEvent?.args[0]?.crownId,
       attackPhase:startEvent?.args[0]?.attackPhase},
-    {sourceId:'red-vault-core',crownId:'vault-rotating-crown',attackPhase:'charge'});
+    {sourceId:'warden-core',crownId:'warden-rotating-crown',attackPhase:'charge'});
     assert.equal(game.strikeState.bossAttack?.event,'start');
 
     fixture.advance(100);
@@ -450,137 +462,6 @@ test('the Warden runs authored carbine, LOS pressure, and bounded overdrive phas
     assert.equal(game.activePlayers.filter(value=>value.alive&&value.botType==='dread').length,3);
     assert.equal(io.events.filter(event=>event.name==='wardenReinforcements').length,1,
       'ordinary ticks never duplicate the bounded reinforcement cycle');
-  } finally {game.close();}
-});
-
-test('all ten authored Red Vault encounters and all three finale phases advance server-side',t=>{
-  const fixture=runtimeFixture(t,{authored:true,humans:1}),{game,handlers}=fixture;
-  try {
-    const human=game.activePlayers.find(value=>!value.isBot);
-    const finale=game.gameMap.encounters.find(value=>value.id==='red-vault-finale');
-    assert.equal(finale?.wardenPhases?.length,3);
-    assert.equal(finale.spawnGroups.filter(group=>group.phase===3)[0]?.bots?.length,1,
-      'the encounter wave owns one boss; its health phases own bounded additions');
-    assert.equal(finale.wardenPhases[0].carbine.burstShots,3);
-    assert.equal(finale.wardenPhases[1].pressure.sourceId,'vault-boss-heart');
-    assert.equal(finale.wardenPhases[2].pressure.direction,-1);
-    assert.ok(finale.wardenPhases[2].reinforcements.bots.length<=3);
-    const encountered=[],firstCombatPass=new Set();let interactionCancelTested=false,guard=0;
-    while(!game.strikeState.complete&&guard++<180) {
-      const encounter=game.gameMap.encounters[game.strikeState.encounterIndex];
-      assert.ok(encounter,`encounter ${game.strikeState.encounterIndex} exists`);
-      if(encountered.at(-1)!==encounter.id)encountered.push(encounter.id);
-      if(game.strikeState.phase==='travel') {
-        moveInto(human,(encounter.triggers||[encounter.trigger])[0]);fixture.tick();
-      } else if(game.strikeState.phase==='staging') {
-        fixture.advance(12_000);
-      } else if(game.strikeState.phase==='combat') {
-        const pending=game.strikeState.pendingGroupIndexes||[];
-        const alive=game.activePlayers.filter(value=>value.isBot&&value.alive);
-        const phaseKey=`${game.strikeState.encounterIndex}:${game.strikeState.encounterPhase}`;
-        if(!firstCombatPass.has(phaseKey)) {
-          firstCombatPass.add(phaseKey);
-          const expected=(game.strikeState.spawnedGroupIndexes||[]).reduce((sum,index)=>
-            sum+(encounter.spawnGroups[index]?.bots?.length||0),0);
-          assert.equal(alive.length,expected,`${encounter.id} phase ${game.strikeState.encounterPhase} spawns every authored bot`);
-          assert.ok(alive.every(bot=>Number.isFinite(bot.health)&&bot.health>0&&bot.maxHealth===bot.health),
-            `${encounter.id} initializes finite authoritative enemy health`);
-          for(const bot of alive) {
-            const restored={soldier:100,dread:220,ogre:360,guardian:420,warden:1150};
-            assert.equal(bot.maxHealth,restored[bot.botType],
-              `${encounter.id} uses the earlier enemy health so difficulty comes from numbers`);
-          }
-        }
-        assert.equal(alive.length+(pending.length?1:0)>0,true,
-          `${encounter.id} has an active or scheduled authored wave`);
-        if(pending.length) {
-          const threshold=Math.min(...pending.map(index=>Number(encounter.spawnGroups[index]?.afterRemaining))
-            .filter(Number.isFinite));
-          const keep=Number.isFinite(threshold)?threshold:0;
-          for(const bot of alive.slice(keep))bot.alive=false;
-          fixture.tick();
-          const remainingPending=new Set(game.strikeState.pendingGroupIndexes||[]);
-          const arrived=pending.filter(index=>!remainingPending.has(index)).reduce((sum,index)=>
-            sum+(encounter.spawnGroups[index]?.bots?.length||0),0);
-          assert.equal(game.activePlayers.filter(value=>value.isBot&&value.alive).length,keep+arrived,
-            `${encounter.id} reinforcement group spawns at its authored threshold`);
-        } else {
-          if(encounter.type==='survive')fixture.advance(encounter.durationMs+1);
-          else {
-            if(encounter.id==='gantry-overwatch') {
-              const template=alive[0];
-              game.activePlayers.push({...template,id:'stale-assembly-bot',alive:true,
-                strikeEncounterId:'assembly-canyon',botState:{...template.botState}});
-            }
-            for(const bot of alive)bot.alive=false;fixture.tick();
-            if(encounter.id==='gantry-overwatch') {
-              assert.equal(game.strikeState.encounterId,'cross-furnace',
-                'a stale enemy record from the prior room cannot hold the cleared gantry hostage');
-              assert.equal(game.activePlayers.some(value=>value.id==='stale-assembly-bot'),false);
-            }
-          }
-        }
-      } else if(game.strikeState.phase==='intermission') {
-        fixture.advance(1_201);
-      } else if(game.strikeState.phase==='objective') {
-        const completingId=encounter.id;
-        moveInto(human,encounter.objectiveTrigger||encounter.completionTrigger);fixture.tick();
-        if(game.strikeState.phase==='objective'&&encounter.destructible) {
-          assert.equal(game.strikeState.objectiveKind,'destructible');
-          assert.equal(game.strikeState.objectiveHealth,encounter.destructible.maxHealth);
-          const aim=aimAtInteraction(human,encounter.destructible);
-          assert.equal(handlers.strikeInteractStart(aim),false,
-            'the reactor cannot be completed through the old E interaction path');
-          Object.assign(human,{weapon:'sniper',lastShotAt:0});
-          handlers.shoot(aim);
-          assert.equal(game.strikeState.objectiveHealth,90,
-            'the first authoritative sniper ray removes exactly 90 reactor health');
-          assert.equal(game.strikeState.phase,'objective','a damaged reactor remains alive');
-          fixture.advance(1_101);handlers.shoot(aim);
-          assert.equal(game.strikeState.objectiveHealth,undefined,
-            'destroying the reactor clears transient objective health on encounter handoff');
-          assert.equal(fixture.io.events.filter(event=>event.name==='strikeObjectiveDestroyed'&&
-            event.args[0]?.id===encounter.destructible.id).length,1,
-          'reactor destruction emits one reliable explosion event');
-        } else if(game.strikeState.phase==='objective'&&encounter.interaction) {
-          assert.equal(game.strikeState.objectiveProgress,0,
-            `${encounter.id} cannot operate merely by standing beside its control`);
-          const aim=aimAtInteraction(human,encounter.interaction);
-          handlers.strikeInteractStart(aim);
-          assert.equal(game.strikeState.interactionPlayerId,human.id);
-          if(!interactionCancelTested) {
-            fixture.advance(800);
-            assert.ok(game.strikeState.objectiveProgress>.35&&game.strikeState.objectiveProgress<.45,
-              'the authoritative two-second hold reports incremental progress');
-            handlers.strikeInteractCancel();
-            assert.equal(game.strikeState.objectiveProgress,0,'releasing E cancels and resets the operation');
-            handlers.strikeInteractStart(aim);interactionCancelTested=true;
-          }
-          fixture.advance(encounter.interaction.holdMs+1);
-        } else if(game.strikeState.phase==='objective')fixture.advance(encounter.objectiveHoldMs||1);
-        if(completingId==='assembly-canyon') {
-          assert.equal(game.strikeState.encounterId,'gantry-overwatch');
-          assert.equal(game.strikeState.phase,'staging',
-            'the line controller directly stages the gantry fight without an invisible capture trigger');
-        }
-      } else assert.fail(`unexpected Strike phase ${game.strikeState.phase}`);
-
-      if(encounter.id==='red-vault-finale'&&game.strikeState.phase==='combat'&&
-        game.strikeState.encounterPhase===3) {
-        const boss=game.activePlayers.find(value=>value.alive&&value.botType==='warden');
-        assert.ok(boss?.boss,'phase three owns the actual Warden boss');
-        assert.equal(boss.displayName,'DREAD WARDEN');
-        assert.equal(boss.maxHealth,1150);
-      }
-    }
-    assert.ok(guard<180,`the authored Strike cannot deadlock at ${game.strikeState.encounterId} / ${game.strikeState.phase}; phase ${game.strikeState.encounterPhase}, pending ${game.strikeState.pendingGroupIndexes}, alive ${game.activePlayers.filter(value=>value.isBot&&value.alive).length}`);
-    assert.deepEqual(encountered,game.gameMap.encounters.map(value=>value.id));
-    assert.equal(game.strikeState.complete,true);
-    assert.equal(game.strikeState.checkpointIndex,9);
-    for(const id of ['freight-shutter','assembly-shutter','refinery-shutter','command-bridge',
-      'command-bridge-raised','command-breach-shutter','vault-boss-gate'])assert.ok(game.strikeState.openedIds.includes(id),id);
-    assert.equal(game.strikeState.machineryState.core,'collapsed');
-    assert.equal(game.strikeState.machineryState.crown,'stopped');
   } finally {game.close();}
 });
 

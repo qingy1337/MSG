@@ -106,10 +106,10 @@ function updateArenaLabel(map) {
   if(!label)return;
   const strike=isStrikeMap(map),encounters=map.strikeEncounters||map.encounters||[];
   const encounter=encounters[strikeState?.encounterIndex||0];
-  const title=strike?(map.name||'THE RED VAULT').toUpperCase():
+  const title=strike?(map.name||'STRIKE').toUpperCase():
     map.mode==='pve'?`FLOOR / ${String(map.floor||1).padStart(2,'0')}`:(map.name||'ARENA').toUpperCase();
   const subtitle=document.createElement('span');
-  subtitle.textContent=strike?`ACT ${encounter?.act||strikeState?.actId||1} · ${encounter?.title||'FREIGHT INTAKE'}`:
+  subtitle.textContent=strike?`ACT ${encounter?.act||strikeState?.actId||1} · ${encounter?.title||'OBJECTIVE'}`:
     map.mode==='pve'?'LIVE SECTOR':`PVP MAP${Number.isSafeInteger(map.variant)?` · VARIANT ${map.variant+1}`:''}`;
   label.replaceChildren(document.createTextNode(title),subtitle);
 }
@@ -132,7 +132,7 @@ function updateStrikeHud() {
   const liveHostiles=players.filter(player=>player.alive&&player.isBot&&
     (!player.strikeEncounterId||player.strikeEncounterId===encounter?.id)).length;
   if(strikeObjectiveText) {
-    const objective=strikeState.objective||encounter?.objective||'Advance through the foundry';
+    const objective=strikeState.objective||encounter?.objective||'Advance to the objective';
     strikeObjectiveText.textContent=strikeState.phase==='combat'?
       `${objective} · ${liveHostiles} ${liveHostiles===1?'HOSTILE':'HOSTILES'}`:
       strikeState.phase==='objective'&&strikeState.objectiveKind==='destructible'?
@@ -172,7 +172,7 @@ function updateStrikeHud() {
   if(bossVisible) {
     const maximum=Math.max(1,strikeState.bossMaxHealth||1),health=Math.max(0,strikeState.bossHealth??maximum);
     const percent=100*Math.min(1,health/maximum);
-    if(strikeBossName)strikeBossName.textContent=(strikeState.bossName||'DREAD WARDEN').toUpperCase();
+    if(strikeBossName)strikeBossName.textContent=(strikeState.bossName||'BOSS').toUpperCase();
     if(strikeBossPhase)strikeBossPhase.textContent=`PHASE ${strikeState.bossCombatPhase||strikeState.bossPhase||1}`;
     if(strikeBossFill)strikeBossFill.style.width=`${percent}%`;
     if(strikeBossTrack)strikeBossTrack.setAttribute('aria-valuenow',String(Math.round(percent)));
@@ -479,8 +479,9 @@ window.addEventListener('blur', releaseMouse);
 document.addEventListener('visibilitychange', () => { if (document.hidden) { cancelGrenade();cancelStrikeInteraction();resetMinigunSpool();keys.clear();stopAutomaticFire();firing = false; } });
 document.addEventListener('mousemove', e => {
   if (!locked() || !gameActive || !localPlayer?.alive) return;
-  localPlayer.angle += e.movementX * MOVEMENT.mouseSensitivity;
-  pitch = Math.max(-1.35, Math.min(1.35, pitch - e.movementY * MOVEMENT.mouseSensitivity));
+  const sensitivity = mouseSensitivitySettings.getSensitivity();
+  localPlayer.angle += e.movementX * sensitivity;
+  pitch = Math.max(-1.35, Math.min(1.35, pitch - e.movementY * sensitivity));
   dirty = true;
   updateAutomaticAim();
 });
@@ -621,7 +622,7 @@ socket.on('strikeComplete',state=>{
   strikeState={...(strikeState||{}),...state,phase:'complete',complete:true};
   arena?.setMissionState(strikeState);updateStrikeHud();
   const coins=state.reward?.coins||0;
-  gameMessage.textContent=`THE RED VAULT SECURED${coins?` · +${coins} COINS`:''}`;
+  gameMessage.textContent=`STRIKE COMPLETE${coins?` · +${coins} COINS`:''}`;
 });
 socket.on('shotFired', shot => { if (arena && gameActive) arena.shot(shot); });
 socket.on('shotsFired',shots=>{
@@ -707,7 +708,7 @@ socket.on('gameOver', winner => {
   if (!gameActive) return;
   gameActive = false; releaseMouse(); lookPrompt.hidden = true; clearTimeout(messageTimer);
   const strikeVictory=isStrikeMap()&&winner?.strike;
-  gameMessage.textContent = strikeVictory?`STRIKE COMPLETE · ${(winner.name||gameMap.name||'THE RED VAULT').toUpperCase()}`:
+  gameMessage.textContent = strikeVictory?`STRIKE COMPLETE · ${(winner.name||gameMap.name||'STRIKE').toUpperCase()}`:
     `Game over · ${winner.name} wins!`; clearTimeout(returnTimer);
   returnTimer = setTimeout(() => {
     returnTimer = null;

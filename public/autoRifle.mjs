@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { createThunderbirdRifle } from './thunderbirdRifle.mjs';
 
 // One model shared by first-person and character weapons. Forward is -Z.
 export function createAutoRifle(skinKey, length) {
+  if (skinKey === 'autoRifle_thunderbird') return createThunderbirdRifle(length);
   const group = new THREE.Group();
   group.scale.setScalar(length);
   const ivy = skinKey === 'autoRifle_poisonivy';
@@ -77,4 +79,34 @@ export function createAutoRifle(skinKey, length) {
   // Dispose unused accent material for the unadorned default model.
   if (!ivy && !cyber && !christmas) accent.dispose();
   return group;
+}
+
+function findThunderbird(root) {
+  if(!root)return null;
+  if(root.userData?.thunderbird)return root.userData.thunderbird;
+  let state=null;
+  root.traverse(object=>{if(!state&&object.userData?.thunderbird)state=object.userData.thunderbird;});
+  return state;
+}
+
+export function triggerAutoRifleSkin(root,now) {
+  const state=findThunderbird(root);
+  if(state)state.shotAt=now;
+}
+
+export function poseAutoRifleSkin(root,now) {
+  const state=findThunderbird(root);
+  if(!state)return;
+  const age=Math.max(0,now-state.shotAt);
+  const dt=state.lastPoseAt==null?1/60:Math.max(0,Math.min(.05,now-state.lastPoseAt));
+  state.lastPoseAt=now;
+  const target=age<.18?1:0;
+  state.openness+=(target-state.openness)*(1-Math.exp(-dt*(target?17:5.5)));
+  for(const {pivot,side,index} of state.featherPivots)
+    pivot.rotation.y=side*state.openness*(.2-index*.02);
+  for(const {material,index} of state.featherGlow) {
+    const local=age-index*.013;
+    const pulse=local>=0?Math.exp(-local*23)*Math.min(1,local*170):0;
+    material.emissiveIntensity=.45+pulse*4.5;
+  }
 }
