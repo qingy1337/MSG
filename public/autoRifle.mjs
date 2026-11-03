@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { createThunderbirdRifle } from './thunderbirdRifle.mjs';
 
+const THUNDERBIRD_FAN_ANGLES=[.20,.185,.173,.163];
+
 // One model shared by first-person and character weapons. Forward is -Z.
 export function createAutoRifle(skinKey, length) {
   if (skinKey === 'autoRifle_thunderbird') return createThunderbirdRifle(length);
@@ -91,7 +93,12 @@ function findThunderbird(root) {
 
 export function triggerAutoRifleSkin(root,now) {
   const state=findThunderbird(root);
-  if(state)state.shotAt=now;
+  if(state) {
+    // Repeated automatic shots sustain the wave; restarting it on every
+    // bullet would prevent the lower feathers from ever opening fully.
+    if(now-state.shotAt>.24)state.fanStartedAt=now;
+    state.shotAt=now;
+  }
 }
 
 export function poseAutoRifleSkin(root,now) {
@@ -100,13 +107,16 @@ export function poseAutoRifleSkin(root,now) {
   const age=Math.max(0,now-state.shotAt);
   const dt=state.lastPoseAt==null?1/60:Math.max(0,Math.min(.05,now-state.lastPoseAt));
   state.lastPoseAt=now;
-  const target=age<.18?1:0;
-  state.openness+=(target-state.openness)*(1-Math.exp(-dt*(target?17:5.5)));
-  for(const {pivot,side,index} of state.featherPivots)
-    pivot.rotation.y=side*state.openness*(.2-index*.02);
+  for(const feather of state.featherPivots) {
+    const {pivot,side,index}=feather,delay=index*.085;
+    const target=now>=state.fanStartedAt+delay&&age<.32+delay?1:0;
+    feather.openness+=(target-feather.openness)*(1-Math.exp(-dt*(target?10:5.5)));
+    const maxAngle=THUNDERBIRD_FAN_ANGLES[index];
+    pivot.rotation.y=side*feather.openness*maxAngle;
+  }
   for(const {material,index} of state.featherGlow) {
     const local=age-index*.013;
     const pulse=local>=0?Math.exp(-local*23)*Math.min(1,local*170):0;
-    material.emissiveIntensity=.45+pulse*4.5;
+    material.emissiveIntensity=.85+pulse*2.6;
   }
 }

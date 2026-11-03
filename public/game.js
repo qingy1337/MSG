@@ -536,6 +536,13 @@ function updateGameInfo() {
     playersAliveInfo.textContent = `FLOOR ${gameMap.floor} · ${players.filter(p => p.alive && !p.isBot).length} PLAYERS · ${players.filter(p => p.alive && p.isBot).length} BOTS · +5 HP/s`;
     return;
   }
+  if(gameMap.pvpMode==='teams') {
+    const team=globalThis.PVP_TEAMS?.[localPlayer?.team];
+    const blue=players.filter(p=>p.alive&&p.team==='blue').length;
+    const red=players.filter(p=>p.alive&&p.team==='red').length;
+    playersAliveInfo.textContent=`${team?.name.toUpperCase()||''} TEAM · BLUE ${blue} / RED ${red} ALIVE`;
+    return;
+  }
   playersAliveInfo.textContent = `${players.filter(p => p.alive).length} / ${players.length} OPERATORS ALIVE`;
 }
 
@@ -709,7 +716,7 @@ socket.on('gameOver', winner => {
   gameActive = false; releaseMouse(); lookPrompt.hidden = true; clearTimeout(messageTimer);
   const strikeVictory=isStrikeMap()&&winner?.strike;
   gameMessage.textContent = strikeVictory?`STRIKE COMPLETE · ${(winner.name||gameMap.name||'STRIKE').toUpperCase()}`:
-    `Game over · ${winner.name} wins!`; clearTimeout(returnTimer);
+    winner?.result==='draw'?'Round over · Draw':`Game over · ${winner.name} wins!`; clearTimeout(returnTimer);
   returnTimer = setTimeout(() => {
     returnTimer = null;
     stop(); window.returnToHome?.();

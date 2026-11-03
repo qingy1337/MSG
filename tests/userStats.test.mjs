@@ -2,6 +2,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import userStore from '../lib/userStore.js';
 
+test('player colors migrate and are validated before being exposed publicly',()=>{
+  const user={username:'color-test'};
+  assert.equal(userStore.publicUser(user).loadout.playerColor,'#59daca');
+  user.loadout.playerColor='#E078AB';
+  assert.equal(userStore.publicUser(user).loadout.playerColor,'#e078ab');
+  for(const invalid of [null,3,'red','#abc','#00000000','url(test)']) {
+    assert.equal(userStore.normalizePlayerColor(invalid),null);
+  }
+});
+
 test('career stats migrate safely and separate modes, weapons, and grenade throws', () => {
   const user = {
     stats: {

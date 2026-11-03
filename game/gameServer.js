@@ -22,11 +22,15 @@ const { MOVEMENT, advanceJump, startJump } = require("../public/movement");
 const { DEFAULT_MAP, createPveMap, createPvpMap, moveOnTerrain, regeneratePlayers, updateCargoLifts,
   groundHeight, supportHeight, authoredSupportAt, canOccupy, horizontalClearance } = require('../public/arenaMap');
 const {PVP_MAPS}=require('../public/pvpMaps');
+const {PVP_TEAMS,balancedPvpTeams}=require('../public/pvpTeams');
+const {pvpTeamSpawns}=require('./pvpTeamSpawns');
 const { LIFT_TIMING, inElevator, floorSpawn, updateExitDoor } = require('../public/floors');
 const PVP_SPAWN_SHIELD_MS=6000;
 const HOT_SURFACE_PULSE_MS=250;
 const {
   usersByUsername,
+  normalizePlayerColor,
+  DEFAULT_PLAYER_COLOR,
   getUserFromCookieHeader,
   ensureUserCurrencies,
   ensureUserSkins,
@@ -197,6 +201,7 @@ function createGameServer(io, options = {}) {
     // PvP opens with a brief synchronized setup window. The deadline is
     // server-owned, so latency or a modified client can never bypass it.
     if(gameMap.mode==='pvp'&&(b?.spawnShieldUntil||0)>Date.now())return false;
+    if(gameMap.pvpMode==='teams'&&a?.team&&a.team===b?.team)return false;
     return cooperative() ? !!a.isBot !== !!b.isBot : !(a.isBot && isBotAllyPlayer(b));
   };
   // Simple server-side bot config (step 0: scripted bots)
@@ -338,9 +343,7 @@ function createGameServer(io, options = {}) {
       waitingPlayers.push(player);
     } else {
       // A delayed UI callback or a double click must not create two copies of
-      // the same socket in the next match. Preserve its lobby colour while
-      // allowing a deliberate loadout/name change to replace the other data.
-      player.color = waitingPlayers[existingIndex].color;
+      // the same socket in the next match. Refresh its account loadout too.
       waitingPlayers[existingIndex] = player;
     }
     if (options.manageRooms !== false) socket.join("waiting");
@@ -369,7 +372,7 @@ function createGameServer(io, options = {}) {
       maxHealth:MAX_HEALTH,
       grenades:3,
       team:cooperativeMatch?'players':player.id,
-      color:cooperativeMatch?'#49cdb5':player.color,
+      color:accountPlayerColor(player),
       height,
       groundHeight:height,
       ceilingHeight:cooperativeMatch?(gameMap.elevator?.ceiling||gameMap.ceiling):gameMap.ceiling,
@@ -424,6 +427,18 @@ function createGameServer(io, options = {}) {
       createPvpMap(undefined,selectedPvpMap,selectedPvpMap?undefined:lastPvpMapId);
     if(!layout?.map||!Array.isArray(layout.walls))return;
 
+    const teamMode=!enableBots&&config.pvpMode==='teams';
+    const teamRoster=[...waitingPlayers];
+    if(debugDouble)teamRoster.push({id:`debug-clone:${socket.id}`});
+    const teams=teamMode?(config.pvpTeamAssignments instanceof Map?
+      new Map(config.pvpTeamAssignments):balancedPvpTeams(teamRoster)):new Map();
+    if(teamMode&&debugDouble)teams.set(`debug-clone:${socket.id}`,teams.get(socket.id)==='blue'?'red':'blue');
+    if(teamMode&&(teamRoster.some(player=>!PVP_TEAMS[teams.get(player.id)])||
+      new Set(teamRoster.map(player=>teams.get(player.id))).size!==2))return;
+    const teamSpawns=teamMode?pvpTeamSpawns(layout.map,layout.walls,teamRoster,teams):null;
+    if(teamMode&&!teamSpawns)return;
+    if(!enableBots)layout.map.pvpMode=teamMode?'teams':'ffa';
+
     gameInProgress.status = true;
     matchParticipantIds.clear();
     clearActiveBullets(activeBullets);
@@ -461,7 +476,8 @@ function createGameServer(io, options = {}) {
     while (waitingPlayers.length > 0) {
       const player = waitingPlayers.pop();
       matchParticipantIds.add(player.id);
-      const spawnPosition = enableBots ? getTeamSpawn(false, activePlayers.filter(p => !p.isBot).length) : getValidSpawnPosition(solids(), activePlayers);
+      const spawnPosition = enableBots ? getTeamSpawn(false, activePlayers.filter(p => !p.isBot).length) :
+        teamSpawns?.get(player.id)||getValidSpawnPosition(solids(), activePlayers);
       const activePlayer={
         ...player,
         x: spawnPosition.x,
@@ -471,8 +487,8 @@ function createGameServer(io, options = {}) {
         health: MAX_HEALTH,
         maxHealth: MAX_HEALTH,
         grenades: 3,
-        team: enableBots ? 'players' : player.id,
-        color: enableBots ? '#49cdb5' : player.color,
+        team: enableBots ? 'players' : teams.get(player.id)||player.id,
+        color: accountPlayerColor(player),
         height: spawnPosition.height || 0,
         groundHeight: spawnPosition.height || 0,
         ceilingHeight: enableBots ? (gameMap.elevator?.ceiling||gameMap.ceiling) : gameMap.ceiling,
@@ -486,11 +502,11 @@ function createGameServer(io, options = {}) {
       activePlayers.push(activePlayer);
       if(debugDouble&&player.id===socket.id) {
         const cloneId=`debug-clone:${player.id}`;
-        const cloneSpawn=getValidSpawnPosition(solids(),activePlayers);
+        const cloneSpawn=teamSpawns?.get(cloneId)||getValidSpawnPosition(solids(),activePlayers);
         activePlayers.push({...activePlayer,id:cloneId,name:`${player.name} · CLONE`,
           displayName:`${player.displayName||player.name} · CLONE`,debugCloneOf:player.id,
           x:cloneSpawn.x,y:cloneSpawn.y,height:cloneSpawn.height||0,groundHeight:cloneSpawn.height||0,
-          team:cloneId,angle:Math.atan2(spawnPosition.y-cloneSpawn.y,spawnPosition.x-cloneSpawn.x),
+          team:teams.get(cloneId)||cloneId,angle:Math.atan2(spawnPosition.y-cloneSpawn.y,spawnPosition.x-cloneSpawn.x),
           grenadeChargeAt:null,lastShotAt:0,lastProcessedInput:undefined});
       }
     }
@@ -910,8 +926,13 @@ function createGameServer(io, options = {}) {
     return { displayName, weapon };
   }
 
+  function accountPlayerColor(player) {
+    return normalizePlayerColor(usersByUsername.get(player.accountUsername)?.loadout?.playerColor)
+      || normalizePlayerColor(player.color) || DEFAULT_PLAYER_COLOR;
+  }
+
   function buildWaitingPlayer(socket, displayName, weapon) {
-    const playerColor = colors[Math.floor(Math.random() * colors.length)];
+    const playerColor = normalizePlayerColor(socket.user?.loadout?.playerColor) || DEFAULT_PLAYER_COLOR;
     const equipped=socket.user?.skins?.equippedByWeapon||{};
     const primaryWeaponSkinKey=equipped[weapon]||DEFAULT_SKIN_BY_WEAPON[weapon]||null;
     const secondaryWeaponSkinKey=equipped[SECONDARY_WEAPON_KEY]||DEFAULT_SKIN_BY_WEAPON[SECONDARY_WEAPON_KEY]||null;
@@ -989,6 +1010,14 @@ function createGameServer(io, options = {}) {
         floorState = { phase: 'ready', floor: gameMap.floor, startedAt: Date.now() };
         publishFloorState();
       }
+      return;
+    }
+    if(gameMap.pvpMode==='teams') {
+      const survivingTeams=new Set(alivePlayers.map(player=>player.team));
+      if(survivingTeams.size===1) {
+        const team=[...survivingTeams][0];
+        scheduleGameOver({name:`${PVP_TEAMS[team].name} team`,team,result:'victory'});
+      } else if(!survivingTeams.size)scheduleGameOver({name:'Nobody',result:'draw'});
       return;
     }
     if (alivePlayers.length === 0) return;
@@ -4046,7 +4075,7 @@ function createGameServer(io, options = {}) {
         grenades.splice(i,1);io.emit('grenadeExploded',{id:g.id,x:g.x,y:g.y,height:g.height});
         const owner=activePlayers.find(p=>p.id===g.ownerId);
         for(const target of activePlayers) {
-          if(!target.alive||target.id===g.ownerId||!canDamage(owner||{isBot:false},target))continue;
+          if(!target.alive||target.id===g.ownerId||!canDamage(owner||{isBot:false,team:g.ownerTeam},target))continue;
           const damage=blastDamage(g,target,gameMap,gameWalls);
           if(damage>0)handlePlayerHit({targetId:target.id,shooterId:g.ownerId,kind:'grenade',origin:g},damage);
         }

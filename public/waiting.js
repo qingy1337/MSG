@@ -9,6 +9,7 @@ const settingsScreen = document.getElementById("settings-screen");
 
 // Simple screen state helper so only one main screen shows at a time
 function setActiveScreen(target) {
+  playerColorControl?.classList.toggle('hidden', target !== homeScreen);
   const screens = [homeScreen, lobbyScreen, gameScreen, shopScreen, settingsScreen];
   if (target && target !== shopScreen && target !== settingsScreen && screens.includes(target)) {
     lastNonShopScreen = target;
@@ -48,6 +49,19 @@ window.returnToHome = function returnToHome() {
 // DOM elements - lobby
 const playBtn = document.getElementById("play-btn");
 const startBtn = document.getElementById("start-btn");
+const pvpModeRow = document.getElementById('pvp-mode-row');
+const pvpModeButtons = document.querySelectorAll('[data-pvp-mode]');
+const pvpTeamNote = document.getElementById('pvp-team-note');
+pvpModeButtons.forEach(button=>button.addEventListener('click',()=>{
+  if(currentLobby?.ownerId!==socket.id||button.dataset.pvpMode===currentLobby.pvpMode)return;
+  emitLobbyAction('lobby:pvpMode',{pvpMode:button.dataset.pvpMode});
+}));
+const teamColumns = document.getElementById('team-columns');
+const teamLobby = createTeamLobby(teamColumns,{
+  document,teams:PVP_TEAMS,getLocalId:()=>socket.id,
+  onTeamChange:team=>emitLobbyAction('lobby:team',{team}),
+  weaponName:key=>WEAPONS[key]?.name||'Auto Rifle',
+});
 const leaveLobbyBtn = document.getElementById('leave-lobby-btn');
 const startFloorRow = document.getElementById('pve-start-floor-row');
 const startFloorInput = document.getElementById('pve-start-floor');
@@ -103,6 +117,55 @@ const registerTabBtn = document.getElementById("tab-register");
 const authErrorEl = document.getElementById("auth-error");
 const userInfoEl = document.getElementById("user-info");
 const userUsernameEl = document.getElementById("user-username");
+const playerColorControl = document.getElementById('player-color-control');
+const playerColorInput = document.getElementById('player-color');
+const playerColorStatus = document.getElementById('player-color-status');
+let savedPlayerColor = '#59daca';
+let playerColorSave = Promise.resolve(true);
+
+playerColorInput?.addEventListener('input', () => {
+  if (!currentUser) return;
+  currentUser.loadout ||= {};
+  currentUser.loadout.playerColor = playerColorInput.value;
+  playerColorStatus.textContent = '';
+  updateLoadoutSummary();
+});
+playerColorInput?.addEventListener('change', () => {
+  playerColorSave = savePlayerColor();
+});
+
+async function savePlayerColor() {
+  if (!currentUser) return false;
+  const user = currentUser, playerColor = playerColorInput.value;
+  playerColorInput.disabled = true;
+  try {
+    const response = await fetch('/api/loadout', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerColor }),
+    });
+    if (!response.ok) throw new Error('Color could not be saved');
+    if (currentUser !== user) return false;
+    savedPlayerColor = playerColor;
+    user.loadout ||= {};
+    user.loadout.playerColor = playerColor;
+    updateLoadoutSummary();
+    return true;
+  } catch (error) {
+    if (currentUser === user) {
+      user.loadout.playerColor = savedPlayerColor;
+      playerColorInput.value = savedPlayerColor;
+      playerColorStatus.textContent = 'Couldn’t save color. Try again.';
+      updateLoadoutSummary();
+      // The current join attempt stops, but the restored saved color remains
+      // usable on the next attempt even if the player leaves it unchanged.
+      playerColorSave = Promise.resolve(true);
+    }
+    return false;
+  } finally {
+    playerColorInput.disabled = false;
+  }
+}
 const logoutBtn = document.getElementById("logout-btn");
 const coinsIndicatorEl = document.getElementById("coins-indicator");
 const coinsValueEl = document.getElementById("coins-value");
@@ -159,6 +222,11 @@ function setAuthError(message) {
 
 function applyAuthenticatedState(user) {
   currentUser = user;
+  if(pvpDebugDouble)pvpDebugDouble.checked=false;
+  savedPlayerColor = user.loadout?.playerColor || '#59daca';
+  playerColorInput.value = savedPlayerColor;
+  playerColorStatus.textContent = '';
+  playerColorSave = Promise.resolve(true);
   mouseSensitivitySettings.setUser(user.username);
   updateMouseSensitivityControls();
   if (typeof user?.loadout?.primaryWeapon === 'string' && WEAPONS[user.loadout.primaryWeapon] && WEAPONS[user.loadout.primaryWeapon].selectable !== false) {
@@ -196,7 +264,7 @@ function applyLoggedOutState() {
   currentLobby = null;
   if(startFloorInput)startFloorInput.value='1';
   if(pvpDebugMap)pvpDebugMap.value='';
-  if(pvpDebugDouble)pvpDebugDouble.checked=true;
+  if(pvpDebugDouble)pvpDebugDouble.checked=false;
   if (userInfoEl) {
     userInfoEl.classList.add("hidden");
   }
@@ -439,16 +507,19 @@ function emitLobbyAction(event, payload, onSuccess) {
   });
 }
 
-function createFireteam() {
+async function createFireteam() {
+  if (!await playerColorSave) return;
   window.cancelPendingGameReturn?.();
   emitLobbyAction('lobby:create', { mode: selectedMode, weapon: selectedWeaponKey }, result => {
+    if(pvpDebugDouble)pvpDebugDouble.checked=false;
     currentLobby = result.lobby;
     renderCurrentLobby();
     setActiveScreen(lobbyScreen);
   });
 }
 
-function joinFireteam(lobbyId) {
+async function joinFireteam(lobbyId) {
+  if (!await playerColorSave) return;
   window.cancelPendingGameReturn?.();
   emitLobbyAction('lobby:join', { lobbyId, weapon: selectedWeaponKey }, result => {
     currentLobby = result.lobby;
@@ -613,9 +684,11 @@ function updateLoadoutSummary() {
     loadoutPreviewCanvas.dataset.weaponKey = selectedWeaponKey;
     loadoutPreviewCanvas.dataset.skinKey = skinKey;
     loadoutPreviewCanvas.dataset.secondarySkinKey = secondarySkinKey;
+    const playerColor = currentUser?.loadout?.playerColor || '#59daca';
+    loadoutPreviewCanvas.dataset.playerColor = playerColor;
     loadoutPreviewCanvas.setAttribute('aria-label', `Operator holding ${weapon.name} with ${equippedSkinName(selectedWeaponKey)} skin and Pistol with ${equippedSkinName('pistol')} skin`);
     loadoutPreviewCanvas.dispatchEvent(new CustomEvent('loadout-preview:update', {
-      detail: { weaponKey: selectedWeaponKey, skinKey, secondarySkinKey },
+      detail: { weaponKey: selectedWeaponKey, skinKey, secondarySkinKey, playerColor },
     }));
   }
   renderCareerStats();
@@ -1046,11 +1119,14 @@ function updateStartButtonState() {
   if (!startBtn) return;
   const humanCount = currentLobby?.players?.length || 0;
   const debugReady = currentLobby?.mode==='pvp'&&currentUser?.username==='qing'&&pvpDebugDouble?.checked&&humanCount>=1;
-  const canStart = isOwner && (isCoop ? humanCount >= 1 : humanCount >= 2 || debugReady);
+  const hasBothTeams=currentLobby?.pvpMode!=='teams'||debugReady||
+    new Set(currentLobby.players.map(player=>player.team)).size===2;
+  const canStart = isOwner && hasBothTeams && (isCoop ? humanCount >= 1 : humanCount >= 2 || debugReady);
   startBtn.disabled = !canStart;
   if (lobbyLeaderNoteEl) {
     lobbyLeaderNoteEl.textContent = isOwner
-      ? (canStart ? 'You are the fireteam leader. Launch when ready.' : 'Invite another player or wait for someone to join.')
+      ? (canStart ? 'You are the fireteam leader. Launch when ready.' : !hasBothTeams?
+        'Both teams need at least one player.' : 'Invite another player or wait for someone to join.')
       : `Waiting for ${currentLobby?.ownerName || 'the leader'} to launch.`;
   }
 }
@@ -1059,6 +1135,20 @@ function renderCurrentLobby() {
   if (!currentLobby || !waitingPlayersList) return;
   lobbyTitleEl.textContent = currentLobby.name;
   lobbyCapacityEl.textContent = `${currentLobby.players.length} / ${currentLobby.maxPlayers} OPERATIVES`;
+  pvpModeRow.classList.toggle('hidden',currentLobby.mode!=='pvp');
+  pvpModeButtons.forEach(button=>{
+    button.setAttribute('aria-pressed',String(button.dataset.pvpMode===(currentLobby.pvpMode||'ffa')));
+    button.disabled=currentLobby.ownerId!==socket.id;
+  });
+  const teamMode=currentLobby.mode==='pvp'&&currentLobby.pvpMode==='teams';
+  pvpTeamNote.textContent=teamMode?'Choose your team. Last team standing wins.':
+    'Every player for themselves. The leader chooses the match type.';
+  waitingPlayersList.classList.toggle('hidden',teamMode);
+  document.getElementById('roster-title').classList.toggle('hidden',teamMode);
+  teamColumns.classList.toggle('hidden',!teamMode);
+  if(teamMode) {
+    teamLobby.render(currentLobby);updateStartButtonState();return;
+  }
   waitingPlayersList.replaceChildren();
   currentLobby.players.forEach((player, index) => {
     const li = document.createElement('li');
@@ -1110,6 +1200,8 @@ function renderLobbyBrowser() {
       copy.querySelector('small').textContent = lateJoin?
         `FLOOR ${lobby.floor||1} · DEPLOY NEXT FLOOR`:
         lobby.status === 'active' ? 'MATCH IN PROGRESS' : `${lobby.players.length} / ${lobby.maxPlayers} READY`;
+      if(lobby.mode==='pvp')copy.querySelector('small').textContent+=
+        lobby.pvpMode==='teams'?' · TEAMS':' · FREE-FOR-ALL';
       const action = document.createElement('button');
       action.className = 'lobby-join';
       action.textContent = lateJoin ? 'JOIN NEXT' : lobby.status === 'active' ? 'LIVE' : 'JOIN';

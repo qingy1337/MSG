@@ -183,6 +183,38 @@ body {
     text-overflow: ellipsis;
 }
 
+.player-color-control {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 9px 5px 5px;
+    border: 1px solid #d5dfdf;
+    border-radius: 10px;
+    background: #fff;
+    color: #35494c;
+    cursor: pointer;
+}
+.player-color-control input {
+    width: 28px;
+    height: 28px;
+    padding: 2px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    cursor: pointer;
+}
+.player-color-control input::-webkit-color-swatch-wrapper { padding: 0; }
+.player-color-control input::-webkit-color-swatch { border: 0; border-radius: 5px; }
+.player-color-control input::-moz-color-swatch { border: 0; border-radius: 5px; }
+.player-color-control:focus-within { outline: 2px solid #197d72; outline-offset: 2px; }
+.player-color-control input:disabled { cursor: wait; opacity: .55; }
+.player-color-status { max-width: 160px; font-size: 11px; color: #9b3939; }
+.player-color-status:empty { display: none; }
+@media (max-width: 600px) {
+    .player-color-control > span { display: none; }
+    .player-color-control { padding: 4px; }
+}
+
 .app-main {
     flex: 1;
     padding: 16px 10px 10px;
@@ -389,7 +421,6 @@ button:disabled,
 #pve-start-floor { width: 110px; margin-left: 8px; }
 #pvp-debug-row { margin-top: 12px; font-size: 13px; color: var(--text-muted); }
 #pvp-debug-map { width: 190px; margin-left: 8px; padding: 7px 10px; }
-.pvp-debug-clone-label { display: flex; justify-content: center; align-items: center; gap: 6px; margin-top: 9px; cursor: pointer; }
 
 .game-shell {
     display: flex;
@@ -505,7 +536,7 @@ button:disabled,
 .character-health { position: absolute; transform: translate(-50%, -100%); width: 76px; padding: 5px 6px; border-radius: 4px; background: #07131dcc; color: #ecfafa; font-size: 9px; line-height: 13px; text-align: left; contain: layout style paint; will-change: transform; }
 .character-health span { display: inline-block; max-width: 45px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
 .character-health strong { float: right; font-size: 9px; font-weight: 500; color: #c4e4dd; }
-.character-health i { display: block; height: 3px; margin-top: 3px; background: #3b4d53; border-radius: 2px; overflow: hidden; }
+.character-health i { display: block; height: 5px; margin-top: 3px; background: #3b4d53; border-radius: 2px; overflow: hidden; }
 .character-health b { display: block; height: 100%; transition: width 0.1s; }
 .character-health.spawn-shielded { box-shadow: inset 0 0 0 1px #42b8ff80, 0 0 7px #42b8ff55; }
 .arena-controls { position: absolute; bottom: 20px; left: 22px; font-size: 9px; letter-spacing: 1.4px; color: #a2bac3; pointer-events: none; }
@@ -1270,6 +1301,55 @@ body.in-shop .app-main {
 .fireteam-room-header h1 { margin: 7px 0 3px; font-size: 28px; font-weight: 400; }
 .fireteam-room-header p { margin: 0; color: #6b8083; font-size: 10px; letter-spacing: 0; }
 .fireteam-roster { margin-top: 27px; }
+.pvp-mode-row { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-bottom: 24px; }
+.pvp-mode-pills { display: inline-flex; gap: 3px; padding: 4px; border-radius: 999px; background: #edf2f1; }
+.pvp-mode-pills button {
+    min-width: 115px; padding: 10px 19px; border: 1px solid transparent; border-radius: 999px;
+    background: transparent; color: #6b7c7f; font: inherit; font-size: 13px; cursor: pointer;
+    transition: background .16s, color .16s, border-color .16s;
+}
+.pvp-mode-pills button[aria-pressed="true"] { background: #fff; color: #233b3d; border-color: #dce5e3; }
+.pvp-mode-pills button:not(:disabled):hover { color: #152b2e; }
+.pvp-mode-pills button:disabled { cursor: default; }
+.pvp-mode-pills button:focus-visible, .team-join:focus-visible, .team-player-card:focus-visible {
+    outline: 2px solid #168c78; outline-offset: 3px;
+}
+.pvp-mode-row p { margin: 0; color: #708487; font-size: 12px; text-align: center; }
+.team-columns { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; }
+.team-column {
+    --team-ink: #296dc0; --team-border: #d4e3f4; --team-tint: #f3f7fc;
+    display: flex; flex-direction: column; min-width: 0; padding: 16px; border-radius: 13px;
+    border: 1px solid var(--team-border); background: var(--team-tint);
+    transition: border-color .15s, background .15s;
+}
+.team-column[data-team="red"] { --team-ink: #c34751; --team-border: #f0d8db; --team-tint: #fdf5f5; }
+.team-column-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.team-column-heading h3 { margin: 0; color: var(--team-ink); font-family: 'Rowdies', sans-serif; font-weight: 300; font-size: 20px; }
+.team-count { font-size: 12px; color: var(--team-ink); font-variant-numeric: tabular-nums; }
+.team-roster { list-style: none; margin: 0; padding: 0; min-height: 270px; display: flex; flex-direction: column; gap: 8px; }
+.team-player-card {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 57px;
+    padding: 10px 12px; border: 1px solid #e2e8e8; border-radius: 8px; background: #fff; text-align: left;
+}
+.team-player-card[data-self="true"] { border-color: var(--team-ink); }
+.team-player-copy { min-width: 0; }
+.team-player-copy strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; color: #293d41; }
+.team-player-copy small { display: block; margin-top: 3px; color: #7b8b8e; font-size: 10px; }
+.team-you { font-size: 10px; font-weight: 600; color: var(--team-ink); }
+.team-empty { margin: auto; color: #8b9a9e; font-size: 12px; text-align: center; }
+.team-join {
+    width: 100%; margin-top: 16px; padding: 10px; border: 1px solid var(--team-border); border-radius: 999px;
+    background: #fff; color: var(--team-ink); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.team-join:hover:not(:disabled) { border-color: var(--team-ink); }
+.team-join:disabled { background: transparent; border-color: transparent; opacity: .7; cursor: default; }
+@media (max-width: 560px) {
+    .team-columns { gap: 8px; }
+    .team-column { padding: 10px; }
+    .team-player-card { padding: 9px 7px; gap: 4px; }
+    .team-player-copy strong { font-size: 11px; }
+    .team-you { display: none; }
+}
 .roster-title { margin: 0 0 9px; color: #354b4f; font-size: 14px; font-weight: 400; }
 #waiting-players { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
 #waiting-players li { margin: 0; padding: 13px 14px; display: flex; align-items: center; justify-content: space-between; border: 1px solid rgba(73, 101, 104, .14); border-radius: 5px; color: #263a3e; background: #f8faf9; text-align: left; }
@@ -1284,6 +1364,24 @@ body.in-shop .app-main {
 .lobby-launch { width: 100%; align-items: center; }
 .debug-options { margin-top: 14px; padding: 12px; border: 1px solid rgba(184, 128, 31, .18); border-radius: 5px; color: #846f49; background: #fffbf1; font-size: 11px; text-align: center; }
 .debug-options .auth-input { width: auto; min-width: 110px; margin-left: 8px; }
+.pvp-debug-panel { margin-top: 24px; padding: 18px; border: 1px solid #dde5e5; border-radius: 12px; background: #f7f9f9; }
+.pvp-debug-panel h3 { margin: 0 0 16px; font-family: 'Rowdies', sans-serif; font-weight: 300; font-size: 15px; color: #40565a; }
+.debug-map-setting { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.debug-map-setting label { color: #40565a; font-size: 13px; }
+.pvp-debug-panel #pvp-debug-map {
+    width: min(240px,70%); min-width: 0; margin: 0; padding: 10px 12px;
+    border: 1px solid #d6e0df; border-radius: 8px; font: inherit; font-size: 12px;
+}
+.debug-clone-setting { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 16px; padding-top: 16px; border-top: 1px solid #e2e9e8; cursor: pointer; }
+.debug-clone-setting strong { display: block; color: #40565a; font-size: 13px; font-weight: 500; }
+.debug-clone-setting small { display: block; margin-top: 4px; color: #7c8c90; font-size: 11px; }
+.debug-toggle { position: relative; display: inline-flex; flex: 0 0 38px; height: 22px; }
+.debug-toggle input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.debug-toggle-track { width: 100%; border: 1px solid #c8d3d3; border-radius: 999px; background: #d7dfdf; pointer-events: none; transition: background .15s, border-color .15s; }
+.debug-toggle-track::after { content: ''; position: absolute; width: 16px; height: 16px; top: 3px; left: 3px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.debug-toggle input:checked + .debug-toggle-track { background: #168c78; border-color: #168c78; }
+.debug-toggle input:checked + .debug-toggle-track::after { transform: translateX(16px); }
+.debug-toggle input:focus-visible + .debug-toggle-track { outline: 2px solid #168c78; outline-offset: 3px; }
 
 /* Auth and armory inherit the same visual language. */
 .auth-overlay { background: rgba(239, 245, 243, .95); backdrop-filter: blur(18px); }

@@ -42,6 +42,21 @@ test('test instance isolates its admin account, cookie, and unlocked skins',asyn
   const {skins:available}=await shop.json();
   assert.equal(available.length,Object.keys(skins.ALL_SKINS_BY_KEY).length);
   assert.ok(available.every(skin=>skin.owned));
+  const updateColor=(body,headers={cookie})=>fetch(`${base}/api/loadout`,{
+    method:'POST',headers:{...headers,'content-type':'application/json'},body:JSON.stringify(body)});
+  assert.equal((await updateColor({playerColor:'#e078ab'},{})).status,401);
+  assert.equal((await updateColor({playerColor:'red'})).status,400);
+  const before=await (await fetch(`${base}/api/me`,{headers:{cookie}})).json();
+  const changed=await updateColor({playerColor:'#E078AB'});
+  assert.equal(changed.status,200);
+  const changedUser=(await changed.json()).user;
+  assert.equal(changedUser.loadout.playerColor,'#e078ab');
+  assert.equal(changedUser.loadout.primaryWeapon,before.loadout.primaryWeapon);
+  assert.equal((await updateColor({primaryWeapon:'sniper'})).status,200);
+  const me=await (await fetch(`${base}/api/me`,{headers:{cookie}})).json();
+  assert.equal(me.loadout.playerColor,'#e078ab','changing weapons preserves color');
+  assert.equal(me.loadout.primaryWeapon,'sniper');
   const stored=JSON.parse(fs.readFileSync(path.join(dataDir,'users.json'),'utf8'));
   assert.deepEqual(stored.map(user=>user.username),['qing']);
+  assert.equal(stored[0].loadout.playerColor,'#e078ab','color is persisted to the account');
 });

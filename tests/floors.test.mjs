@@ -992,7 +992,7 @@ test('late PvE reinforcements spectate the current fight and spawn in the next a
     primaryWeapon:'sniper',secondaryWeapon:'pistol'});
   game.handleStartGame(leader,{enableBots:true});
   try {
-    const lateSocket={id:'late',user:{username:'late',currencies:{Coins:0},
+    const lateSocket={id:'late',user:{username:'late',currencies:{Coins:0},loadout:{playerColor:'#c95e9c'},
       skins:{owned:[],equippedByWeapon:{shotgun:'shotgun_silver'}}},emit(){}};
     const lateState=game.queueLatePveJoin(lateSocket,{displayName:'late',weapon:'shotgun'});
     assert.equal(lateState.spawnFloor,2);
@@ -1017,9 +1017,11 @@ test('late PvE reinforcements spectate the current fight and spawn in the next a
     assert.equal(reinforcement.health,101);assert.equal(reinforcement.grenades,3);
     assert.equal(reinforcement.primaryWeapon,'shotgun');
     assert.equal(reinforcement.primaryWeaponSkinKey,'shotgun_silver');
+    assert.equal(reinforcement.color,'#c95e9c');
     assert.ok(inElevator(reinforcement,{...game.gameMap,elevator:game.gameMap.arrivalElevator}));
     assert.equal(game.waitingPlayers.length,0);
     const floorStart=events.find(event=>event.name==='floorStarting');
+    assert.equal(floorStart.data.players.find(player=>player.id==='late').color,'#c95e9c');
     assert.ok(floorStart?.data.players.some(player=>player.id==='late'&&player.alive),
       'the reliable next-floor packet introduces the reinforcement to every client');
   } finally {game.close();}

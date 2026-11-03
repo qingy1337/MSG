@@ -4,6 +4,46 @@ import * as THREE from 'three';
 import skins from '../public/skins.js';
 import { createAutoRifle, poseAutoRifleSkin, triggerAutoRifleSkin } from '../public/autoRifle.mjs';
 
+test('Thunderbird fans in sequence and sustains its graduated spread during automatic fire',()=>{
+  const rifle=createAutoRifle('autoRifle_thunderbird',1);
+  const feathers=rifle.userData.thunderbird.featherPivots;
+  const angles=()=>feathers.filter(f=>f.side===1).map(f=>Math.abs(f.pivot.rotation.y));
+  const tails=[];
+  rifle.traverse(o=>{if(o.name==='thunderbird-fixed-tail')tails.push([o,o.rotation.y]);});
+  poseAutoRifleSkin(rifle,0);
+  triggerAutoRifleSkin(rifle,0);
+  for(let frame=1;frame<=480;frame++) {
+    const now=frame/240;
+    if(frame%20===0&&now<.75)triggerAutoRifleSkin(rifle,now);
+    poseAutoRifleSkin(rifle,now);
+    if(frame===5) {
+      assert.ok(angles()[0]>0,'top opens first');
+      assert.ok(angles().slice(1).every(a=>a===0),'lower feathers wait their turn');
+    }
+    if(frame===32) {
+      assert.ok(angles()[1]>0,'second follows');
+      assert.ok(angles().slice(2).every(a=>a===0));
+    }
+    if(frame===52) {
+      assert.ok(angles()[2]>0,'third follows');
+      assert.equal(angles()[3],0);
+    }
+    if(frame===168) {
+      const a=angles();
+      assert.ok(a[3]>.1,'automatic fire allows the bottom feather to open fully');
+      assert.ok(a.every((angle,i)=>i===0||angle<a[i-1]),'spread decreases top to bottom');
+      assert.ok(a[0]-a[1]<.025,'top feather stays close to the second feather');
+      assert.ok(a[0]-a[1]>a[1]-a[2]&&a[1]-a[2]>a[2]-a[3],
+        'differences become subtler toward the bottom');
+    }
+  }
+  assert.ok(angles().every(a=>a<.01),'all feathers settle after firing ends');
+  for(const [tail,angle] of tails)assert.equal(tail.rotation.y,angle,'rear feathers stay fixed');
+  const materials=new Set();
+  rifle.traverse(o=>{if(o.isMesh){o.geometry.dispose();materials.add(o.material);}});
+  materials.forEach(material=>material.dispose());
+});
+
 test('all auto-rifle skins have detailed models at both view scales', () => {
   const signature = {
     autoRifle_default: 'receiver-inset', autoRifle_poisonivy: 'coiled-vine',
@@ -25,7 +65,7 @@ test('all auto-rifle skins have detailed models at both view scales', () => {
       if (skin.key === 'autoRifle_christmas') assert.equal(rifle.getObjectByName('receiver').material.color.getHexString(), 'c41d12');
       if (skin.key === 'autoRifle_thunderbird') {
         assert.equal(skin.bulletColor,'#ffd84d');
-        assert.equal(rifle.getObjectByName('thunderbird-quill').material.emissive.getHexString(),'ffd447');
+        assert.equal(rifle.getObjectByName('thunderbird-quill').material.emissive.getHexString(),'ffcc00');
         const panels=[],quills=[];
         rifle.traverse(object=>{
           if(object.name==='thunderbird-rear-feather')panels.push(object);

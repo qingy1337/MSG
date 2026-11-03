@@ -105,16 +105,15 @@ export function createThunderbirdRifle(length) {
     pivot.name=moving?'thunderbird-feather-pivot':'thunderbird-fixed-tail';
     pivot.position.set(side*spec.sideOffset,spec.yRoot,-spec.root);
     group.add(pivot);
-    if(moving)featherPivots.push({pivot,side,index});
+    if(moving)featherPivots.push({pivot,side,index,openness:0});
     else pivot.rotation.y=side*.028;
     const shape=new THREE.Shape(),span=spec.root-spec.tip;
     // An asymmetric airfoil outline: broad at the shoulder, a long sweeping
-    // edge, and a soft oblique tip. The underside draws inward more sharply.
+    // edge, and a pointed tip. The underside draws inward more sharply.
     shape.moveTo(spec.root,spec.yRoot+spec.half*.45);
     shape.bezierCurveTo(spec.root-span*.23,spec.yRoot+spec.half*1.4,
       spec.tip+span*.32,spec.yTip+spec.half*.62,
-      spec.tip+.009,spec.yTip+.005);
-    shape.quadraticCurveTo(spec.tip-.002,spec.yTip+.001,spec.tip+.007,spec.yTip-.006);
+      spec.tip,spec.yTip);
     shape.bezierCurveTo(spec.tip+span*.23,spec.yTip-spec.half*.72,
       spec.root-span*.30,spec.yRoot-spec.half*.82,
       spec.root,spec.yRoot-spec.half*.40);
@@ -181,8 +180,10 @@ export function createThunderbirdRifle(length) {
     const inlayGeometry=new THREE.BufferGeometry();
     inlayGeometry.setAttribute('position',new THREE.Float32BufferAttribute(inlay,3));
     inlayGeometry.setIndex(indices);inlayGeometry.computeVertexNormals();
-    const light=new THREE.MeshStandardMaterial({color:'#ffd34a',emissive:'#ffd447',
-      emissiveIntensity:.45,metalness:.36,roughness:.34,side:THREE.DoubleSide});
+    // Keep these luminous inlays saturated under the arena's filmic exposure.
+    // A subdued diffuse base avoids adding pale reflections to the yellow.
+    const light=new THREE.MeshStandardMaterial({color:'#997300',emissive:'#ffcc00',
+      emissiveIntensity:.85,metalness:0,roughness:.8,toneMapped:false,side:THREE.DoubleSide});
     const quill=new THREE.Mesh(inlayGeometry,light);
     quill.name=moving?'thunderbird-quill':'thunderbird-tail-inlay';
     quill.castShadow=true;quill.receiveShadow=true;pivot.add(quill);
@@ -195,6 +196,6 @@ export function createThunderbirdRifle(length) {
   for(const side of [-1,1])makePanel(side,
     {root:.38,tip:-.13,yRoot:0,yTip:.115,half:.067,sideOffset:.078},0,false);
   group.userData.thunderbird={featherGlow,featherPivots,featherSpecs,
-    shotAt:-10,lastPoseAt:null,openness:0};
+    shotAt:-10,fanStartedAt:-10,lastPoseAt:null};
   return group;
 }

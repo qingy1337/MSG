@@ -1,4 +1,5 @@
 const { createGameServer } = require('./gameServer');
+const {balancedPvpTeams}=require('../public/pvpTeams');
 const {
   getUserFromCookieHeader,
   ensureUserCurrencies,
@@ -45,12 +46,14 @@ function createLobbyServer(io) {
   }
 
   function publicLobby(lobby) {
+    const teams=lobby.pvpMode==='teams'?lobby.teamByPlayer:new Map();
     const maxPlayers = MODES[lobby.mode].maxPlayers;
     const hasCapacity = lobby.memberIds.size < maxPlayers;
     const players = lobby.engine.waitingPlayers.map(player => ({
       id: player.id,
       username: player.accountUsername || player.name,
       weapon: player.primaryWeapon || player.weapon,
+      team:teams.get(player.id),
       joiningNextFloor:lobby.status==='active',
     }));
     if (lobby.status === 'active') {
@@ -60,12 +63,14 @@ function createLobbyServer(io) {
           id: player.id,
           username: player.accountUsername || player.name,
           weapon: player.primaryWeapon || player.weapon,
+          team:player.team,
         });
       }
     }
     return {
       id: lobby.id,
       mode: lobby.mode,
+      pvpMode:lobby.mode==='pvp'?lobby.pvpMode:undefined,
       modeName: MODES[lobby.mode].name,
       name: `${lobby.ownerName}'s fireteam`,
       ownerId: lobby.ownerId,
@@ -170,6 +175,11 @@ function createLobbyServer(io) {
       return {ok:false,error:'That PvE run is no longer accepting reinforcements.'};
     }
     if(!latePveJoin)lobby.engine.handleJoin(socket,joinPayload);
+    if(lobby.mode==='pvp'&&lobby.pvpMode==='teams') {
+      const blue=[...lobby.teamByPlayer.values()].filter(team=>team==='blue').length;
+      const red=lobby.teamByPlayer.size-blue;
+      lobby.teamByPlayer.set(socket.id,blue<=red?'blue':'red');
+    }
     publishLobbyState(lobby);
     publishLobbyList();
     return { ok: true, lobby: publicLobby(lobby), ...(lateJoin?{lateJoin}: {}) };
@@ -182,6 +192,7 @@ function createLobbyServer(io) {
     lobby.engine.handleDisconnect(socket);
     unbindSocket(socket.id);
     lobby.memberIds.delete(socket.id);
+    lobby.teamByPlayer.delete(socket.id);
     state.lobbyId = null;
     if (!disconnected) socket.leave(lobby.roomName);
 
@@ -232,6 +243,8 @@ function createLobbyServer(io) {
       id,
       roomName,
       mode,
+      pvpMode:mode==='pvp'&&payload?.pvpMode==='teams'?'teams':'ffa',
+      teamByPlayer:new Map(),
       ownerId: socket.id,
       ownerName: socket.user.username,
       status: 'open',
@@ -269,11 +282,15 @@ function createLobbyServer(io) {
     if (lobby.mode === 'pvp' && lobby.memberIds.size < 2 && !qingDebug) {
       return reply?.({ ok: false, error: 'PvP needs at least two players.' });
     }
+    if(lobby.pvpMode==='teams'&&!qingDebug&&new Set(lobby.teamByPlayer.values()).size<2)
+      return reply?.({ok:false,error:'Both teams need at least one player.'});
     const options = {
       enableBots: lobby.mode !== 'pvp',
       startFloor: payload?.startFloor,
       pvpMap: payload?.pvpMap,
       debugDouble: qingDebug,
+      pvpMode:lobby.pvpMode,
+      pvpTeamAssignments:lobby.teamByPlayer,
     };
     lobby.engine.handleStartGame(socket, options);
     if (!lobby.engine.gameInProgress.status) return reply?.({ ok: false, error: 'The match could not be launched.' });
@@ -306,6 +323,25 @@ function createLobbyServer(io) {
       reply?.({ ok: true });
     });
     socket.on('lobby:loadout', (payload, reply) => handleLoadout(socket, payload, reply));
+    socket.on('lobby:pvpMode',(payload,reply)=>{
+      const lobby=currentLobby(socket);
+      if(!lobby||lobby.mode!=='pvp'||lobby.status!=='open'||lobby.ownerId!==socket.id)
+        return reply?.({ok:false,error:'Only the leader can change the mode before launch.'});
+      if(!['ffa','teams'].includes(payload?.pvpMode))return reply?.({ok:false,error:'Invalid PvP mode.'});
+      lobby.pvpMode=payload.pvpMode;
+      if(lobby.pvpMode==='teams')lobby.teamByPlayer=balancedPvpTeams(lobby.engine.waitingPlayers);
+      publishLobbyState(lobby);publishLobbyList();reply?.({ok:true});
+    });
+    socket.on('lobby:team',(payload,reply)=>{
+      const lobby=currentLobby(socket),team=payload?.team;
+      if(!lobby||lobby.mode!=='pvp'||lobby.pvpMode!=='teams'||lobby.status!=='open')
+        return reply?.({ok:false,error:'Teams can only change while waiting in team PvP.'});
+      if(!['blue','red'].includes(team))return reply?.({ok:false,error:'Invalid team.'});
+      const count=[...lobby.teamByPlayer.entries()].filter(([id,value])=>id!==socket.id&&value===team).length;
+      if(count>=4)return reply?.({ok:false,error:'That team is full.'});
+      lobby.teamByPlayer.set(socket.id,team);
+      publishLobbyState(lobby);publishLobbyList();reply?.({ok:true});
+    });
     socket.on('lobby:start', (payload, reply) => startLobby(socket, payload, reply));
     socket.on('disconnect', () => {
       leaveLobby(socket, { disconnected: true });

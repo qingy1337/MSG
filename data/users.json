@@ -4,7 +4,7 @@
     "username": "qing",
     "passwordHash": "120000:527376a4c7facb358546550205746662:8803cf5b1c16b4a2f9a8f8be0478fa4bec09c8104df42842cc397818c661e2ff",
     "currencies": {
-      "Coins": 6706
+      "Coins": 8616
     },
     "skins": {
       "owned": [
@@ -35,24 +35,25 @@
       "equippedByWeapon": {
         "pistol": "pistol_kintsugi",
         "autoRifle": "autoRifle_thunderbird",
-        "miniGun": "miniGun_crimson_guard",
+        "miniGun": "miniGun_midas",
         "sniper": "sniper_kintsugi",
         "shotgun": "shotgun_bubble_trouble"
       }
     },
     "loadout": {
-      "primaryWeapon": "autoRifle"
+      "primaryWeapon": "sniper",
+      "playerColor": "#a861ff"
     },
     "stats": {
-      "pveKills": 3361,
-      "pvpKills": 895,
-      "grenadesThrown": 2171,
+      "pveKills": 3434,
+      "pvpKills": 1168,
+      "grenadesThrown": 2414,
       "weaponKills": {
-        "autoRifle": 95,
-        "shotgun": 369,
-        "sniper": 1835,
-        "miniGun": 672,
-        "pistol": 986
+        "autoRifle": 112,
+        "shotgun": 379,
+        "sniper": 1983,
+        "miniGun": 695,
+        "pistol": 1127
       }
     }
   },
@@ -61,7 +62,7 @@
     "username": "ggg",
     "passwordHash": "120000:6e213f5bc9566e97880dca1ac766b17a:ee762808405c3234c19bd55b0fa3283dac8b6398d850c4223254b980bd8ba576",
     "currencies": {
-      "Coins": 172
+      "Coins": 2486
     },
     "skins": {
       "owned": [
@@ -90,25 +91,26 @@
       ],
       "equippedByWeapon": {
         "pistol": "pistol_pocket_dragon",
-        "autoRifle": "autoRifle_default",
-        "miniGun": "miniGun_crimson_guard",
+        "autoRifle": "autoRifle_thunderbird",
+        "miniGun": "miniGun_midas",
         "sniper": "sniper_kintsugi",
         "shotgun": "shotgun_bubble_trouble"
       }
     },
     "loadout": {
-      "primaryWeapon": "autoRifle"
+      "primaryWeapon": "sniper",
+      "playerColor": "#000000"
     },
     "stats": {
-      "pveKills": 4193,
-      "pvpKills": 568,
-      "grenadesThrown": 2155,
+      "pveKills": 4381,
+      "pvpKills": 783,
+      "grenadesThrown": 2323,
       "weaponKills": {
-        "autoRifle": 1810,
-        "shotgun": 162,
-        "sniper": 435,
-        "miniGun": 1389,
-        "pistol": 623
+        "autoRifle": 1867,
+        "shotgun": 166,
+        "sniper": 510,
+        "miniGun": 1560,
+        "pistol": 715
       }
     }
   },
@@ -117,7 +119,7 @@
     "username": "yxli",
     "passwordHash": "120000:6e213f5bc9566e97880dca1ac766b17a:ee762808405c3234c19bd55b0fa3283dac8b6398d850c4223254b980bd8ba576",
     "currencies": {
-      "Coins": 2432
+      "Coins": 3584
     },
     "skins": {
       "owned": [
@@ -144,18 +146,19 @@
       }
     },
     "loadout": {
-      "primaryWeapon": "autoRifle"
+      "primaryWeapon": "miniGun",
+      "playerColor": "#ffc800"
     },
     "stats": {
-      "pveKills": 1554,
-      "pvpKills": 173,
-      "grenadesThrown": 831,
+      "pveKills": 1644,
+      "pvpKills": 295,
+      "grenadesThrown": 917,
       "weaponKills": {
-        "autoRifle": 868,
+        "autoRifle": 1033,
         "shotgun": 16,
-        "sniper": 222,
-        "miniGun": 133,
-        "pistol": 355
+        "sniper": 223,
+        "miniGun": 173,
+        "pistol": 357
       }
     }
   },
@@ -164,7 +167,7 @@
     "username": "ruo",
     "passwordHash": "120000:9de7999fc787ef76db2c60df93c88dab:c054a9e1c534b36bf85cf050a4892d55008d415533ffef40d3a89c35efd74572",
     "currencies": {
-      "Coins": 4675
+      "Coins": 1109
     },
     "skins": {
       "owned": [
@@ -178,29 +181,31 @@
         "shotgun_bubble_trouble",
         "sniper_flatpack",
         "sniper_kintsugi",
-        "pistol_kintsugi"
+        "pistol_kintsugi",
+        "miniGun_midas"
       ],
       "equippedByWeapon": {
         "pistol": "pistol_kintsugi",
         "autoRifle": "autoRifle_cybernetic",
-        "miniGun": "miniGun_default",
+        "miniGun": "miniGun_midas",
         "sniper": "sniper_kintsugi",
         "shotgun": "shotgun_bubble_trouble"
       }
     },
     "loadout": {
-      "primaryWeapon": "sniper"
+      "primaryWeapon": "miniGun",
+      "playerColor": "#b90e0e"
     },
     "stats": {
-      "pveKills": 3851,
-      "pvpKills": 135,
-      "grenadesThrown": 480,
+      "pveKills": 3964,
+      "pvpKills": 265,
+      "grenadesThrown": 496,
       "weaponKills": {
-        "autoRifle": 505,
-        "shotgun": 111,
-        "sniper": 2735,
-        "miniGun": 15,
-        "pistol": 504
+        "autoRifle": 555,
+        "shotgun": 151,
+        "sniper": 2752,
+        "miniGun": 142,
+        "pistol": 512
       }
     }
   },
@@ -228,7 +233,8 @@
       }
     },
     "loadout": {
-      "primaryWeapon": "autoRifle"
+      "primaryWeapon": "autoRifle",
+      "playerColor": "#59daca"
     },
     "stats": {
       "pveKills": 0,
@@ -267,7 +273,8 @@
       }
     },
     "loadout": {
-      "primaryWeapon": "autoRifle"
+      "primaryWeapon": "autoRifle",
+      "playerColor": "#59daca"
     },
     "stats": {
       "pveKills": 0,
@@ -306,7 +313,8 @@
       }
     },
     "loadout": {
-      "primaryWeapon": "autoRifle"
+      "primaryWeapon": "autoRifle",
+      "playerColor": "#59daca"
     },
     "stats": {
       "pveKills": 0,

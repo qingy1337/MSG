@@ -98,9 +98,9 @@ if (canvas) {
       return createAutoRifle(skinKey, 1);
     }
 
-    function createLoadoutCharacter(weaponKey, skinKey, secondarySkinKey) {
+    function createLoadoutCharacter(weaponKey, skinKey, secondarySkinKey, playerColor) {
       const group = new THREE.Group();
-      const armor = material('#59daca', 0.45, 0.32);
+      const armor = material(playerColor, 0.45, 0.32);
       const undersuit = material('#182a35', 0.1, 0.65);
       const white = material('#d9e4de', 0.4, 0.35);
       const visor = new THREE.MeshStandardMaterial({
@@ -177,7 +177,7 @@ if (canvas) {
         color: '#49625e', transparent: true, opacity: 0.14, depthWrite: false,
       }), 0, 0.006, 0, 'floor-shadow');
       shadow.rotation.x = -Math.PI / 2;
-      group.userData = { helmet, primary: primaryMount, pistol: pistolMount };
+      group.userData = { helmet, armor, primary: primaryMount, pistol: pistolMount };
       return group;
     }
 
@@ -206,7 +206,8 @@ if (canvas) {
       camera.lookAt(0, 0.01, 0);
     }
 
-    async function setWeapon(weaponKey, skinKey, secondarySkinKey) {
+    async function setWeapon(weaponKey, skinKey, secondarySkinKey, playerColor = canvas.dataset.playerColor || '#59daca') {
+      model?.userData.armor.color.set(playerColor);
       if (!weaponKey || (weaponKey === renderedWeapon && skinKey === renderedSkin &&
         secondarySkinKey === renderedSecondarySkin)) return;
       const request = ++modelRequest;
@@ -216,7 +217,8 @@ if (canvas) {
       canvas.classList.add('is-loading');
       let nextModel;
       try {
-        nextModel = await createLoadoutCharacter(weaponKey, skinKey, secondarySkinKey);
+        nextModel = await createLoadoutCharacter(weaponKey, skinKey, secondarySkinKey, playerColor);
+        nextModel.userData.armor.color.set(canvas.dataset.playerColor || playerColor);
       } catch (error) {
         if (request === modelRequest) {
           renderedWeapon = '';
@@ -259,8 +261,8 @@ if (canvas) {
     }
 
     canvas.addEventListener('loadout-preview:update', event => {
-      const { weaponKey, skinKey, secondarySkinKey } = event.detail || {};
-      setWeapon(weaponKey, skinKey, secondarySkinKey);
+      const { weaponKey, skinKey, secondarySkinKey, playerColor } = event.detail || {};
+      setWeapon(weaponKey, skinKey, secondarySkinKey, playerColor);
     });
     canvas.addEventListener('pointerdown', event => {
       if (event.button !== 0 && event.pointerType === 'mouse') return;

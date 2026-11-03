@@ -3,7 +3,7 @@ const {sampleHeightfield}=require('../public/arenaMap');
 const R=2.4; // 12 cm, in horizontal arena units
 function throwGrenade(player,angle,pitch,charge,now,id) {
   const speed=110+400*Math.min(1,Math.max(0,charge/1200));
-  return {id,ownerId:player.id,x:player.x,y:player.y,height:(player.height||0)+1.65,
+  return {id,ownerId:player.id,ownerTeam:player.team,x:player.x,y:player.y,height:(player.height||0)+1.65,
     vx:Math.cos(angle)*Math.cos(pitch)*speed,vy:Math.sin(angle)*Math.cos(pitch)*speed,
     vz:Math.sin(pitch)*speed+65,expiresAt:now+3000,updatedAt:now};
 }

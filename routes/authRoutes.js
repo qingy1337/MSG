@@ -11,6 +11,7 @@ const {
   ensureUserCurrencies,
   ensureUserSkins,
   ensureUserLoadout,
+  normalizePlayerColor,
   ensureUserStats,
   saveUsers,
 } = require("../lib/userStore");
@@ -109,11 +110,19 @@ function createAuthRoutes() {
     const user = getUserFromRequest(req);
     if (!user) return res.status(401).json({ error: 'Not authenticated.' });
     const primaryWeapon = req.body?.primaryWeapon;
-    if (typeof primaryWeapon !== 'string' || !WEAPONS[primaryWeapon] || WEAPONS[primaryWeapon].selectable === false) {
+    const playerColor = req.body?.playerColor;
+    if (primaryWeapon === undefined && playerColor === undefined) {
+      return res.status(400).json({ error: 'Choose a weapon or player color.' });
+    }
+    if (primaryWeapon !== undefined && (typeof primaryWeapon !== 'string' || !WEAPONS[primaryWeapon] || WEAPONS[primaryWeapon].selectable === false)) {
       return res.status(400).json({ error: 'Invalid primary weapon.' });
     }
+    if (playerColor !== undefined && !normalizePlayerColor(playerColor)) {
+      return res.status(400).json({ error: 'Invalid player color.' });
+    }
     ensureUserLoadout(user);
-    user.loadout.primaryWeapon = primaryWeapon;
+    if (primaryWeapon !== undefined) user.loadout.primaryWeapon = primaryWeapon;
+    if (playerColor !== undefined) user.loadout.playerColor = normalizePlayerColor(playerColor);
     saveUsers();
     res.json({ ok: true, user: publicUser(user) });
   });

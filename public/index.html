@@ -23,6 +23,11 @@
             </div>
             <div class="header-right">
                 <div id="user-info" class="user-info hidden">
+                    <label id="player-color-control" class="player-color-control" title="Choose your character color">
+                        <input id="player-color" type="color" value="#59daca" aria-label="Character color">
+                        <span>Color</span>
+                    </label>
+                    <span id="player-color-status" class="player-color-status" role="status"></span>
                     <span id="user-username" class="user-name"></span>
                     <button id="logout-btn" class="btn btn-ghost btn-xs">Log out</button>
                 </div>
@@ -121,7 +126,7 @@
                         <div class="play-dock">
                             <div class="mode-picker" role="group" aria-label="Game mode">
                                 <button class="mode-choice active" data-mode="pvp">
-                                    <strong>PvP</strong><small>Competitive free-for-all</small>
+                                    <strong>PvP</strong><small>Free-for-all or team battles</small>
                                 </button>
                                 <button class="mode-choice" data-mode="pve">
                                     <strong>Endless PvE</strong><small>Co-op floor survival</small>
@@ -176,8 +181,16 @@
                         <button id="leave-lobby-btn" class="btn btn-ghost">Leave fireteam</button>
                     </div>
                     <div class="fireteam-roster">
-                        <h2 class="roster-title">Roster</h2>
+                        <div id="pvp-mode-row" class="pvp-mode-row hidden">
+                            <div class="pvp-mode-pills" role="group" aria-label="Match type">
+                                <button type="button" data-pvp-mode="ffa" aria-pressed="true">Free-for-all</button>
+                                <button type="button" data-pvp-mode="teams" aria-pressed="false">Teams</button>
+                            </div>
+                            <p id="pvp-team-note"></p>
+                        </div>
+                        <h2 id="roster-title" class="roster-title">Roster</h2>
                         <ul id="waiting-players"></ul>
+                        <div id="team-columns" class="team-columns hidden"></div>
                     </div>
                     <div id="lobby-leader-note" class="leader-note">Waiting for the fireteam leader to launch.</div>
                     <div id="lobby-action-status" class="lobby-action-status" role="status"></div>
@@ -186,12 +199,18 @@
                         <label for="pve-start-floor">Debug starting floor</label>
                         <input id="pve-start-floor" class="auth-input" type="number" min="1" step="1" value="1" aria-label="PvE starting floor">
                     </div>
-                    <div id="pvp-debug-row" class="debug-options hidden">
-                        <label for="pvp-debug-map">Debug PvP map</label>
-                        <select id="pvp-debug-map" class="auth-input" aria-label="PvP debug map"></select>
-                        <label class="pvp-debug-clone-label">
-                            <input id="pvp-debug-double" type="checkbox" checked>
-                            Spawn stationary qing clone
+                    <div id="pvp-debug-row" class="pvp-debug-panel hidden">
+                        <h3>Practice setup</h3>
+                        <div class="debug-map-setting">
+                            <label for="pvp-debug-map">Map</label>
+                            <select id="pvp-debug-map" aria-label="PvP debug map"></select>
+                        </div>
+                        <label class="debug-clone-setting">
+                            <span><strong>Stationary clone</strong><small>Add a second copy of you for testing.</small></span>
+                            <span class="debug-toggle">
+                                <input id="pvp-debug-double" type="checkbox" role="switch" aria-label="Spawn a stationary clone" autocomplete="off">
+                                <span class="debug-toggle-track" aria-hidden="true"></span>
+                            </span>
                         </label>
                     </div>
                 </div>
@@ -302,6 +321,8 @@
 
     <script src="/socket.io/socket.io.js"></script>
     <script src="weapons.js"></script>
+    <script src="pvpTeams.js"></script>
+    <script src="teamLobby.js"></script>
     <script src="movement.js"></script>
     <script src="mouseSensitivity.js"></script>
     <script src="arenaMap.js"></script>

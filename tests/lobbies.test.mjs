@@ -50,6 +50,58 @@ function request(socket, event, payload = {}) {
   return result;
 }
 
+test('account colors reach both PvP and PvE player snapshots',t=>{
+  t.mock.method(global,'setInterval',()=>1);
+  t.mock.method(global,'clearInterval',()=>{});
+  for(const mode of ['pvp','pve']) {
+    const io=fakeIo(),manager=lobbyModule.createLobbyServer(io);
+    const first=new FakeSocket('color-first','color-first'),second=new FakeSocket('color-second','color-second');
+    first.user.loadout={playerColor:'#dc8042'};
+    second.user.loadout={playerColor:'#8352d9'};
+    io.connect(first);io.connect(second);
+    try {
+      const created=request(first,'lobby:create',{mode});
+      assert.equal(request(second,'lobby:join',{lobbyId:created.lobby.id,color:'#000000'}).ok,true);
+      first.user.loadout.playerColor='#e078ab';
+      assert.equal(request(first,'lobby:loadout',{weapon:'sniper'}).ok,true);
+      assert.equal(request(first,'lobby:start').ok,true);
+      const snapshot=io.events.find(event=>event.name==='gameStarting').args[0];
+      assert.equal(snapshot.players.find(p=>p.id===first.id).color,'#e078ab');
+      assert.equal(snapshot.players.find(p=>p.id===second.id).color,'#8352d9');
+      if(mode==='pve')assert.equal(snapshot.players.find(p=>p.id===first.id).team,'players');
+    } finally {manager.close();}
+  }
+});
+
+test('players choose teams, keep their choices through loadout changes, and cannot launch an empty opposition',t=>{
+  t.mock.method(global,'setInterval',()=>1);t.mock.method(global,'clearInterval',()=>{});
+  const io=fakeIo(),manager=lobbyModule.createLobbyServer(io);
+  const sockets=Array.from({length:6},(_,i)=>new FakeSocket(`team-${i}`,`team-${i}`));
+  sockets.forEach(socket=>io.connect(socket));
+  try {
+    const created=request(sockets[0],'lobby:create',{mode:'pvp'});
+    for(const socket of sockets.slice(1))assert.equal(request(socket,'lobby:join',{lobbyId:created.lobby.id}).ok,true);
+    assert.equal(request(sockets[1],'lobby:pvpMode',{pvpMode:'teams'}).ok,false,'only leader chooses the mode');
+    assert.equal(request(sockets[0],'lobby:pvpMode',{pvpMode:'teams'}).ok,true);
+    const lobby=manager.lobbies.get(created.lobby.id);
+    assert.equal(request(sockets[1],'lobby:team',{team:'blue',playerId:sockets[3].id}).ok,true);
+    assert.equal(lobby.teamByPlayer.get(sockets[3].id),'red','a supplied player ID cannot move someone else');
+    assert.equal(request(sockets[3],'lobby:team',{team:'blue'}).ok,false,'four players per team');
+    assert.equal(request(sockets[0],'lobby:loadout',{weapon:'sniper'}).ok,true);
+    assert.equal(lobby.teamByPlayer.get(sockets[1].id),'blue');
+    assert.equal(request(sockets[0],'lobby:team',{team:'invalid'}).ok,false);
+    for(const socket of [sockets[3],sockets[5]])assert.equal(request(socket,'lobby:leave').ok,true);
+    assert.equal(request(sockets[0],'lobby:start').ok,false,'all remaining players chose blue');
+    assert.equal(request(sockets[1],'lobby:team',{team:'red'}).ok,true);
+    assert.equal(request(sockets[0],'lobby:start').ok,true,'intentional 3v1 is allowed');
+    assert.equal(lobby.engine.gameMap.pvpMode,'teams');
+    assert.equal(lobby.engine.activePlayers.find(p=>p.id===sockets[1].id).team,'red');
+    assert.equal(lobby.engine.activePlayers.filter(p=>p.team==='blue').length,3);
+    assert.equal(request(sockets[0],'lobby:team',{team:'red'}).ok,false,'teams lock on launch');
+    assert.equal(request(sockets[0],'lobby:pvpMode',{pvpMode:'ffa'}).ok,false);
+  } finally {manager.close();}
+});
+
 test('independent fireteams launch isolated PvE matches in parallel', t => {
   t.mock.method(global, 'setInterval', () => 1);
   t.mock.method(global, 'clearInterval', () => {});

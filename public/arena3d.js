@@ -35,6 +35,8 @@ const STRIKE_SPAWN_SECONDS=1.2;
 
 export function resolveViewPlayer(players,localId) {
   const local=players.find(player=>player.id===localId);
+  if(!local?.alive&&['blue','red'].includes(local?.team))
+    return players.find(player=>player.alive&&player.team===local.team)||null;
   return local?.alive?local:players.find(player=>player.alive&&!player.isBot)||null;
 }
 
@@ -1694,8 +1696,9 @@ export class Arena3D {
       }
       const health = Math.max(0, player.health ?? player.maxHealth ?? 101), percent=100*health/(player.maxHealth||101);
       const value=String(Math.ceil(health)),width=`${Math.min(100,percent)}%`;
-      const color=shielded?SPAWN_SHIELD_BLUE:player.botType==='guardian'?'#a950ef':player.botType==='warden'?'#ffb02e':
-        player.botType==='dread'?'#ef3048':percent<30?'#ff7878':percent<60?'#ffd48b':'#7bf0c4';
+      const teamColor=this.mapConfig.pvpMode==='teams'&&globalThis.PVP_TEAMS?.[player.team]?.color;
+      const color=shielded?SPAWN_SHIELD_BLUE:teamColor|| (player.botType==='guardian'?'#a950ef':player.botType==='warden'?'#ffb02e':
+        player.botType==='dread'?'#ef3048':percent<30?'#ff7878':percent<60?'#ffd48b':'#7bf0c4');
       if(c.labelValue!==value){c.labelValue=value;c.value.textContent=value;}
       if(c.fillWidth!==width){c.fillWidth=width;c.fill.style.width=width;}
       if(c.fillColor!==color){c.fillColor=color;c.fill.style.background=color;}
