@@ -1,7 +1,7 @@
 const { WEAPONS, DEFAULT_WEAPON_KEY, SECONDARY_WEAPON_KEY, WEAPON_SWITCH_MS,
   weaponBloomRadians,spreadWeaponAim } = require("../public/weapons");
 const { traceShot, tracePiercingShot, rayBox } = require("./hitscan");
-const {traceShotgun}=require('./shotgun');
+const {traceShotgun,shotgunPelletDamageAtDistance}=require('./shotgun');
 const {hitsElevatorOverride}=require('./elevatorOverride');
 const {throwGrenade,stepGrenade,blastDamage}=require('./grenades');
 const {splitCoinReward}=require('./coinRewards');
@@ -691,7 +691,7 @@ function createGameServer(io, options = {}) {
         target=>canDamage(player,target),gameMap);
       const reactorHits=pellets.map(pellet=>strikeDestructibleHit(player,pellet)).filter(Boolean);
       const reactorDamage=reactorHits.reduce((sum,hit)=>sum+
-        Math.max(1,12-Math.max(0,hit.distance-100)/30),0);
+        shotgunPelletDamageAtDistance(hit.distance),0);
       const reactorHit=reactorHits.length?{...reactorHits[0],damage:reactorDamage}:null;
       const shotgunBarrel=WEAPONS.shotgun.shotsPerReload-1-player.shotgunShotsRemaining;
       io.emit('shotFired',{...pellets[0],pellets,shotgunBarrel,weaponSkinKey:player.weaponSkinKey,

@@ -41,6 +41,17 @@ const WEAPON_SKINS = {
         {type:'circle',cx:0.42,cy:0.11,radius:0.025,color:'#d38cff'},
       ],
     },
+    {
+      key:'shotgun_imperial_dragon',weaponKey:'shotgun',name:'Imperial Dragon',
+      description:'Crimson lacquer, gold scales, and a slim twin-barrel muzzle.',
+      price:5000,isDefault:false,bulletColor:'#ff9d2e',
+      shapes:[
+        {type:'line',fromX:0,fromY:0,toX:1,toY:0,lineWidth:10,color:'#a8171d',outlineColor:'#4c090d'},
+        {type:'line',fromX:0.12,fromY:-0.13,toX:0.8,toY:-0.13,lineWidth:2,color:'#f5c84b'},
+        {type:'line',fromX:0.19,fromY:0.12,toX:0.68,toY:0.12,lineWidth:2,color:'#d99a24'},
+        {type:'line',fromX:0.75,fromY:0,toX:1,toY:0,lineWidth:7,color:'#a8171d',outlineColor:'#f5c84b'},
+      ],
+    },
   ],
   pistol: [
     {

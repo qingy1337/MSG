@@ -1,5 +1,9 @@
 const {traceShot}=require('./hitscan');
 
+function shotgunPelletDamageAtDistance(distance) {
+  return Math.max(1,12-Math.max(0,distance-140)/45);
+}
+
 // Fixed-density disk, rotated per blast. Clients supply aim only, never pellets
 // or damage. Each pellet independently tests cover, elevation, and allies.
 function traceShotgun(shooter,angle,pitch,walls,players,canHit,map,random=Math.random) {
@@ -11,10 +15,10 @@ function traceShotgun(shooter,angle,pitch,walls,players,canHit,map,random=Math.r
     pellets.push(shot);
     if(shot.targetId) {
       const range=Math.hypot(shot.endX-shot.x,shot.endY-shot.y,(shot.endHeight-shot.height)/0.05);
-      const amount=Math.max(1,12-Math.max(0,range-100)/30);
+      const amount=shotgunPelletDamageAtDistance(range);
       damage.set(shot.targetId,(damage.get(shot.targetId)||0)+amount);
     }
   }
   return {pellets,damage};
 }
-module.exports={traceShotgun};
+module.exports={traceShotgun,shotgunPelletDamageAtDistance};

@@ -1,3 +1,5 @@
+import './grenadeCharge.js';
+
 export function createGrenadeHud(document) {
   const hud=document.getElementById('grenade-hud');
   const icons=[...hud.querySelectorAll('.grenade-icon')];
@@ -11,7 +13,7 @@ export function createGrenadeHud(document) {
       hud.setAttribute('aria-label',`${available} of 3 grenades available`);
       previousCount=available;
     }
-    const percent=chargeMs==null?0:Math.min(100,Math.max(0,chargeMs/12));
+    const percent=chargeMs==null?0:Math.min(100,Math.max(0,chargeMs/globalThis.GRENADE_FULL_CHARGE_MS*100));
     const active=chargeMs!=null,rounded=Math.round(percent);
     if(previousActive!==active){previousActive=active;track.hidden=!active;}
     if(previousPercent!==rounded){previousPercent=rounded;fill.style.height=`${percent}%`;

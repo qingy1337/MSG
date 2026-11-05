@@ -9,7 +9,7 @@ const WEAPONS = {
     weaponLength: 44, bulletSpeed: 14, bulletRadius: 3,
     // Both loaded barrels may be fired back-to-back. The reload gate below is
     // still authoritative once the second shot has been spent.
-    cooldownMs: 0, shotsPerReload: 2, reloadMs: 1580, automatic: false,
+    cooldownMs: 0, shotsPerReload: 2, reloadMs: 1000, automatic: false,
   },
   pistol: {
     key: 'pistol',

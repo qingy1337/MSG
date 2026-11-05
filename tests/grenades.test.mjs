@@ -15,7 +15,7 @@ test('grenade HUD fades spent icons, refills them, and fills charge vertically o
   const elements={'grenade-hud':hud,'grenade-charge-track':track,'grenade-charge':fill};
   const update=createGrenadeHud({getElementById:id=>elements[id]});
   update(3);assert.ok(icons.every(i=>i.classList.available));assert.equal(track.hidden,true);
-  update(2,600);assert.deepEqual(icons.map(i=>i.classList.available),[true,true,false]);
+  update(2,350);assert.deepEqual(icons.map(i=>i.classList.available),[true,true,false]);
   assert.equal(fill.style.height,'50%');assert.equal(track.hidden,false);assert.equal(track['aria-valuenow'],'50');
   update(2,5000);assert.equal(fill.style.height,'100%');
   update(0);assert.ok(icons.every(i=>!i.classList.available));assert.equal(track.hidden,true);
@@ -23,7 +23,7 @@ test('grenade HUD fades spent icons, refills them, and fills charge vertically o
   update(3);assert.ok(icons.every(i=>i.classList.available));
 });
 test('charge controls range, caps power, and fuse begins on release',()=>{
-  const tap=grenade.throwGrenade(player,0,0,0,5000,1),full=grenade.throwGrenade(player,0,0,1200,5000,2);
+  const tap=grenade.throwGrenade(player,0,0,0,5000,1),full=grenade.throwGrenade(player,0,0,700,5000,2);
   assert.equal(tap.expiresAt,8000);assert.ok(full.vx>tap.vx*4);
   assert.equal(tap.vx,110);assert.equal(full.vx,510);
   assert.equal(grenade.throwGrenade(player,0,0,90000,5000,3).vx,full.vx);

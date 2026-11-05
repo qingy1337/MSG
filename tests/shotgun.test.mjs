@@ -21,10 +21,15 @@ test('shotgun reticle ring projects the authoritative pellet cone at the camera 
 });
 
 test('shotgun pellets spread, respect walls and friendly filtering, and lose damage at range',()=>{
+  assert.equal(shotgun.shotgunPelletDamageAtDistance(100),12);
+  assert.equal(shotgun.shotgunPelletDamageAtDistance(140),12);
+  assert.equal(shotgun.shotgunPelletDamageAtDistance(185),11);
+  assert.equal(shotgun.shotgunPelletDamageAtDistance(230),10);
+  assert.equal(shotgun.shotgunPelletDamageAtDistance(635),1);
   const fire=(players,walls=[],allow=()=>true)=>shotgun.traceShotgun(shooter,0,0,walls,players,allow,map,()=>0);
   const close=fire([target]);assert.equal(close.pellets.length,8);assert.equal(close.damage.get('t'),96);
   assert.equal(new Set(close.pellets.map(p=>`${p.angle}/${p.pitch}`)).size,8);
-  const far=fire([{...target,x:500}]);assert.ok((far.damage.get('t')||0)<20);
+  const far=fire([{...target,x:500}]);assert.ok((far.damage.get('t')||0)<30);
   assert.equal(fire([target],[{x:130,y:0,width:10,height:1200,top:7.5}]).damage.size,0);
   assert.equal(fire([target],[],()=>false).damage.size,0);
   const elevated=fire([{...target,height:4}]);assert.equal(elevated.damage.size,0);
@@ -51,7 +56,7 @@ test('server allows both loaded shotgun shots back-to-back but owns the reload g
       'the second loaded shot can fire in the same millisecond');
     assert.equal(events.filter(e=>e.name==='shotFired').at(-1).data.shotgunBarrel,1);
     assert.equal(game.activePlayers[0].shotgunShotsRemaining,0);
-    now+=1579;
+    now+=999;
     handlers.shoot({angle:0,shotgunShotsRemaining:2,shotgunReloadUntil:0});
     assert.equal(events.filter(e=>e.name==='shotFired').length,2,'cannot bypass the reload');
     game.gameWalls.push({x:130,y:0,width:10,height:600,top:7.5});
@@ -66,11 +71,12 @@ test('server allows both loaded shotgun shots back-to-back but owns the reload g
 test('shotgun has a selectable registry entry, free default skin and detailed models at both scales',()=>{
   assert.equal(weapons.WEAPONS.shotgun.automatic,false);
   assert.equal(weapons.WEAPONS.shotgun.cooldownMs,0);
-  assert.equal(weapons.WEAPONS.shotgun.reloadMs,1580);
+  assert.equal(weapons.WEAPONS.shotgun.reloadMs,1000);
   assert.equal(weapons.WEAPONS.shotgun.description,'Eight-pellet hitscan blast.');
   assert.equal(skins.DEFAULT_SKIN_BY_WEAPON.shotgun,'shotgun_default');
   assert.equal(skins.ALL_SKINS_BY_KEY.shotgun_silverline.price,2000);
   assert.equal(skins.ALL_SKINS_BY_KEY.shotgun_bubble_trouble.price,4000);
+  assert.equal(skins.ALL_SKINS_BY_KEY.shotgun_imperial_dragon.price,5000);
   assert.equal(muzzleFlashScaleForWeapon('shotgun'),1.65);
   assert.equal(muzzleFlashScaleForWeapon('sniper'),1.5);
   assert.equal(muzzleFlashScaleForWeapon('pistol'),1);
@@ -158,6 +164,62 @@ test('shotgun has a selectable registry entry, free default skin and detailed mo
           'longitudinal chamber guards follow the edges of the molded shrouds');
         assert.deepEqual(shotgunMuzzleStyle(skin.key,0),{barrel:-1,color:'#5ff7ff'});
         assert.deepEqual(shotgunMuzzleStyle(skin.key,1),{barrel:1,color:'#ce70ff'});
+      } else if(skin.key==='shotgun_imperial_dragon') {
+        assert.equal(model.getObjectsByProperty('name','muzzle-bore').length,2);
+        assert.equal(model.getObjectsByProperty('name','dragon-eye').length,0);
+        assert.equal(model.getObjectsByProperty('name','dragon-horn').length,2);
+        for(const [horn,collar] of model.getObjectsByProperty('name','dragon-horn')
+          .map((part,index)=>[part,model.getObjectsByProperty('name','dragon-horn-collar')[index]])) {
+          const hornBounds=new THREE.Box3().setFromObject(horn);
+          const collarBounds=new THREE.Box3().setFromObject(collar);
+          assert.ok(hornBounds.intersectsBox(collarBounds),'each horn is seated in its collar');
+          const shellBounds=new THREE.Box3().setFromObject(model.getObjectByName('dragon-forearm'));
+          const base=horn.localToWorld(new THREE.Vector3(0,-horn.geometry.parameters.height/2,0));
+          assert.ok(base.y<shellBounds.max.y-length*0.01&&
+            base.x>shellBounds.min.x&&base.x<shellBounds.max.x&&
+            base.z>shellBounds.min.z&&base.z<shellBounds.max.z,
+          'the center of each horn base is buried inside the barrel shell');
+        }
+        assert.equal(model.getObjectsByProperty('name','dragon-cheek').length,0);
+        assert.equal(model.getObjectsByProperty('name','dragon-top-filigree').length,2);
+        assert.equal(model.getObjectsByProperty('name','dragon-top-branch').length,2);
+        assert.equal(model.getObjectsByProperty('name','dragon-scale').length,8);
+        assert.ok(model.getObjectByName('dragon-muzzle-rim'));
+        const frontWidth=new THREE.Box3().setFromObject(model.getObjectByName('dragon-forearm')).getSize(new THREE.Vector3()).x;
+        const receiverWidth=new THREE.Box3().setFromObject(model.getObjectByName('receiver')).getSize(new THREE.Vector3()).x;
+        const muzzleWidth=new THREE.Box3().setFromObject(model.getObjectByName('dragon-muzzle-rim')).getSize(new THREE.Vector3()).x;
+        assert.ok(frontWidth>receiverWidth,'the front barrel is broader than the receiver');
+        assert.ok(muzzleWidth<frontWidth*0.8,'the muzzle retains its narrower original width');
+        const handhold=model.getObjectByName('dragon-pump-grip');
+        assert.ok(handhold);
+        assert.ok(new THREE.Box3().setFromObject(handhold).min.y>-length*0.13,
+          'the pump handhold stays tucked close beneath the forearm');
+        assert.equal(model.getObjectByName('dragon-spine'),undefined,
+          'the top has no broad gold slab');
+        assert.equal(model.getObjectByName('stock'),undefined,
+          'the receiver and stock form one continuous rear shell');
+        assert.equal(model.getObjectsByProperty('name','dragon-shell-well').length,2);
+        assert.equal(model.getObjectsByProperty('name','dragon-shell').length,2);
+        assert.equal(model.getObjectsByProperty('name','dragon-shell-head').length,2);
+        assert.equal(model.getObjectByName('receiver').material.color.getHexString(),'a8171d');
+        const rearBlock=new THREE.Box3().setFromObject(model.getObjectByName('receiver'));
+        assert.equal(model.getObjectByName('dragon-forearm').geometry.parameters.radius,0.03);
+        assert.ok(rearBlock.max.z<length*0.04,
+          'the continuous rear shell stops shortly behind the action');
+        assert.ok(Math.abs(rearBlock.max.y-length*0.077)<1e-5,
+          'the top of the rear block stays at its original height');
+        assert.ok(rearBlock.min.y>-length*0.092,
+          'the rear block loses height only from its underside');
+        const topLines=model.getObjectsByProperty('name','dragon-top-filigree');
+        for(const [index,shellName] of ['receiver','dragon-forearm'].entries()) {
+          const goldTop=new THREE.Box3().setFromObject(topLines[index]).max.y;
+          const shellTop=new THREE.Box3().setFromObject(model.getObjectByName(shellName)).max.y;
+          assert.ok(goldTop>shellTop&&goldTop-shellTop<length*0.009,
+            'gold top details sit shallowly in the lacquer rather than above it');
+        }
+        const width=bounds.max.x-bounds.min.x;
+        assert.ok(width>length*0.24&&width<length*0.255,
+          'the complete dragon shotgun is wider without becoming bulky');
       } else {
         for(const name of ['barrel','magazine-tube','stock'])assert.ok(model.getObjectByName(name));
       }
@@ -194,12 +256,28 @@ test('Bubble Trouble surges only the chamber corresponding to each fired barrel'
   model.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});
 });
 
-test('only Bubble Trouble overrides alternating shotgun muzzle colors',()=>{
+test('Imperial Dragon cycles only the cartridge corresponding to the fired barrel',()=>{
+  const model=createShotgun('shotgun_imperial_dragon',0.68);
+  const shells=model.getObjectsByProperty('name','dragon-shell');
+  const start=shells.map(shell=>shell.position.z);
+  assert.equal(triggerShotgunChamber(model,0,2),true);
+  poseShotgun(model,0.24,2.24);
+  assert.ok(shells[0].position.z>start[0]);
+  assert.equal(shells[1].position.z,start[1]);
+  poseShotgun(model,0.5,2.5);
+  assert.equal(shells[0].position.z,start[0]);
+  model.traverse(part=>{part.geometry?.dispose();part.material?.dispose();});
+});
+
+test('the themed shotguns use their own alternating muzzle colors',()=>{
   assert.equal(shotgunMuzzleStyle('shotgun_default',0),null);
   assert.equal(shotgunMuzzleStyle('shotgun_silverline',1),null);
   assert.deepEqual(shotgunMuzzleStyle('shotgun_bubble_trouble',2),{barrel:-1,color:'#5ff7ff'});
   assert.equal(shotgunPelletColor('shotgun_bubble_trouble',0,false),'#5ff7ff');
   assert.equal(shotgunPelletColor('shotgun_bubble_trouble',1,true),'#ce70ff');
+  assert.deepEqual(shotgunMuzzleStyle('shotgun_imperial_dragon',0),{barrel:-1,color:'#ff9d2e'});
+  assert.deepEqual(shotgunMuzzleStyle('shotgun_imperial_dragon',1),{barrel:1,color:'#ff9d2e'});
+  assert.equal(shotgunPelletColor('shotgun_imperial_dragon',0,false),'#ff9d2e');
   assert.equal(shotgunPelletColor('shotgun_default',0,false),'#9dfff3');
   assert.equal(shotgunPelletColor('shotgun_default',0,true),'#ffce8c');
 });

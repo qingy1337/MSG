@@ -8,6 +8,7 @@ export function createShotgun(skinKey, length) {
   if(typeof skinKey==='number') { length=skinKey;skinKey='shotgun_default'; }
   const silver=skinKey==='shotgun_silverline';
   const bubbleTrouble=skinKey==='shotgun_bubble_trouble';
+  const imperialDragon=skinKey==='shotgun_imperial_dragon';
   const group=new THREE.Group();group.scale.setScalar(length);group.userData.skinKey=skinKey;
   const mat=(color,metalness=0.15,roughness=0.48)=>new THREE.MeshStandardMaterial({color,metalness,roughness});
   const polished=silver?new THREE.MeshPhysicalMaterial({
@@ -288,6 +289,12 @@ export function createShotgun(skinKey, length) {
     return group;
   }
 
+  if(imperialDragon) {
+    addImperialDragonShotgun({group,add,softBox,roundedRect});
+    group.scale.x=length*1.1;
+    return group;
+  }
+
   box(0.19,0.2,0.32,0,-0.04,-0.22,steel,'receiver');
   const stock=box(0.15,0.2,0.28,0,-0.08,0.06,furniture,'stock');stock.rotation.x=-0.15;
   box(0.16,0.22,0.035,0,-0.06,0.2,dark,'butt-pad');
@@ -307,6 +314,101 @@ export function createShotgun(skinKey, length) {
   return group;
 }
 
+function addImperialDragonShotgun({group,add,softBox,roundedRect}) {
+  const lacquer=new THREE.MeshPhysicalMaterial({color:'#a8171d',metalness:0.34,roughness:0.22,
+    clearcoat:0.8,clearcoatRoughness:0.16});
+  const darkRed=new THREE.MeshPhysicalMaterial({color:'#4c090d',metalness:0.34,roughness:0.35,
+    clearcoat:0.55});
+  const gold=new THREE.MeshStandardMaterial({color:'#f5c84b',metalness:0.72,roughness:0.22});
+  const bronze=new THREE.MeshStandardMaterial({color:'#d99a24',metalness:0.82,roughness:0.2});
+  const charcoal=new THREE.MeshStandardMaterial({color:'#17191c',metalness:0.32,roughness:0.48});
+  const ivory=new THREE.MeshStandardMaterial({color:'#ffe6af',metalness:0.05,roughness:0.38});
+  const line=(points,radius,material,name)=>add(new THREE.TubeGeometry(
+    new THREE.CatmullRomCurve3(points.map(point=>new THREE.Vector3(...point))),
+    Math.max(12,points.length*5),radius,6,false),material,0,0,0,name);
+
+  // The action and stock are one uninterrupted lacquer shell. Narrow its rear
+  // within the same mesh so it still reads as a stock without a second block.
+  const rearGeometry=new RoundedBoxGeometry(0.187,0.164,0.545,7,0.03);
+  const rearPositions=rearGeometry.attributes.position;
+  for(let i=0;i<rearPositions.count;i++) {
+    const z=rearPositions.getZ(i);
+    const rear=THREE.MathUtils.smoothstep(z,0.0775,0.2675);
+    rearPositions.setX(i,rearPositions.getX(i)*(1-0.22*rear));
+  }
+  rearPositions.needsUpdate=true;rearGeometry.computeVertexNormals();
+  add(rearGeometry,lacquer,0,-0.005,-0.2375,'receiver');
+  // The front remains a broader, clean twin-barrel housing.
+  add(new RoundedBoxGeometry(0.205,0.139,0.51,7,0.03),lacquer,
+    0,0.005,-0.725,'dragon-forearm');
+  softBox(0.119,0.037,0.48,0,-0.078,-0.62,charcoal,'dragon-undercarriage');
+  softBox(0.143,0.129,0.03,0,-0.075,0.04,gold,'butt-trim');
+  softBox(0.149,0.146,0.027,0,-0.075,0.061,charcoal,'butt-pad');
+  softBox(0.014,0.065,0.1,0.102,0.008,-0.203,charcoal,'ejection-port');
+
+  // Two recessed cartridge ports make the two-shot action legible from the
+  // first-person view. The brass rims and red shells sit inside dark wells.
+  for(const [barrelIndex,side] of [[0,-1],[1,1]]) {
+    softBox(0.051,0.008,0.177,side*0.051,0.077,-0.295,charcoal,'dragon-shell-well');
+    const shell=add(new THREE.CylinderGeometry(0.016,0.016,0.12,14),darkRed,
+      side*0.051,0.083,-0.302,'dragon-shell');
+    shell.rotation.x=Math.PI/2;
+    const brass=add(new THREE.CylinderGeometry(0.018,0.018,0.016,14),gold,
+      side*0.051,0.083,-0.234,'dragon-shell-head');
+    brass.rotation.x=Math.PI/2;
+    for(const part of [shell,brass])Object.assign(part.userData,{barrelIndex,restZ:part.position.z});
+  }
+
+  const pump=new THREE.Group();pump.name='pump';group.add(pump);
+  const pumpGrip=softBox(0.145,0.037,0.25,0,-0.102,-0.64,charcoal,'dragon-pump-grip');
+  pump.attach(pumpGrip);
+  for(const side of [-1,1]) {
+    const seam=softBox(0.009,0.017,0.215,side*0.069,-0.1,-0.64,gold,'dragon-pump-inlay');
+    pump.attach(seam);
+    // Pocket Dragon's side ornament hugs the lacquer. Most of each scale and
+    // gold curve sits inside this shell, leaving a shallow metallic relief.
+    for(let i=0;i<4;i++) {
+      const scale=add(new THREE.SphereGeometry(0.036,10,7),i%2?bronze:gold,
+        side*(i===3?0.1:0.091),0.006+(i%2)*0.024,-0.18-i*0.117,'dragon-scale');
+      scale.scale.set(0.16,0.5,0.78);
+    }
+    line([[side*0.09,0.047,-0.09],[side*0.091,0.059,-0.22],
+      [side*0.091,-0.024,-0.34],[side*0.1,0.039,-0.51],
+      [side*0.1,-0.022,-0.68],[side*0.1,0.025,-0.84]],
+      0.0065,gold,'dragon-filigree');
+    line([[side*0.091,0.059,-0.22],[side*0.091,-0.003,-0.26],
+      [side*0.091,-0.045,-0.3]],0.0045,bronze,'dragon-filigree-branch');
+
+    // Small swept horns recall Pocket Dragon's crown without rebuilding a
+    // bulky face around the two shotgun bores.
+    const horn=add(new THREE.ConeGeometry(0.019,0.11,9),ivory,
+      side*0.077,0.105,-0.865,'dragon-horn');
+    horn.rotation.z=-side*0.34;horn.rotation.x=-0.43;
+    softBox(0.043,0.016,0.052,side*0.077,0.07,-0.865,gold,'dragon-horn-collar');
+  }
+
+  // Two winding seams cross the top like lacquer inlay. Their centers are
+  // sunk into the flat tops, so only a fine gold edge remains above the red.
+  line([[-0.012,0.074,-0.09],[0.026,0.074,-0.12],[-0.016,0.074,-0.16],
+    [0.021,0.074,-0.185],[-0.005,0.074,-0.195]],0.006,gold,'dragon-top-filigree');
+  line([[-0.005,0.0715,-0.5],[0.023,0.0715,-0.6],[-0.019,0.0715,-0.73],
+    [0.019,0.0715,-0.84],[-0.008,0.0715,-0.94]],0.006,gold,'dragon-top-filigree');
+  line([[-0.016,0.074,-0.16],[-0.035,0.074,-0.18]],0.004,bronze,'dragon-top-branch');
+  line([[-0.019,0.0715,-0.73],[-0.044,0.0715,-0.77]],0.004,bronze,'dragon-top-branch');
+
+  // The narrower twin-bore muzzle sits inside the broader barrel housing.
+  roundedRect(0.151,0.077,0.018,0.034,0,-0.007,-0.988,gold,'dragon-muzzle-rim');
+  roundedRect(0.129,0.057,0.011,0.027,0,-0.007,-1.003,charcoal,'dragon-muzzle-recess');
+  for(const side of [-1,1]) {
+    const bore=add(new THREE.CircleGeometry(0.019,18),charcoal,
+      side*0.034,-0.007,-1.013,'muzzle-bore');
+    bore.rotation.y=Math.PI;
+  }
+  softBox(0.067,0.031,0.035,0,0.105,-0.143,gold,'dragon-rear-sight');
+  softBox(0.022,0.03,0.03,0,0.091,-0.897,gold,'dragon-front-sight');
+  group.userData.pump=pump;
+}
+
 function poseParts(model) {
   if(model.userData.shotgunPoseParts)return model.userData.shotgunPoseParts;
   const named=name=>model.getObjectsByProperty('name',name);
@@ -316,12 +418,18 @@ function poseParts(model) {
     hotCores:named('chamber-energy-hot-core'),washes:named('chamber-energy-wash'),
     bubbles:named('floating-bubble'),energyCores:named('energy-core'),
     chambers:named('bubble-chamber'),trims:named('reactor-trim'),
+    dragonShells:[...named('dragon-shell'),...named('dragon-shell-head')],
   };
 }
 
 export function poseShotgun(model,elapsed,time=elapsed) {
   const parts=poseParts(model),pump=parts.pump;
   if(pump)pump.position.z=elapsed>0.16&&elapsed<0.7?0.14*Math.sin((elapsed-0.16)/0.54*Math.PI):0;
+  for(const part of parts.dragonShells) {
+    const age=time-(part.userData.burstAt??-Infinity);
+    const travel=age>=0&&age<0.48?0.047*Math.sin(Math.PI*age/0.48)**2:0;
+    part.position.z=part.userData.restZ+travel;
+  }
   const burstLevel=[0,0];
   for(const burst of parts.bursts) {
     const age=time-(burst.userData.burstAt??-Infinity);
@@ -404,12 +512,17 @@ export function triggerShotgunChamber(model,barrelIndex,time) {
       effect.userData.burstAt=time;effect.visible=true;triggered=true;
     }
   }
+  for(const part of parts.dragonShells) {
+    if(part.userData.barrelIndex!==selected)continue;
+    part.userData.burstAt=time;triggered=true;
+  }
   return triggered;
 }
 
 export function shotgunMuzzleStyle(skinKey,barrelIndex=0) {
-  if(skinKey!=='shotgun_bubble_trouble')return null;
+  if(skinKey!=='shotgun_bubble_trouble'&&skinKey!=='shotgun_imperial_dragon')return null;
   const right=Math.abs(Math.trunc(barrelIndex))%2===1;
+  if(skinKey==='shotgun_imperial_dragon')return {barrel:right?1:-1,color:'#ff9d2e'};
   return {barrel:right?1:-1,color:right?'#ce70ff':'#5ff7ff'};
 }
 
