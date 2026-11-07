@@ -31,82 +31,115 @@
 
   const definitions={
     foundry:{
-      id:'foundry',name:'Foundry',description:'A working casting hall with two elevated control bays and a cross-plant gantry.',
-      width:1700,height:1200,ceiling:12.8,scale:.72,style:'foundry',accent:'#d58b4c',
-      palette:{sky:'#b6c1b8',wall:'#687a78',panel:'#91a29a',cap:'#bfc5b4',glow:'#e6a265',
-        floorLow:'#4d5e5c',floorHigh:'#73847a',reflection:'#84938a',reflectionGlow:'#d58b4c',
-        ambient:'#e6d7bb',ground:'#8f9e91',sun:'#ffdfb2',rim:'#e4a875',
-        ambientIntensity:2.95,sunIntensity:3.15,rimIntensity:1.3},
-      // The hall has a clear production sequence: receiving at the south,
-      // smelting in the center, and a raised control gantry to the north.
-      // Two broad side bays give players cover and permanent routes upstairs.
+      id:'foundry',name:'Foundry',description:'A two-storey casting plant with service corridors around a central furnace bay.',
+      width:2200,height:1600,ceiling:18,scale:.72,style:'foundry',accent:'#d58b4c',
+      palette:{sky:'#c8d7c9',wall:'#84998d',panel:'#b9c9b7',cap:'#e1d8ba',glow:'#f2b470',
+        floorLow:'#788d81',floorHigh:'#a8b9a5',reflection:'#a0b4a5',reflectionGlow:'#edba78',
+        ambient:'#fff0d5',ground:'#b7c9b5',sun:'#fff0d0',rim:'#f2bd7c',
+        ambientIntensity:3.35,sunIntensity:3.45,rimIntensity:1.45},
+      // The service-bay returns grow out of the furnace room rather than
+      // floating in its aisles. Their ends leave generous outside flanks.
       walls:[
-        wall(180,160,300,28,4.6),wall(1220,160,300,28,4.6),
-        wall(500,90,28,160,5.4),wall(1172,90,28,160,5.4),
-        wall(250,940,270,28,4.6),wall(1180,940,270,28,4.6),
-        wall(580,790,28,210,4.6),wall(1092,790,28,210,4.6),
+        wall(630,100,26,212,6.4),wall(1540,100,26,212,6.4),
+        wall(630,1088,26,262,6.4),wall(1540,1088,26,262,6.4),
+        wall(220,1000,26,250,6.4),wall(1954,1000,26,250,6.4),
+        wall(900,1300,400,26,6.4),
       ],
       terrain:[
-        // Broad fabricated decks replace the many narrow grates and fragments.
-        // Their thin undersides preserve generous ground-floor circulation.
-        terrain('catwalk',150,270,400,320,3.2,{bottom:2.94,walkable:true,style:'foundry'}),
-        terrain('catwalk',550,310,600,95,3.2,{bottom:2.94,walkable:true,bridge:true,style:'foundry'}),
-        terrain('catwalk',1150,270,400,320,3.2,{bottom:2.94,walkable:true,style:'foundry'}),
-        terrain('ramp',295,590,120,270,3.2,{axis:'y',reverse:true,stairs:true,steps:19,style:'foundry'}),
-        terrain('ramp',1285,590,120,270,3.2,{axis:'y',reverse:true,stairs:true,steps:19,style:'foundry'}),
-        // Sparse perimeter guards mark fall edges; mouths of both stairs and
-        // both gantry joins remain completely clear.
-        terrain('rail',143,270,7,320,4.2,{bottom:3.2,style:'foundry'}),
-        terrain('rail',150,263,400,7,4.2,{bottom:3.2,style:'foundry'}),
-        terrain('rail',150,590,145,7,4.2,{bottom:3.2,style:'foundry'}),
-        terrain('rail',415,590,135,7,4.2,{bottom:3.2,style:'foundry'}),
-        terrain('rail',550,405,7,185,4.2,{bottom:3.2,style:'foundry'}),
-        terrain('rail',550,303,600,7,4.2,{bottom:3.2,style:'foundry'}),
-        terrain('rail',557,405,586,7,4.2,{bottom:3.2,style:'foundry'}),
-        terrain('rail',1143,405,7,185,4.2,{bottom:3.2,style:'foundry'}),
-        terrain('rail',1150,263,400,7,4.2,{bottom:3.2,style:'foundry'}),
-        terrain('rail',1550,270,7,320,4.2,{bottom:3.2,style:'foundry'}),
-        terrain('rail',1150,590,135,7,4.2,{bottom:3.2,style:'foundry'}),
-        terrain('rail',1405,590,145,7,4.2,{bottom:3.2,style:'foundry'}),
-        terrain('rail',288,590,7,270,1,{axis:'y',rise:3.2,reverse:true,style:'foundry'}),
-        terrain('rail',415,590,7,270,1,{axis:'y',rise:3.2,reverse:true,style:'foundry'}),
-        terrain('rail',1278,590,7,270,1,{axis:'y',rise:3.2,reverse:true,style:'foundry'}),
-        terrain('rail',1405,590,7,270,1,{axis:'y',rise:3.2,reverse:true,style:'foundry'}),
-        // Central machinery is one coherent casting line, rather than props
-        // randomly scattered across the floor. Tanks and furnaces have round
-        // collision matching their visible silhouettes.
-        terrain('furnace',660,490,150,150,4.25,{style:'foundry',collisionShape:'circle',collisionRadius:58,burnDamage:7}),
-        terrain('furnace',890,490,150,150,4.25,{style:'foundry',collisionShape:'circle',collisionRadius:58,burnDamage:7}),
-        terrain('foundryLadle',770,490,160,160,9.1,{bottom:4.15,nonSolid:true}),
-        terrain('foundryPress',790,710,120,95,2.65),
-        terrain('foundryCastingLine',700,880,300,58,1.15),
-        terrain('tank',160,730,125,125,3.2,{collisionShape:'circle',collisionRadius:48}),
-        terrain('tank',1415,730,125,125,3.2,{collisionShape:'circle',collisionRadius:48}),
-        terrain('pipe',90,1050,320,42,1.0,{collisionShape:'capsule',collisionRadius:15}),
-        terrain('pipe',1290,1050,320,42,1.0,{collisionShape:'capsule',collisionRadius:15}),
-        terrain('foundryPress',465,680,95,100,2.1),
-        terrain('foundryPress',1140,680,95,100,2.1),
-        terrain('foundryToolRack',20,430,55,125,1.85,{face:'east'}),
-        terrain('foundryToolRack',1625,430,55,125,1.85,{face:'west'}),
-        // Ceiling-hung extraction ducts frame the furnace line without
-        // creating extra floor collision or a low obstruction above the deck.
-        terrain('foundryDuct',300,455,450,45,12.6,{bottom:7,nonSolid:true,hoodEnd:'east'}),
-        terrain('foundryDuct',950,455,450,45,12.6,{bottom:7,nonSolid:true,hoodEnd:'west'}),
-        // The overhead bridge crane frames the entire hall but stays above
-        // combat space. It never creates an invisible obstruction at eye level.
-        terrain('crane',430,80,840,35,9.4,{bottom:8.85}),
-        terrain('foundryConsole',290,320,85,55,4.35,{bottom:3.2}),
-        terrain('foundryConsole',1325,475,85,55,4.35,{bottom:3.2}),
+        // One continuous upper floor, with a real room beneath it. The glass
+        // is framed by opaque lower and upper bands; the full wall footprint
+        // remains solid for movement and shots. Openings are actual gaps.
+        terrain('catwalk',440,320,1320,760,5.8,{bottom:5.55,walkable:true,style:'foundry'}),
+        terrain('foundryEnclosure',440,320,520,24,5.55),
+        terrain('foundryEnclosure',1100,320,660,24,5.55),
+        terrain('foundryEnclosure',440,1056,400,24,5.55),
+        terrain('foundryEnclosure',1000,1056,280,24,5.55),
+        terrain('foundryEnclosure',1440,1056,320,24,5.55),
+        terrain('foundryEnclosure',440,344,24,266,5.55),
+        terrain('foundryEnclosure',440,610,24,140,5.25),
+        terrain('foundryEnclosure',440,750,24,306,5.55),
+        terrain('foundryEnclosure',1736,344,24,306,5.55),
+        terrain('foundryEnclosure',1736,650,24,140,5.25),
+        terrain('foundryEnclosure',1736,790,24,266,5.55),
+        // Inner walls stop below the soffit, leaving a narrow continuous
+        // light slot above the hallways while still blocking ground sightlines.
+        terrain('foundryBulkhead',660,500,310,24,5.05),
+        terrain('foundryBulkhead',1110,500,430,24,5.05),
+        terrain('foundryBulkhead',660,524,24,176,5.05),
+        terrain('foundryBulkhead',660,820,24,80,5.05),
+        terrain('foundryBulkhead',1516,524,24,176,5.05),
+        terrain('foundryBulkhead',1516,820,24,80,5.05),
+        terrain('foundryBulkhead',684,900,116,24,5.05),
+        terrain('foundryBulkhead',980,900,536,24,5.05),
+        terrain('foundryPortal',970,500,140,24,5.05,{bottom:4.5}),
+        terrain('foundryPortal',660,700,24,120,5.05,{bottom:4.5}),
+        terrain('foundryPortal',1516,700,24,120,5.05,{bottom:4.5}),
+        terrain('foundryPortal',800,900,180,24,5.05,{bottom:4.5}),
+        // Longer exterior flights meet the upper floor above the sealed side
+        // walls. Those walls are slightly lower only at the landings so the
+        // player's feet clear them on the final tread.
+        terrain('ramp',80,610,360,140,5.8,{axis:'x',stairs:true,steps:36,style:'foundry'}),
+        terrain('ramp',1760,650,360,140,5.8,{axis:'x',reverse:true,stairs:true,steps:36,style:'foundry'}),
+        terrain('rail',80,602,360,8,1,{axis:'x',rise:5.8,style:'foundry'}),
+        terrain('rail',80,750,360,8,1,{axis:'x',rise:5.8,style:'foundry'}),
+        terrain('rail',1760,642,360,8,1,{axis:'x',rise:5.8,reverse:true,style:'foundry'}),
+        terrain('rail',1760,790,360,8,1,{axis:'x',rise:5.8,reverse:true,style:'foundry'}),
+        terrain('rail',440,312,1320,8,6.8,{bottom:5.8,style:'foundry'}),
+        terrain('rail',440,1080,1320,8,6.8,{bottom:5.8,style:'foundry'}),
+        terrain('rail',432,320,8,290,6.8,{bottom:5.8,style:'foundry'}),
+        terrain('rail',432,750,8,330,6.8,{bottom:5.8,style:'foundry'}),
+        terrain('rail',1760,320,8,330,6.8,{bottom:5.8,style:'foundry'}),
+        terrain('rail',1760,790,8,290,6.8,{bottom:5.8,style:'foundry'}),
+        // An opposed pair of short stairs contests a raised control dais.
+        // Its central turbine and workstations create an actual objective
+        // worth taking rather than an empty overlook.
+        terrain('catwalk',900,600,400,220,7.35,{bottom:7.1,walkable:true,style:'foundry'}),
+        terrain('ramp',990,430,120,170,7.35,{bottom:5.8,axis:'y',stairs:true,steps:12,style:'foundry'}),
+        terrain('ramp',1190,820,120,170,7.35,{bottom:5.8,axis:'y',reverse:true,stairs:true,steps:12,style:'foundry'}),
+        terrain('foundryTurbine',1035,655,130,110,9.35,{bottom:7.35,collisionShape:'circle',collisionRadius:41}),
+        terrain('foundryTurbine',610,675,115,115,8.1,{bottom:5.8,collisionShape:'circle',collisionRadius:43}),
+        terrain('foundryTurbine',1475,590,115,115,8.1,{bottom:5.8,collisionShape:'circle',collisionRadius:43}),
+        terrain('foundryConsole',650,420,105,55,7.1,{bottom:5.8}),
+        terrain('foundryConsole',1445,920,105,55,7.1,{bottom:5.8}),
+        terrain('foundryCastingLine',690,930,230,58,6.95,{bottom:5.8}),
+        terrain('foundryCastingLine',1280,420,230,58,6.95,{bottom:5.8}),
+        // Three slender structural columns support the floor above. They
+        // replace the bulky tanks so the furnaces remain the visual focus.
+        terrain('foundryPillar',780,790,38,38,5.55,{collisionShape:'circle',collisionRadius:19}),
+        terrain('foundryPillar',1380,790,38,38,5.55,{collisionShape:'circle',collisionRadius:19}),
+        terrain('foundryPillar',1080,590,38,38,5.55,{collisionShape:'circle',collisionRadius:19}),
+        terrain('furnace',835,570,140,140,2.65,{style:'foundry',collisionShape:'circle',collisionRadius:52,burnDamage:7}),
+        terrain('furnace',1225,570,140,140,2.65,{style:'foundry',collisionShape:'circle',collisionRadius:52,burnDamage:7}),
+        terrain('foundryPress',1045,690,110,95,3.1),
+        terrain('foundryCastingLine',980,830,340,58,1.25),
+        terrain('foundryLadle',970,550,150,150,5.25,{bottom:3,nonSolid:true}),
+        // Wall lanterns sit on the inside faces, below the glass band.
+        terrain('foundryLantern',600,344,34,14,3.8,{bottom:2.1,nonSolid:true}),
+        terrain('foundryLantern',1460,344,34,14,3.8,{bottom:2.1,nonSolid:true}),
+        terrain('foundryLantern',650,1042,34,14,3.8,{bottom:2.1,nonSolid:true}),
+        terrain('foundryLantern',1530,1042,34,14,3.8,{bottom:2.1,nonSolid:true,localLight:true}),
+        terrain('foundryLantern',760,486,34,14,3.8,{bottom:2.1,nonSolid:true,localLight:true}),
+        terrain('foundryLantern',1400,486,34,14,3.8,{bottom:2.1,nonSolid:true}),
+        terrain('foundryLantern',646,610,14,34,3.8,{bottom:2.1,nonSolid:true,localLight:true}),
+        terrain('foundryLantern',1540,610,14,34,3.8,{bottom:2.1,nonSolid:true,localLight:true}),
+        // Suspended service trunks follow the inspection and dispatch halls.
+        // Their shallow housings sit near the soffit, leaving clean sightlines.
+        terrain('foundryServiceTrunk',700,420,800,32,5.5,{bottom:5.05,nonSolid:true}),
+        terrain('foundryServiceTrunk',710,970,780,32,5.5,{bottom:5.05,nonSolid:true}),
+        terrain('foundryDuct',530,360,450,45,16.5,{bottom:13,nonSolid:true,hoodEnd:'east'}),
+        terrain('foundryDuct',1220,360,450,45,16.5,{bottom:13,nonSolid:true,hoodEnd:'west'}),
+        terrain('crane',700,130,800,35,14.8,{bottom:14.25}),
       ],
       variants:[
-        [terrain('cover',735,1030,100,45,1.2),terrain('cover',865,1030,100,45,1.2)],
-        [terrain('cover',480,1060,115,42,1.2),terrain('cover',1105,1060,115,42,1.2)],
-        [terrain('cover',785,1010,130,50,1.35)],
+        [terrain('foundryConsole',530,865,100,45,7.1,{bottom:5.8})],
+        [terrain('foundryConsole',1550,830,100,45,7.1,{bottom:5.8})],
+        [terrain('foundryConsole',770,525,100,45,7.1,{bottom:5.8})],
       ],
       spawns:[
-        [100,110],[850,130],[1600,110],[100,600],[1600,600],
-        [100,1130],[480,1130],[850,1130],[1220,1130],[1600,1130],
-        [250,430,3.2],[470,490,3.2],[850,350,3.2],[1230,430,3.2],[1450,490,3.2],
+        [120,130],[1070,145],[2080,130],[115,800],[2085,850],
+        [120,1470],[680,1450],[1100,1450],[1520,1450],[2080,1470],
+        [550,470,5.8],[840,900,5.8],[1360,505,5.8],[1670,900,5.8],
+        [950,700,7.35],[1220,700,7.35],
       ],
     },
     courtyard:{

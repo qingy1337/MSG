@@ -2,6 +2,18 @@ import * as THREE from 'three';
 
 // Architectural anchors, not a random grid. Six local lights is a fixed budget.
 export function planAreaLighting(map,walls=[]) {
+  if(map.id==='foundry') {
+    const lanterns=map.terrain.filter(s=>s.kind==='foundryLantern'&&s.localLight);
+    return [
+      ...lanterns.map((s,index)=>({kind:`foundry-lantern-${index}`,
+        x:s.x+s.width/2,y:s.y+s.height/2,height:0,sourceHeight:3.5,
+        color:'#ffe0ae',intensity:88,radius:10,castsShadow:false,fixture:'lantern'})),
+      {kind:'foundry-upper-west',x:map.width*.34,y:map.height*.45,height:5.8,
+        sourceHeight:map.ceiling-.7,color:'#fff0cd',intensity:114,radius:13,castsShadow:false},
+      {kind:'foundry-upper-east',x:map.width*.66,y:map.height*.55,height:5.8,
+        sourceHeight:map.ceiling-.7,color:'#eaffdf',intensity:108,radius:13,castsShadow:false},
+    ];
+  }
   if(map.id==='candyFactory') {
     // Warm production lighting reveals the terracotta, ivory and teal
     // materials without tinting the entire room strawberry pink.

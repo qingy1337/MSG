@@ -574,6 +574,9 @@ button:disabled,
 #minigun-spool-fill { width:0;height:100%;border-radius:2px;background:linear-gradient(90deg,#e4a83f,#ffe49a);box-shadow:0 0 5px #ffc45b99;transition:width .025s linear; }
 #minigun-spool-track.ready { border-color:#fff1bd;box-shadow:0 0 8px #ffd36bcc; }
 #minigun-spool-track.ready #minigun-spool-fill { background:#fff3c7;box-shadow:0 0 8px #ffd36b; }
+#weapon-ready-track { position:absolute;left:50%;top:calc(50% + 43px);transform:translateX(-50%);box-sizing:border-box;width:68px;height:6px;padding:1px;border:1px solid #d4d9db9c;border-radius:4px;background:#151c22b8;overflow:hidden;pointer-events:none;box-shadow:0 1px 3px #0008; }
+#weapon-ready-track[hidden] { display:none; }
+#weapon-ready-fill { width:100%;height:100%;border-radius:2px;background:linear-gradient(90deg,#9faab0,#e9eef0); }
 #game-info {
     margin-top: 12px;
     display: flex;

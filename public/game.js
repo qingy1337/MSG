@@ -26,6 +26,34 @@ const pveWipeFloor=document.getElementById('pve-wipe-floor');
 const retryFloorBtn=document.getElementById('retry-floor-btn');
 const leaveWipeBtn=document.getElementById('leave-wipe-btn');
 const crosshair=document.getElementById('crosshair');
+const weaponReadyTrack=document.getElementById('weapon-ready-track');
+const weaponReadyFill=document.getElementById('weapon-ready-fill');
+const sniperShotTimes=new Map();
+let previousReadyWeapon='',previousReadyPercent=-1;
+function recordSniperShot(shot) {
+  if(shot?.pellets)return;
+  const player=players.find(candidate=>candidate.id===shot?.playerId);
+  if(player?.weapon==='sniper')sniperShotTimes.set(player.id,performance.now());
+}
+function updateWeaponReady(viewed,now) {
+  const weapon=viewed?.alive&&['sniper','shotgun'].includes(viewed.weapon)?viewed.weapon:'';
+  if(previousReadyWeapon!==weapon){
+    previousReadyWeapon=weapon;previousReadyPercent=-1;
+    if(weapon)weaponReadyTrack.setAttribute('aria-label',`${WEAPONS[weapon].name} ready`);
+  }
+  if(!weapon){weaponReadyTrack.hidden=true;return;}
+  const duration=weapon==='sniper'?WEAPONS.sniper.cooldownMs:WEAPONS.shotgun.reloadMs;
+  const remaining=weapon==='sniper'?
+    duration-(now-(sniperShotTimes.get(viewed.id)??-Infinity)):
+    (viewed.shotgunReloadUntil||0)-(Date.now()+floorClockOffset);
+  weaponReadyTrack.hidden=remaining<=0;
+  const percent=Math.round(Math.max(0,Math.min(100,(1-remaining/duration)*100)));
+  if(percent!==previousReadyPercent){
+    previousReadyPercent=percent;
+    weaponReadyFill.style.width=`${percent}%`;
+    weaponReadyTrack.setAttribute('aria-valuenow',String(percent));
+  }
+}
 const weaponStatus=document.getElementById('weapon-status');
 const performanceInfo=document.getElementById('performance-info');
 const strikeObjectiveHud=document.getElementById('strike-objective');
@@ -307,6 +335,7 @@ window.initGame = function initGame(gamePlayers, gameWalls, map = DEFAULT_MAP, s
   if(Number.isFinite(serverNow))floorClockOffset=serverNow-Date.now();
   players = gamePlayers.map(hydrateSpawnTiming); walls = gameWalls; localPlayer = players.find(p => p.id === socket.id);
   snapshotMotion.clear();lastSnapshotSequence=0;
+  sniperShotTimes.clear();previousReadyWeapon='';previousReadyPercent=-1;weaponReadyTrack.hidden=true;
   inputPrediction.reset(Date.now());jumpRequested=false;
   gameMap = map; mapSolids = [...walls, ...map.terrain];
   if(minimapLegend)minimapLegend.textContent=isStrikeMap(map)?'YOU · OBJECTIVE':'YOU ONLY';
@@ -334,6 +363,7 @@ window.initGame = function initGame(gamePlayers, gameWalls, map = DEFAULT_MAP, s
 
 function stop() {
   gameActive = false; releaseMouse(); cancelAnimationFrame(frame);
+  weaponReadyTrack.hidden=true;previousReadyWeapon='';
   clearKillFeed();
   pveWipe?.classList.add('hidden');
   strikeState=null;updateStrikeHud();
@@ -397,6 +427,7 @@ function gameLoop(now) {
   arena.animateElevator(floorState, Date.now()+floorClockOffset);
   const renderedPlayers=snapshotMotion.sample(players,socket.id,now);
   const viewed=resolveViewPlayer(renderedPlayers,socket.id);
+  updateWeaponReady(viewed,now);
   const bloom=viewed?.alive?weaponBloomRadians(viewed.weapon,viewed,inputPrediction.time):0;
   const bloomPixels=sniperBloomPixels(bloom,canvas.clientHeight||600);
   const bloomRadius=`${bloomPixels.toFixed(2)}px`;
@@ -631,10 +662,10 @@ socket.on('strikeComplete',state=>{
   const coins=state.reward?.coins||0;
   gameMessage.textContent=`STRIKE COMPLETE${coins?` · +${coins} COINS`:''}`;
 });
-socket.on('shotFired', shot => { if (arena && gameActive) arena.shot(shot); });
+socket.on('shotFired', shot => { if (arena && gameActive) {recordSniperShot(shot);arena.shot(shot);} });
 socket.on('shotsFired',shots=>{
   if(!arena||!gameActive||!Array.isArray(shots))return;
-  for(const shot of shots)arena.shot(shot);
+  for(const shot of shots){recordSniperShot(shot);arena.shot(shot);}
 });
 socket.on('weaponSwitched',data=>{
   const player=players.find(p=>p.id===data?.id);

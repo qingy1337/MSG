@@ -6,7 +6,9 @@ function floorDifficulty(floor, baseCount = 4) {
   // Floors after 20 keep the large floor-20 wave. New enemy classes replace
   // soldiers inside that wave instead of collapsing it or adding extra actors.
   if (level > 20) {
-    const result={count:Math.min(24,baseCount+19),health:Math.min(300,220+(level-21)*5),speed:1.3,ogres:4};
+    const bonusHealth=Math.max(0,level-50)*5;
+    const result={count:Math.min(24,baseCount+19),
+      health:Math.min(300,220+(level-21)*5)+bonusHealth,speed:1.3,ogres:4};
     if(level>40) {
       result.guardians=Math.min(3,1+Math.floor((level-41)/7));
     }

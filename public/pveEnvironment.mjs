@@ -1537,6 +1537,114 @@ export function createTerrainModel(s) {
     // rather than another floating platform slab.
     if(alongX)for(const z of [0.10,d-0.10])box(w-0.08,0.18,0.14,w/2,-0.06,z,dark);
     else for(const x of [0.10,w-0.10])box(0.14,0.18,d-0.08,x,-0.06,d/2,dark);
+  } else if(s.kind==='foundryEnclosure') {
+    const lower=material('#81978a',.48),upper=material('#bdcbb6',.48),
+      frame=material('#ddb784',.58),glass=new THREE.MeshPhysicalMaterial({
+        color:'#c3e0d3',metalness:.12,roughness:.18,transparent:true,opacity:.46,
+        depthWrite:false,side:THREE.DoubleSide});
+    const alongX=w>=d,length=alongX?w:d;
+    box(w-.035,2.5,d-.035,w/2,1.25,d/2,lower);
+    box(w-.035,1.9,d-.035,w/2,3.45,d/2,glass);
+    box(w-.035,h-4.4,d-.035,w/2,(h+4.4)/2,d/2,upper);
+    for(const y of [2.5,4.4])box(w,.075,d,w/2,y,d/2,frame);
+    for(let i=1,n=Math.max(2,Math.ceil(length/3.3));i<n;i++) {
+      const at=length*i/n;
+      box(alongX?.07:w,1.9,alongX?d:.07,alongX?at:w/2,3.45,alongX?d/2:at,frame);
+    }
+    group.name='foundry-glazed-furnace-wall';
+  } else if(s.kind==='foundryPillar') {
+    const steel=material('#a0b3a4',.48),foot=material('#718a7e',.58),
+      cap=material('#dfc596',.45),cx=w/2,cz=d/2,r=Math.min(w,d)*.48;
+    add(new THREE.CylinderGeometry(r*.88,r*.94,h-.34,16),steel,cx,h/2,cz);
+    add(new THREE.CylinderGeometry(r,r,.17,16),foot,cx,.085,cz);
+    add(new THREE.CylinderGeometry(r,r,.17,16),cap,cx,h-.085,cz);
+    group.name='foundry-structural-pillar';
+  } else if(s.kind==='foundryBulkhead') {
+    const shell=material('#aabbab',.38),base=material('#758d80',.52),
+      cap=material('#dfbf8f',.48),alongX=w>=d;
+    // A smooth uninterrupted body with just a flush kick and cap. Earlier
+    // panel/rib blocks made every corridor feel busy and protruded visually.
+    box(alongX?w-.025:w-.10,h-.10,alongX?d-.10:d-.025,
+      w/2,(h-.10)/2,d/2,shell);
+    box(w-.025,.16,d-.025,
+      w/2,.10,d/2,base);
+    box(w-.025,.10,d-.025,
+      w/2,h-.05,d/2,cap);
+    group.name='foundry-service-bulkhead';
+  } else if(s.kind==='foundryPortal') {
+    const steel=material('#6d847c',.58),rim=material('#d4b489',.55),
+      signal=new THREE.MeshStandardMaterial({color:'#ffca79',emissive:'#f18b35',
+        emissiveIntensity:1.9,roughness:.3,metalness:.12,toneMapped:false});
+    const alongX=w>=d;
+    box(alongX?w-.016:w-.10,h-.16,alongX?d-.10:d-.016,
+      w/2,(h-.16)/2,d/2,steel);
+    box(alongX?w-.06:.09,.18,alongX?.09:d-.06,w/2,h-.09,d/2,rim);
+    box(alongX?w*.42:.035,.08,alongX?.035:d*.42,
+      alongX?w/2:.03,.24,alongX?.03:d/2,signal);
+    group.name='foundry-lit-door-header';
+  } else if(s.kind==='foundryServiceTrunk') {
+    const casing=material('#81988d',.58),tube=material('#c49e77',.62),
+      clamp=material('#bcc7b9',.58);
+    box(w-.03,.13,d-.03,w/2,h-.07,d/2,casing);
+    for(const z of [d*.33,d*.67]) {
+      const pipe=add(new THREE.CylinderGeometry(.12,.12,w-.10,12),tube,w/2,h*.54,z);
+      pipe.rotation.z=Math.PI/2;
+    }
+    for(let x=.45;x<w-.25;x+=3) {
+      box(.10,h-.22,d-.08,x,h/2,d/2,clamp);
+      box(.22,.08,d-.03,x,.13,d/2,casing);
+    }
+    group.name='foundry-overhead-service-trunk';
+  } else if(s.kind==='foundryValveStation') {
+    const shell=material('#53686a',.7),rim=material('#c4a276',.6),
+      wheel=material('#aa5142',.48),dial=material('#efe5c9',.22);
+    const alongX=w>=d,cx=w/2,cz=d/2;
+    box(alongX?w-.03:w-.48,h-.03,alongX?d-.48:d-.03,cx,h/2,cz,shell);
+    box(alongX?w-.14:.08,.12,alongX?.08:d-.14,cx,h*.75,alongX?.035:cz,rim);
+    for(const offset of [-.26,.26]) {
+      const x=alongX?cx+offset:Math.max(.12,w*.17),z=alongX?Math.max(.12,d*.17):cz+offset;
+      const gauge=add(new THREE.CylinderGeometry(.12,.12,.04,14),dial,x,h*.78,z);
+      if(alongX)gauge.rotation.x=Math.PI/2;else gauge.rotation.z=Math.PI/2;
+    }
+    const ring=add(new THREE.TorusGeometry(.33,.055,8,20),wheel,
+      alongX?cx:.12,h*.43,alongX?.12:cz);
+    if(!alongX)ring.rotation.y=Math.PI/2;
+    for(let i=0;i<4;i++) {
+      const a=i*Math.PI/2;
+      const spoke=add(new THREE.BoxGeometry(.045,.52,.045),wheel,
+        alongX?cx:.12,h*.43,alongX?.12:cz);
+      if(alongX)spoke.rotation.z=a;
+      else spoke.rotation.x=a;
+    }
+    group.name='foundry-coolant-valve-station';
+  } else if(s.kind==='foundryLantern') {
+    const bracket=material('#344648',.74),rim=material('#c89b60',.58),
+      glow=new THREE.MeshStandardMaterial({color:'#ffca82',emissive:'#ff8d37',
+        emissiveIntensity:2.7,roughness:.28,metalness:.08,toneMapped:false});
+    box(w*.44,.18,d*.85,w/2,.23,d/2,bracket);
+    box(w*.84,.11,d*.82,w/2,.5,d/2,rim);
+    box(w*.62,Math.max(.24,h-.75),d*.60,w/2,h/2,d/2,glow);
+    box(w*.88,.13,d*.82,w/2,h-.22,d/2,rim);
+    for(const x of [w*.12,w*.88])box(.07,Math.max(.24,h-.48),.07,x,h/2,d/2,bracket);
+    group.name='foundry-wall-lantern';
+  } else if(s.kind==='foundryTurbine') {
+    const shell=material('#53686b',.72),rim=material('#c5ad86',.62),
+      darkSteel=material('#28383c',.8),rotorMat=material('#d9e4dc',.68);
+    const radius=Math.min(w,d)*.34,cx=w/2,cz=d/2;
+    add(new THREE.CylinderGeometry(radius*1.03,radius*1.08,.26,20),darkSteel,cx,.13,cz);
+    add(new THREE.CylinderGeometry(radius*.82,radius*.87,h-.47,20),shell,cx,h/2,cz);
+    for(const y of [.4,h-.38])
+      add(new THREE.TorusGeometry(radius*.89,.065,7,24),rim,cx,y,cz).rotation.x=Math.PI/2;
+    const rotor=new THREE.Group();rotor.position.set(cx,h-.16,cz);group.add(rotor);
+    for(let i=0;i<6;i++) {
+      const blade=new THREE.Mesh(new THREE.BoxGeometry(radius*.72,.045,.13),rotorMat);
+      blade.position.x=radius*.35;
+      const pivot=new THREE.Group();pivot.rotation.y=i*Math.PI/3;pivot.add(blade);rotor.add(pivot);
+    }
+    const hub=new THREE.Mesh(new THREE.CylinderGeometry(.13,.13,.12,16),rim);
+    hub.position.y=.04;rotor.add(hub);
+    group.userData.update=time=>{rotor.rotation.y=time*.55+(s.x+s.y)*.002;};
+    group.name='foundry-cooling-turbine';
   } else if(s.kind==='foundryDuct') {
     const casing=material('#697c7d',.7),edge=material('#bdc6ba',.54),copper=material('#c99a68',.64);
     const alongX=w>=d,length=alongX?w:d;

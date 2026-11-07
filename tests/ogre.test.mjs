@@ -20,7 +20,10 @@ test('difficulty rises gently, then elite floors preserve the floor-20 wave size
   assert.deepEqual(floorDifficulty(20),{count:23,health:156,speed:1.3,ogres:4});
   assert.deepEqual(floorDifficulty(21),{count:23,health:220,speed:1.3,ogres:4});
   assert.deepEqual(floorDifficulty(37),{count:23,health:300,speed:1.3,ogres:4});
-  assert.deepEqual(floorDifficulty(1000),{count:23,health:300,speed:1.3,ogres:4,guardians:3});
+  assert.equal(floorDifficulty(50).health,300);
+  assert.equal(floorDifficulty(51).health,305);
+  assert.equal(floorDifficulty(52).health,310);
+  assert.deepEqual(floorDifficulty(1000),{count:23,health:5050,speed:1.3,ogres:4,guardians:3});
   assert.equal(floorDifficulty(20,10).count,24);
   assert.equal(floorDifficulty(21,10).count,24,'large parties retain their own floor-20 cap too');
 });

@@ -73,7 +73,19 @@ test('PvE lighting follows architecture with a fixed budget and clear ceiling fi
   }
   assert.ok(lanterns>=8,'lantern halls recur across seeds without appearing on every floor');
   for(const role of ['machine-hall','warehouse','reactor','processing','control','maintenance'])assert.ok(kinds.has(role));
-  assert.deepEqual(planAreaLighting(maps.createPvpMap(731).map),[],'PvP lighting stays unchanged');
+  assert.deepEqual(planAreaLighting(maps.createPvpMap(731).map),[],
+    'ordinary PvP maps retain their ambient lighting');
+});
+
+test('Foundry lanterns light the room beneath the wide upper floor',()=>{
+  const {map,walls}=maps.createPvpMap(0,'foundry'),plan=planAreaLighting(map,walls);
+  assert.equal(plan.length,6);
+  assert.equal(plan.filter(p=>p.kind.startsWith('foundry-lantern')).length,4);
+  assert.ok(plan.filter(p=>p.kind.startsWith('foundry-lantern')).every(p=>p.sourceHeight<5.55),
+    'the lower fixtures sit beneath the upper floor rather than above it');
+  assert.ok(plan.filter(p=>p.kind.startsWith('foundry-upper')).every(p=>p.height===5.8),
+    'two separate pools illuminate upper-floor combat');
+  assert.ok(plan.every(p=>p.castsShadow===false),'the extra fixtures require no shadow maps');
 });
 
 test('Terminal 7 lights each real processing zone without extra shadow maps',()=>{

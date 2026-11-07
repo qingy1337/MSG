@@ -849,9 +849,9 @@ export class Arena3D {
     const candyPlate=mergedMesh(wallGeometry.candyPlate,candy?this.material('#edcfaa',.32,.35):null);
     const candyRib=mergedMesh(wallGeometry.candyRib,candy?this.material('#c95646',.48,.3):null);
     const candyBand=mergedMesh(wallGeometry.candyBand,candy?this.material('#477774',.43,.42):null);
-    const foundryPlate=mergedMesh(wallGeometry.foundryPlate,foundry?this.material('#a1b1aa',.54,.48):null);
-    const foundryRib=mergedMesh(wallGeometry.foundryRib,foundry?this.material('#65797b',.68,.4):null);
-    const foundryCopper=mergedMesh(wallGeometry.foundryCopper,foundry?this.material('#d4a676',.58,.42):null);
+    const foundryPlate=mergedMesh(wallGeometry.foundryPlate,foundry?this.material('#bccbb8',.48,.48):null);
+    const foundryRib=mergedMesh(wallGeometry.foundryRib,foundry?this.material('#81988d',.58,.4):null);
+    const foundryCopper=mergedMesh(wallGeometry.foundryCopper,foundry?this.material('#e4b77e',.52,.42):null);
     const towerPlate=mergedMesh(wallGeometry.towerPlate,tower?this.material('#91a9aa',.5,.55):null);
     const towerRib=mergedMesh(wallGeometry.towerRib,tower?this.material('#e3e9df',.64,.43):null);
     const towerAmber=mergedMesh(wallGeometry.towerAmber,tower?this.material('#eabb76',.44,.55):null);
@@ -890,7 +890,7 @@ export class Arena3D {
       if(solid.kind==='exitDoor'||solid.kind==='heightfield'||solid.collisionOnly)continue;
       const model = createTerrainModel(solid);
       const position=world(solid.x,solid.y,solid.kind==='rail'?0:solid.bottom||0);
-      if(solid.kind==='candyConveyor'||solid.kind==='candyVat'||solid.kind==='candyTemperingDrum'||solid.kind==='foundryCastingLine'||solid.kind==='foundryPress'||solid.kind==='towerCore'||
+      if(solid.kind==='candyConveyor'||solid.kind==='candyVat'||solid.kind==='candyTemperingDrum'||solid.kind==='foundryCastingLine'||solid.kind==='foundryPress'||solid.kind==='foundryTurbine'||solid.kind==='towerCore'||
         (solid.kind==='furnace'&&solid.style==='foundry')) {
         model.position.copy(position);this.stage.add(model);this.animatedTerrain.push(model);
         model.traverse(mesh=>{if(mesh.isMesh){mesh.layers.enable(1);this.wallOccluders.push(mesh);}});
@@ -912,7 +912,7 @@ export class Arena3D {
       if(mesh)this.stage.add(mesh);
     }
     if(map.ceiling&&map.roof!==false&&!strike) {
-      const ceilingMat=this.material(candy?'#ead5b2':foundry?'#87978e':tower?'#d9e1d8':'#b5c7c6',
+      const ceilingMat=this.material(candy?'#ead5b2':foundry?'#bacbb8':tower?'#d9e1d8':'#b5c7c6',
         candy?.28:foundry ? .42 : tower ? .48 : .12,
         candy?.35:foundry ? .62 : tower ? .6 : .8);
       for(const rectangle of floorRectangles) {
@@ -921,7 +921,7 @@ export class Arena3D {
       }
       // Broad emissive luminaires and inset beams; no costly per-fixture lights.
       const whiteLamp=new THREE.MeshBasicMaterial({color:'#f6ffed'});
-      const foundryLamp=new THREE.MeshBasicMaterial({color:'#f1bd7d'});
+      const foundryLamp=new THREE.MeshBasicMaterial({color:'#fff0ca'});
       for(let x=240;!pve&&!candy&&x<map.width;x+=300) for(let y=180;y<map.height;y+=300) {
         if(map.floorRects&&!map.floorRects.some(rect=>x>=rect.x&&x<=rect.x+rect.width&&y>=rect.y&&y<=rect.y+rect.height))continue;
         const p=world(x,y,map.ceiling-0.08);

@@ -34,6 +34,30 @@ test('Guardians begin after floor 40 by replacing soldiers in the full-sized wav
   } finally {game.close();}
 });
 
+test('every endless PvE enemy gains five health per floor after 50',t=>{
+  t.mock.method(global,'setInterval',()=>0);
+  for(const floor of [50,51,52]) {
+    let connect;const handlers={};
+    const io={on(_,fn){connect=fn;},emit(){},socketsLeave(){},to(){return this;}};
+    const game=server.createGameServer(io);
+    connect({id:'human',user:{username:'qing'},on(name,fn){handlers[name]=fn;}});
+    game.waitingPlayers.push({id:'human',name:'Human',accountUsername:'qing',weapon:'autoRifle'});
+    try {
+      handlers.startGame({enableBots:true,startFloor:floor});
+      const bonus=(floor-50)*5;
+      const bots=game.activePlayers.filter(player=>player.isBot);
+      assert.equal(bots.length,23);
+      for(const bot of bots) {
+        const baseline=bot.botType==='ogre'?360:bot.botType==='guardian'?456:
+          bot.botType==='dread'?340:300;
+        assert.equal(bot.health,baseline+bonus,`${bot.botType} on floor ${floor}`);
+        assert.equal(bot.maxHealth,bot.health);
+      }
+      assert.equal(game.activePlayers.find(player=>!player.isBot).maxHealth,101);
+    } finally {game.close();}
+  }
+});
+
 test('Guardian charge warns, emits a spaced three-orb burst and recovers',()=>{
   const bot={id:'g',x:100,y:100,angle:0,botState:{}},target={id:'p',x:350,y:100,height:0,alive:true};
   const shots=[];

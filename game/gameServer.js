@@ -1954,8 +1954,10 @@ function createGameServer(io, options = {}) {
       }
       const strikeDefaultHealth=authoredType==='ogre'?360:authoredType==='guardian'?420:authoredType==='dread'?220:
         authoredType==='warden'?900:100;
+      const lateFloorHealth=Math.max(0,(gameMap.floor||1)-50)*5;
       const defaultHealth=gameMap.activity==='strike'?strikeDefaultHealth:
-        ogre ? 360 : guardian ? Math.min(520,420+(gameMap.floor-41)*4) :
+        ogre ? 360+lateFloorHealth :
+          guardian ? 420+(Math.min(gameMap.floor,50)-41)*4+lateFloorHealth :
           cooperative() ? difficulty.health+(captain?40:0) : BOT_COMBAT.health;
       const name=spawn.name||spawn.displayName||(ogre ? 'OGRE' : guardian ? `GUARDIAN ${i + 1}` :
         captain ? `DREAD CAPTAIN ${i + 1}` : dread ? `DREAD TROOPER ${i + 1}` :
