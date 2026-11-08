@@ -10,13 +10,14 @@ const {applyMovementInput}=movement;
 test('Candy Factory conveyors carry grounded players in their visible direction',()=>{
   const {map,walls}=maps.createPvpMap(0,'candyFactory'),solids=[...walls,...map.terrain];
   const belts=map.terrain.filter(s=>s.kind==='candyConveyor');
-  assert.equal(belts.length,2);
+  assert.equal(belts.length,3);
   for(const [index,belt] of belts.entries()) {
-    const player={alive:true,x:belt.x+belt.width/2,y:belt.y+belt.height/2,
+    const alongX=belt.width>=belt.height,direction=belt.direction===-1?-1:1;
+    const player={alive:true,x:belt.x+belt.width*(alongX?.25:.5),
+      y:belt.y+belt.height*(alongX?.5:.25),
       height:belt.top,groundHeight:belt.top,jumpStartedAt:null,bodyHeight:2.2};
     const before={x:player.x,y:player.y},dt=.05;
     applyMovementInput(player,{seq:index+1,dx:0,dy:0,dt,epoch:0},map,solids,1000);
-    const alongX=belt.width>=belt.height,direction=belt.direction===-1?-1:1;
     assert.ok(Math.abs(player[alongX?'x':'y']-before[alongX?'x':'y']-
       (alongX?belt.width:belt.height)*belt.speed*direction*dt)<1e-6);
     assert.equal(player[alongX?'y':'x'],before[alongX?'y':'x']);

@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import {createTowerTerrain} from './towerEnvironment.mjs';
 
 // Local origin is the southwest footprint corner; geometry matches arenaMap.js.
 export function createTerrainModel(s) {
+  const tower=createTowerTerrain(s);if(tower)return tower;
   const group = new THREE.Group();
   const w = s.width * 0.05, d = s.height * 0.05, h = s.top-(s.bottom||0);
   const material = (color, metalness = 0.15) => new THREE.MeshStandardMaterial({ color, metalness, roughness: 0.7 });
@@ -620,12 +622,206 @@ export function createTerrainModel(s) {
         box(bw*.72,.025,d*.70,(slot+.5)*w/3,y+.10+bh*.72,d/2,shelf,.008);
       }
     }
+  } else if(s.kind==='candyPier') {
+    const enamel=material('#e9d8b9',.24),steel=material('#426b69',.65),terra=material('#b45d48',.4);
+    box(w-.06,h-.30,d-.06,w/2,h/2,d/2,enamel);
+    box(w,.18,d,w/2,.09,d/2,steel);
+    box(w,.18,d,w/2,h-.09,d/2,terra);
+    group.name='candy-gallery-support';return group;
+  } else if(s.kind==='candyQualityBench') {
+    const enamel=material('#ead7b7',.34),teal=material('#4c7776',.6),steel=material('#a8bbb1',.72),
+      dark=material('#354746',.45),coral=material('#be5546',.4);
+    box(w-.02,h-.34,d-.02,w/2,(h-.34)/2,d/2,enamel);
+    box(w-.06,.16,d-.06,w/2,.08,d/2,teal);
+    box(w,.14,d,w/2,h-.27,d/2,steel);
+    for(const z of [.018,d-.018]) {
+      box(w-.22,.10,.035,w/2,h-.53,z,teal);
+      for(const x of [w*.25,w*.75]) {
+        box(.12,.30,.045,x,h*.47,z,teal);
+        box(w*.31,.018,.04,x,h*.28,z,dark);
+      }
+    }
+    // Three shallow sample cassettes sit inside the machine's silhouette.
+    for(let i=0;i<3;i++) {
+      const x=w*(.22+i*.28);
+      box(w*.19,.14,d*.48,x,h-.12,d/2,teal);
+      box(w*.15,.035,d*.36,x,h-.032,d/2,i===1?coral:enamel);
+    }
+    group.name='candy-quality-bench';return group;
+  } else if(s.kind==='candyIngredientBank') {
+    const enamel=material('#e9d2ae',.32),steel=material('#527573',.72),
+      coral=material('#b95144',.52),dark=material('#384f51',.68);
+    box(w-.02,.42,d-.02,w/2,.21,d/2,steel);
+    const sections=3,pitch=(w-.48)/sections;
+    for(let i=0;i<sections;i++) {
+      const x=.24+pitch*(i+.5),r=Math.min(pitch*.34,d*.29);
+      add(new THREE.CylinderGeometry(r*.82,r,h-1.1,16),enamel,x,(h-1.1)/2+.42,d/2);
+      add(new THREE.ConeGeometry(r*.84,.68,16),coral,x,h-.34,d/2);
+      box(pitch-.15,.16,d*.58,x,.62,d/2,dark);
+      box(pitch*.46,.14,.04,x,h*.70,d-.055,steel);
+      box(pitch*.24,.10,.045,x,h*.70,d-.028,coral);
+    }
+    group.name='candy-ingredient-bank';return group;
+  } else if(s.kind==='candyCooker') {
+    const enamel=material('#e8d1ad',.34),coral=material('#b94d40',.55),
+      steel=material('#496f6f',.75),dark=material('#304a4d',.7);
+    const amber=new THREE.MeshStandardMaterial({color:'#ef9860',emissive:'#c94b2e',
+      emissiveIntensity:.8,roughness:.36,metalness:.18});
+    const cx=w/2,cz=d/2,r=Math.min(w,d)*.39;
+    add(new THREE.CylinderGeometry(r*.98,r*1.06,.55,24),dark,cx,.28,cz);
+    add(new THREE.CylinderGeometry(r*.88,r*.94,h*.57,28),enamel,cx,h*.57/2+.55,cz);
+    for(const y of [.72,h*.30,h*.58])
+      add(new THREE.TorusGeometry(r*.91,.09,8,28),y===h*.30?steel:coral,cx,y,cz).rotation.x=Math.PI/2;
+    add(new THREE.ConeGeometry(r*.87,h*.16,28),coral,cx,h*.68,cz);
+    add(new THREE.CylinderGeometry(r*.42,r*.50,h*.17,20),steel,cx,h*.84,cz);
+    add(new THREE.CylinderGeometry(r*.48,r*.48,.25,20),dark,cx,h-.13,cz);
+    // A protected level glass makes the vessel readable from the floor.
+    const tube=add(new THREE.CylinderGeometry(.18,.18,h*.43,12),amber,
+      cx+r*.67,h*.38,cz+r*.64);tube.castShadow=false;
+    for(const y of [h*.18,h*.39,h*.59])box(.34,.07,.12,cx+r*.67,y,cz+r*.82,steel);
+    const stirrer=new THREE.Group();stirrer.position.set(cx,h*.72,cz);group.add(stirrer);
+    for(let i=0;i<3;i++) {
+      const arm=new THREE.Mesh(new RoundedBoxGeometry(r*.68,.09,.15,2,.04),steel);
+      arm.position.set(Math.cos(i*Math.PI*2/3)*r*.22,.03,Math.sin(i*Math.PI*2/3)*r*.22);
+      arm.rotation.y=i*Math.PI*2/3;stirrer.add(arm);
+    }
+    group.userData.update=time=>{stirrer.rotation.y=time*.42;};
+    group.name='candy-syrup-cooker';return group;
+  } else if(s.kind==='candyDepositor') {
+    const steel=material('#517675',.7),enamel=material('#ead5b2',.34),
+      coral=material('#bc5042',.5),dark=material('#364e51',.66),
+      candy=[material('#ed925d',.1),material('#82beb0',.1),material('#e4b45f',.1)];
+    box(w-.02,.54,d-.02,w/2,.27,d/2,dark);
+    box(w-.12,.12,d*.56,w/2,.64,d*.50,steel);
+    for(let i=0;i<11;i++)for(let row=0;row<2;row++)
+      box(.20,.09,.17,.46+i*(w-.92)/10,.74,d*.32+row*d*.23,candy[(i+row)%3]);
+    for(const x of [.28,w-.28])box(.28,h-.55,.38,x,(h-.55)/2+.55,d*.72,enamel);
+    const head=new THREE.Group();head.position.set(w/2,h*.72,d*.42);group.add(head);
+    const beamMesh=new THREE.Mesh(new RoundedBoxGeometry(w-.70,.48,d*.56,2,.10),coral);
+    head.add(beamMesh);
+    for(let i=0;i<10;i++) {
+      const x=(i-4.5)*(w-.95)/10;
+      const nozzle=new THREE.Mesh(new THREE.CylinderGeometry(.045,.075,.44,8),steel);
+      nozzle.position.set(x,-.43,0);head.add(nozzle);
+    }
+    box(w-.54,.15,.15,w/2,h-.10,d*.78,enamel);
+    group.userData.update=time=>{head.position.y=h*.72+Math.sin(time*2.6)*.055;};
+    group.name='candy-mould-depositor';return group;
+  } else if(s.kind==='candyCoolingHousing') {
+    const enamel=material('#e7d5bc',.32),steel=material('#456d70',.72),
+      dark=material('#324b51',.65),coral=material('#c35e4b',.4);
+    const glass=new THREE.MeshStandardMaterial({color:'#88b9b5',metalness:.24,roughness:.22,
+      emissive:'#244f53',emissiveIntensity:.25});
+    box(w-.02,h-.02,d-.10,w/2,h/2,d/2,enamel);
+    for(const z of [.04,d-.04]) {
+      const outer=z<d/2?-.005:.005;
+      box(w-.32,h*.43,.05,w/2,h*.51,z,glass);
+      for(let i=1;i<9;i++)box(.07,h*.48,.06,w*i/9,h*.52,z+outer,steel);
+      box(w-.24,.13,.065,w/2,h*.22,z+outer,coral);
+    }
+    for(let i=1;i<8;i++) {
+      const x=w*i/8;
+      box(.10,.08,d-.12,x,h-.055,d/2,steel);
+      box(.31,.04,d*.47,x,h-.01,d/2,dark);
+    }
+    // The inlet mouths line up with both powered feed belts. The openings
+    // are too low for an actor, so the housing remains one honest solid.
+    for(const x of [.025,w-.025]) {
+      box(.045,.63,2.48,x,1.23,2.4,dark);
+      box(.05,.09,2.60,x,1.58,2.4,coral);
+    }
+    box(2.72,.63,.05,w/2,1.23,d-.025,dark);
+    box(2.84,.09,.055,w/2,1.58,d-.022,coral);
+    group.name='candy-cooling-enclosure';return group;
+  } else if(s.kind==='candyControlBooth') {
+    const enamel=material('#ead7b7',.3),steel=material('#4c7776',.67),
+      dark=material('#314a4d',.62),screen=material('#7bc6b5',.14),
+      coral=material('#be5546',.48);
+    box(w-.02,h-.02,d-.10,w/2,h/2,d/2,enamel);
+    for(const z of [.04,d-.04]) {
+      const outer=z<d/2?-.005:.005;
+      box(w-.24,h*.48,.055,w/2,h*.58,z,dark);
+      for(let i=1;i<5;i++)box(.075,h*.54,.065,w*i/5,h*.59,z+outer,steel);
+      box(w*.22,.14,.065,w*.23,h*.64,z+outer,screen);
+      box(w*.14,.14,.065,w*.56,h*.64,z+outer,screen);
+    }
+    box(w-.12,.16,d-.12,w/2,h-.08,d/2,coral);
+    group.name='candy-line-control-booth';return group;
+  } else if(s.kind==='candyMouldRack') {
+    const steel=material('#496c6e',.72),enamel=material('#e7d2b1',.3),
+      trays=[material('#d37856',.16),material('#84b6a7',.14)];
+    box(w-.02,.22,d-.02,w/2,.11,d/2,steel);
+    for(const x of [.10,w-.10])for(const z of [.10,d-.10])
+      box(.19,h-.22,.19,x,(h-.22)/2+.22,z,steel);
+    for(let i=0;i<4;i++) {
+      const y=.52+i*(h-.75)/3;
+      box(w-.15,.09,d-.15,w/2,y,d/2,enamel);
+      for(let j=0;j<6;j++)box((w-.45)/7,.12,d*.48,.28+j*(w-.56)/6,y+.11,d/2,trays[(i+j)%2]);
+    }
+    group.name='candy-mould-rack';return group;
+  } else if(s.kind==='candyPipeRiser') {
+    const steel=material('#497777',.72),coral=material('#bd5448',.54),r=Math.min(w,d)*.145;
+    add(new THREE.CylinderGeometry(r,r,h-.10,12),steel,w/2,h/2,d/2);
+    for(const y of [.12,h*.5,h-.12])
+      add(new THREE.TorusGeometry(r+.018,.035,7,16),coral,w/2,y,d/2).rotation.x=Math.PI/2;
+    group.name='candy-process-riser';return group;
+  } else if(s.kind==='candyDockFacade') {
+    const dark=material('#405c5e',.56),enamel=material('#e6d2b0',.3),coral=material('#ba5547',.45);
+    box(w-.01,h-.02,d-.02,w/2,h/2,d/2,dark);
+    for(let i=1;i<13;i++)box(w-.005,.055,d-.07,w/2,h*i/13,d/2,enamel);
+    box(w-.005,.22,d-.04,w/2,h-.13,d/2,coral);
+    group.name='candy-receiving-shutter';return group;
+  } else if(s.kind==='candyRoofTruss') {
+    const steel=material('#5b7775',.68),ivory=material('#ead4b3',.3),
+      coral=material('#bc5849',.48),bays=Math.max(3,Math.round(w/2.8));
+    for(const z of [.10,d-.10]) {
+      box(w-.02,.17,.13,w/2,.12,z,steel);
+      box(w-.02,.15,.12,w/2,h-.10,z,ivory);
+      for(let i=0;i<bays;i++) {
+        const x0=.12+(w-.24)*i/bays,x1=.12+(w-.24)*(i+1)/bays;
+        beam([x0,.17,z],[x1,h-.17,z],.055,steel,7,.04);
+        if(i%2===0)box(.13,h-.28,.13,x0,h/2,z,coral);
+      }
+    }
+    group.name='candy-roof-truss';return group;
+  } else if(s.kind==='candyZoneSign') {
+    const dark=material('#3b5758',.62),ivory=material('#f0d8b4',.28),
+      accent=material(s.station==='cool'?'#75b8b2':s.station==='pack'?'#d59b69':'#c45b48',.28);
+    box(w-.04,h-.02,d-.04,w/2,h/2,d/2,dark);
+    const alongX=w>d,long=alongX?w:d;
+    for(const side of [-1,1]) {
+      const face=alongX?(side<0?.017:d-.017):(side<0?.017:w-.017);
+      box(alongX?long*.70:.025,.16,alongX?.025:long*.70,
+        alongX?w/2:face,h*.7,alongX?face:d/2,ivory);
+      box(alongX?long*.32:.029,.23,alongX?.029:long*.32,
+        alongX?w*.34:face,h*.4,alongX?face:d*.34,accent);
+      box(alongX?long*.22:.029,.23,alongX?.029:long*.22,
+        alongX?w*.72:face,h*.4,alongX?face:d*.72,accent);
+    }
+    group.name='candy-process-wayfinding';return group;
+  } else if(s.kind==='candyTunnelRoof') {
+    const enamel=material('#e4c6a4',.28),rib=material('#9f5146',.52),
+      inset=material('#457674',.46);
+    const lamp=new THREE.MeshStandardMaterial({color:'#f6c99c',emissive:'#ee8658',
+      emissiveIntensity:.65,roughness:.5,metalness:.12});
+    // The pale enamel underside and transverse duct ribs belong to one solid
+    // overhead slab. Every visible part remains inside its collision volume.
+    box(w,h-.04,d,w/2,(h+.04)/2,d/2,enamel);
+    for(let x=1.7;x<w-1;x+=3.6) {
+      box(.12,.045,d-.12,x,.027,d/2,rib);
+      box(.035,.04,d-.46,x+.16,.025,d/2,inset);
+    }
+    for(const z of [.22,d-.22])box(w-.24,.045,.11,w/2,.027,z,lamp);
+    group.name='candy-service-tunnel-roof';return group;
   } else if(s.kind==='candyMixingFloor'||s.kind==='candyGallery') {
     const apron=s.kind==='candyMixingFloor';
     const foundation=material('#ad5a46',.38),edge=material('#f0d6ae',.32),
       deck=material(apron?'#cb7654':'#d59768',.28),rib=material('#427574',.42),red=material('#dd4b40',.36);
     if(s.seamless) {
-      add(new THREE.BoxGeometry(w,h,d),deck,w/2,h/2,d/2);
+      add(new THREE.BoxGeometry(w,h-.065,d),edge,w/2,(h-.065)/2,d/2);
+      add(new THREE.BoxGeometry(w,.065,d),deck,w/2,h-.0325,d/2);
+      box(w-.08,.13,.045,w/2,.14,d+.015,rib);
+      box(w-.10,.035,.055,w/2,.24,d+.018,red);
       group.name=apron?'candy-mixing-floor':'candy-packing-gallery';return group;
     }
     box(w-.12,Math.max(.04,h-.04),d-.12,w/2,Math.max(.04,h-.04)/2,d/2,foundation);
@@ -761,6 +957,8 @@ export function createTerrainModel(s) {
       const fitting=add(new THREE.CylinderGeometry(.15,.15,.34,12),steel,x,h-.18,cz);
       fitting.rotation.z=Math.PI/2;
     }
+    if(s.factoryLine)for(const x of [.8,w-.8])
+      add(new THREE.CylinderGeometry(.30,.30,.22,16),steel,x,4.07,cz-.25);
     const rotor=new THREE.Group();rotor.position.set(cx,cy,cz);
     rotor.name='candy-tempering-contents';group.add(rotor);
     const shaft=new THREE.Mesh(new THREE.CylinderGeometry(.14,.14,length-.25,12),steel);
@@ -830,6 +1028,21 @@ export function createTerrainModel(s) {
   } else if(s.kind==='candyWrapper') {
     const frame=material('#b74f42',.58),edge=material('#f1d9b5',.56),
       roller=material('#507e79',.67);
+    if(s.axis==='y') {
+      // This wrapper spans a north/south belt. The side posts and head match
+      // the authored compound collider, including the overhead jump stop.
+      for(const x of [.22,w-.22]) {
+        box(.34,h-.25,.90,x,(h-.25)/2,d/2,frame);
+        box(.34,.14,.90,x,.07,d/2,roller);
+      }
+      box(w,.25,.90,w/2,h-.125,d/2,edge);
+      for(const z of [d/2-.22,d/2+.22]) {
+        const spool=add(new THREE.CylinderGeometry(.15,.15,w-.6,16),roller,w/2,h-.42,z);
+        spool.rotation.z=Math.PI/2;
+      }
+      box(w*.42,.07,.91,w/2,h-.12,d/2,frame);
+      group.name='candy-wrapper';return group;
+    }
     // The wrapper straddles the final belt; its open middle is deliberate.
     for(const z of [.14,d-.14]) {
       box(.18,h-.10,.18,w*.52,(h-.10)/2,z,frame);

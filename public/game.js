@@ -19,6 +19,22 @@ let lastSnapshotSequence=0;
 const canvas = document.getElementById('game-canvas');
 const playersAliveInfo = document.getElementById('players-alive');
 const gameMessage = document.getElementById('game-message');
+const pveBuffBanner=document.getElementById('pve-buff-banner');
+const pveBuffName=document.getElementById('pve-buff-name');
+const pveBuffLabels={infiniteGrenades:'Infinite grenades',rapidFire:'2× firing speed',
+  automaticPistol:'Automatic pistol',doubleHealth:'2× health'};
+let pveBuffTimer=null,lastPveBuffRoom=null;
+function showPveBuff(state) {
+  if(gameMap.mode!=='pve'||isStrikeMap()||!localPlayer?.alive||!state?.buff||
+    !['opening','combat'].includes(state.phase))return;
+  const room=`${gameMap.seed}:${state.floor}`;
+  if(room===lastPveBuffRoom)return;
+  lastPveBuffRoom=room;
+  pveBuffName.textContent=pveBuffLabels[state.buff]||state.buff;
+  pveBuffBanner.hidden=false;
+  clearTimeout(pveBuffTimer);
+  pveBuffTimer=setTimeout(()=>{pveBuffBanner.hidden=true;},4200);
+}
 const killFeed=document.getElementById('kill-feed');
 const killFeedTimers=new Map();
 const pveWipe=document.getElementById('pve-wipe');
@@ -42,7 +58,8 @@ function updateWeaponReady(viewed,now) {
     if(weapon)weaponReadyTrack.setAttribute('aria-label',`${WEAPONS[weapon].name} ready`);
   }
   if(!weapon){weaponReadyTrack.hidden=true;return;}
-  const duration=weapon==='sniper'?WEAPONS.sniper.cooldownMs:WEAPONS.shotgun.reloadMs;
+  const duration=(weapon==='sniper'?WEAPONS.sniper.cooldownMs:WEAPONS.shotgun.reloadMs)*
+    (floorState.buff==='rapidFire'?0.5:1);
   const remaining=weapon==='sniper'?
     duration-(now-(sniperShotTimes.get(viewed.id)??-Infinity)):
     (viewed.shotgunReloadUntil||0)-(Date.now()+floorClockOffset);
@@ -82,6 +99,8 @@ let strikeInteractHeld=false,strikeInteractStartedAt=null;
 const isStrikeMap=(map=gameMap)=>map?.mode==='strike'||map?.activity==='strike';
 const isCoopMap=(map=gameMap)=>map?.mode==='pve'||isStrikeMap(map);
 const riding = () => gameMap.mode === 'pve' && !isStrikeMap() && ['riding','opening'].includes(floorState.phase);
+const automaticWeapon=weapon=>WEAPONS[weapon]?.automatic||
+  (weapon==='pistol'&&gameMap.mode==='pve'&&!isStrikeMap()&&floorState.buff==='automaticPistol');
 const travelCabin=()=>riding()?(floorState.phase==='opening'?gameMap.arrivalElevator:gameMap.elevator):null;
 let gameActive = false, frame = 0, previousTime = 0, lastShotAt = 0, lastUpdateAt = 0;
 let firing = false, lastAutomaticAimAt = -Infinity, dirty = false, returnTimer, messageTimer;
@@ -343,6 +362,7 @@ window.initGame = function initGame(gamePlayers, gameWalls, map = DEFAULT_MAP, s
   cancelStrikeInteraction(false);
   updateArenaLabel(map);
   floorState = {phase:'combat',floor:map.floor || 1,startedAt:0};
+  lastPveBuffRoom=null;pveBuffBanner.hidden=true;clearTimeout(pveBuffTimer);
   gameMessage.textContent = '';
   try {
     arena ||= new Arena3D(canvas); arena.build(walls, map);
@@ -363,6 +383,7 @@ window.initGame = function initGame(gamePlayers, gameWalls, map = DEFAULT_MAP, s
 
 function stop() {
   gameActive = false; releaseMouse(); cancelAnimationFrame(frame);
+  pveBuffBanner.hidden=true;clearTimeout(pveBuffTimer);lastPveBuffRoom=null;
   weaponReadyTrack.hidden=true;previousReadyWeapon='';
   clearKillFeed();
   pveWipe?.classList.add('hidden');
@@ -403,7 +424,7 @@ function attemptFire(now = performance.now()) {
   const cfg = WEAPONS[localPlayer.weapon] || WEAPONS.pistol;
   if(Date.now()+floorClockOffset<(localPlayer.weaponSwapUntil||0))return;
   if(localPlayer.weapon==='shotgun'&&Date.now()+floorClockOffset<(localPlayer.shotgunReloadUntil||0))return;
-  if (now - lastShotAt < cfg.cooldownMs) return;
+  if (now - lastShotAt < cfg.cooldownMs*(floorState.buff==='rapidFire'?0.5:1)) return;
   sendPosition(now); socket.emit('shoot', { angle: localPlayer.angle, pitch }); lastShotAt = now;
 }
 
@@ -412,7 +433,7 @@ function stopAutomaticFire() {
 }
 
 function updateAutomaticAim(now=performance.now()) {
-  if(!firing||!WEAPONS[localPlayer?.weapon]?.automatic||now-lastAutomaticAimAt<30)return;
+  if(!firing||!automaticWeapon(localPlayer?.weapon)||now-lastAutomaticAimAt<30)return;
   lastAutomaticAimAt=now;
   socket.emit('automaticFireAim',{angle:localPlayer.angle,pitch});
 }
@@ -537,7 +558,7 @@ canvas.addEventListener('pointerdown', e => {
   if(localPlayer.weapon==='miniGun'&&
     (minigunSpinAt==null||now-minigunReleasedAt>WEAPONS.miniGun.triggerReleaseMs))minigunSpinAt=now;
   firing = true;
-  if(WEAPONS[localPlayer.weapon]?.automatic){
+  if(automaticWeapon(localPlayer.weapon)){
     sendPosition(now);
     socket.emit('automaticFireStart',{angle:localPlayer.angle,pitch});
     lastAutomaticAimAt=now;
@@ -682,6 +703,7 @@ socket.on('guardianExplosion',data=>{if(arena&&gameActive)arena.guardianExplosio
 function applyFloorState(state) {
   cancelGrenade();
   floorState=state;floorClockOffset=state.serverNow-Date.now();
+  showPveBuff(state);
   clearTimeout(messageTimer);
   if(riding()){firing=false;resetMinigunSpool();dirty=false;jumpRequested=false;inputPrediction.reset(state.serverNow);}
   updateExitDoor(gameMap,state,Date.now()+floorClockOffset);
@@ -699,6 +721,7 @@ window.initLatePveJoin=function initLatePveJoin(data) {
 };
 socket.on('floorState',applyFloorState);
 socket.on('floorStarting',data=>{
+  lastPveBuffRoom=null;
   pveWipe?.classList.add('hidden');
   if(retryFloorBtn){retryFloorBtn.disabled=false;retryFloorBtn.textContent='Retry floor';}
   const angle=localPlayer?.angle,wasAlive=localPlayer?.alive;

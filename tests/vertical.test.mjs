@@ -88,6 +88,22 @@ test('Foundry lanterns light the room beneath the wide upper floor',()=>{
   assert.ok(plan.every(p=>p.castsShadow===false),'the extra fixtures require no shadow maps');
 });
 
+test('Candy Factory lights are symmetric and attached to the existing fixtures',()=>{
+  const {map,walls}=maps.createPvpMap(0,'candyFactory'),plan=planAreaLighting(map,walls);
+  assert.equal(plan.length,6);
+  for(const light of plan) {
+    assert.ok(plan.some(other=>other.x===map.width-light.x&&other.y===light.y&&
+      other.sourceHeight===light.sourceHeight&&other.intensity===light.intensity&&other.color===light.color),
+      'both sides receive the same light');
+    assert.equal(light.castsShadow,false);
+    assert.equal(light.fixture,'integrated');
+  }
+  const group=createAreaLighting(plan,(x,y,h)=>new THREE.Vector3(x*.05,h,y*.05));
+  assert.equal(group.children.filter(o=>o.isLight).length,6);
+  assert.equal(group.children.filter(o=>o.isMesh).length,0,'no duplicate floating lamp housings');
+  group.traverse(o=>o.shadow?.dispose());
+});
+
 test('Terminal 7 lights each real processing zone without extra shadow maps',()=>{
   const {map,walls}=maps.createPvpMap(0,'airport'),plan=planAreaLighting(map,walls);
   assert.equal(plan.length,6);

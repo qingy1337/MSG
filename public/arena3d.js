@@ -13,6 +13,8 @@ import { createTerrainModel, poseCargoLift } from './pveEnvironment.mjs';
 import {createTempleEnvironment} from './templeEnvironment.mjs';
 import {createSpaceEnvironment} from './spaceEnvironment.mjs';
 import {createAirportEnvironment} from './airportEnvironment.mjs';
+import {createCandyEnvironment} from './candyEnvironment.mjs';
+import {createTowerEnvironment} from './towerEnvironment.mjs';
 import { createElevatorModel, poseElevator, elevatorDisplay } from './elevator.mjs';
 import { updateCharacterMotion } from './characterMotion.mjs';
 import { createOgreModel, poseOgre } from './ogre.mjs';
@@ -456,6 +458,13 @@ function floorMaterial(walls, areas = [], pve = false, zoneUniforms, palette = {
           float joint=smoothstep(.465,.49,max(tile.x,tile.y));
           float clay=sin(point.x*.57+sin(point.z*.29))*.04+sin(point.z*.61-point.x*.18)*.035;
           base=mix(floorHigh,floorLow,joint*.48+clay);
+          // The same washable tile changes its glaze with the work area:
+          // pale receiving, warm cooking, cool moulding, then the service
+          // floor. This stays in the ground shader, with no coplanar decals.
+          float wing=smoothstep(11.5,14.0,abs(point.x-17.5));
+          vec3 station=mix(vec3(1.04,.99,.95),vec3(1.07,1.04,1.00),wing);
+          station=mix(station,vec3(.93,1.03,1.04),smoothstep(26.0,28.5,point.z));
+          base*=station;
         } else if(groundStyle>1.5) {
           // Large polished terrazzo tiles with fine aggregate and restrained
           // grout. This remains a single draw call across the whole terminal.
@@ -702,12 +711,11 @@ export class Arena3D {
       }
     }
     const wallGeometry={body:[],cap:[],panel:[],glow:[],
-      candyPlate:[],candyRib:[],candyBand:[],
-      foundryPlate:[],foundryRib:[],foundryCopper:[],towerPlate:[],towerRib:[],towerAmber:[]};
+      foundryPlate:[],foundryRib:[],foundryCopper:[]};
     for (const wall of strike?[]:walls) {
       // Temple collision is deliberately invisible; a dedicated architectural
       // model below replaces the shared arena wall language completely.
-      if(wall.kind==='cabin'||temple||airport) continue;
+      if(wall.kind==='cabin'||temple||airport||candy||tower) continue;
       const wallCenter=world(wall.x+wall.width/2,wall.y+wall.height/2);
       const w = wall.width * SCALE, d = wall.height * SCALE;
       const wallBottom=wall.bottom||0,wallTop=wall.top??WALL_HEIGHT,wallHeight=wallTop-wallBottom;
@@ -716,64 +724,6 @@ export class Arena3D {
       const exposedTop=map.roof===false||!map.ceiling||wallTop<map.ceiling-.01;
       const bodyHeight=wallHeight-(exposedTop?Math.min(.08,wallHeight*.1):0);
       wallGeometry.body.push(roundedGeometry(w,bodyHeight,d,wallCenter.x,wallBottom+bodyHeight/2,wallCenter.z,0.15));
-      if(candy) {
-        const horizontal=w>d,length=horizontal?w:d,thickness=horizontal?d:w;
-        const bays=Math.max(1,Math.min(12,Math.ceil(length/3.25))),pitch=length/bays;
-        wallGeometry.cap.push(roundedGeometry(w-.03,.22,d-.03,wallCenter.x,wallBottom+.11,wallCenter.z,.025));
-        if(exposedTop)wallGeometry.cap.push(roundedGeometry(w-.03,.18,d-.03,wallCenter.x,wallTop-.09,wallCenter.z,.025));
-        for(const sign of [-1,1]) {
-          const face=sign*(thickness/2+.065),ribFace=sign*(thickness/2+.14);
-          for(let i=0;i<bays;i++) {
-            const along=(i+.5)*pitch-length/2;
-            wallGeometry.candyPlate.push(roundedGeometry(horizontal?Math.max(.14,pitch-.23):.08,
-              Math.max(.4,wallHeight-.95),horizontal?.08:Math.max(.14,pitch-.23),
-              wallCenter.x+(horizontal?along:face),wallBottom+wallHeight/2,
-              wallCenter.z+(horizontal?face:along),.02));
-          }
-          for(let i=0;i<=bays;i++) {
-            const along=i*pitch-length/2;
-            wallGeometry.candyRib.push(roundedGeometry(horizontal?.12:.09,
-              Math.max(.3,wallHeight-.40),horizontal?.09:.12,
-              wallCenter.x+(horizontal?along:ribFace),wallBottom+wallHeight/2,
-              wallCenter.z+(horizontal?ribFace:along),.015));
-          }
-          if(wallHeight>4)wallGeometry.candyBand.push(roundedGeometry(
-            horizontal?Math.max(.15,length-.18):.03,.055,
-            horizontal?.03:Math.max(.15,length-.18),
-            wallCenter.x+(horizontal?0:ribFace+sign*.07),wallBottom+3.55,
-            wallCenter.z+(horizontal?ribFace+sign*.07:0),.006));
-        }
-        continue;
-      }
-      if(tower) {
-        const horizontal=w>d,length=horizontal?w:d,thickness=horizontal?d:w;
-        const bays=Math.max(1,Math.min(12,Math.ceil(length/2.8))),pitch=length/bays;
-        wallGeometry.cap.push(roundedGeometry(w-.03,.24,d-.03,wallCenter.x,wallBottom+.12,wallCenter.z,.03));
-        if(exposedTop)wallGeometry.cap.push(roundedGeometry(w-.03,.18,d-.03,wallCenter.x,wallTop-.09,wallCenter.z,.025));
-        for(const sign of [-1,1]) {
-          const face=sign*(thickness/2+.055);
-          for(let i=0;i<bays;i++) {
-            const along=(i+.5)*pitch-length/2;
-            wallGeometry.towerPlate.push(roundedGeometry(horizontal?pitch-.18:.075,
-              Math.min(5.8,Math.max(.55,wallHeight-.76)),horizontal?.075:pitch-.18,
-              wallCenter.x+(horizontal?along:face),wallBottom+Math.min(wallHeight/2,3.3),
-              wallCenter.z+(horizontal?face:along),.025));
-          }
-          for(let i=0;i<=bays;i++) {
-            const along=i*pitch-length/2;
-            wallGeometry.towerRib.push(roundedGeometry(horizontal?.09:.08,
-              Math.max(.55,wallHeight-.32),horizontal?.08:.09,
-              wallCenter.x+(horizontal?along:face+sign*.07),wallBottom+wallHeight/2,
-              wallCenter.z+(horizontal?face+sign*.07:along),.018));
-          }
-          const amberFace=sign*(thickness/2+.12);
-          for(let y=wallBottom+2.6;y<wallTop-.35;y+=3.25)
-            wallGeometry.towerAmber.push(roundedGeometry(horizontal?length-.18:.025,.035,
-              horizontal?.025:length-.18,wallCenter.x+(horizontal?0:amberFace),y,
-              wallCenter.z+(horizontal?amberFace:0),.006));
-        }
-        continue;
-      }
       if(foundry) {
         const horizontal=w>d,length=horizontal?w:d,thickness=horizontal?d:w;
         const bays=Math.max(1,Math.min(8,Math.ceil(length/3.3))),pitch=length/bays;
@@ -846,21 +796,26 @@ export class Arena3D {
     const wallCaps=mergedMesh(wallGeometry.cap,cap);
     const wallPanels=mergedMesh(wallGeometry.panel,panel);
     const wallGlow=mergedMesh(wallGeometry.glow,glow,{receiveShadow:false});
-    const candyPlate=mergedMesh(wallGeometry.candyPlate,candy?this.material('#edcfaa',.32,.35):null);
-    const candyRib=mergedMesh(wallGeometry.candyRib,candy?this.material('#c95646',.48,.3):null);
-    const candyBand=mergedMesh(wallGeometry.candyBand,candy?this.material('#477774',.43,.42):null);
     const foundryPlate=mergedMesh(wallGeometry.foundryPlate,foundry?this.material('#bccbb8',.48,.48):null);
     const foundryRib=mergedMesh(wallGeometry.foundryRib,foundry?this.material('#81988d',.58,.4):null);
     const foundryCopper=mergedMesh(wallGeometry.foundryCopper,foundry?this.material('#e4b77e',.52,.42):null);
-    const towerPlate=mergedMesh(wallGeometry.towerPlate,tower?this.material('#91a9aa',.5,.55):null);
-    const towerRib=mergedMesh(wallGeometry.towerRib,tower?this.material('#e3e9df',.64,.43):null);
-    const towerAmber=mergedMesh(wallGeometry.towerAmber,tower?this.material('#eabb76',.44,.55):null);
-    for(const mesh of [wallBody,wallCaps,wallPanels,wallGlow,candyPlate,candyRib,candyBand,
-      foundryPlate,foundryRib,foundryCopper,towerPlate,towerRib,towerAmber])
+    for(const mesh of [wallBody,wallCaps,wallPanels,wallGlow,
+      foundryPlate,foundryRib,foundryCopper])
       if(mesh)this.stage.add(mesh);
     if(wallBody){wallBody.layers.enable(1);this.wallOccluders.push(wallBody);}
     const terrainBatches=new Map();
     const occluderMaterial=new THREE.MeshBasicMaterial({colorWrite:false,depthWrite:false});
+    if(candy||tower) {
+      collectStaticModel(tower?createTowerEnvironment(map,walls):createCandyEnvironment(map,walls),
+        new THREE.Vector3(),terrainBatches);
+      for(const solid of walls) {
+        const bottom=solid.bottom||0,top=solid.top??WALL_HEIGHT;
+        const proxy=new THREE.Mesh(new THREE.BoxGeometry(solid.width*SCALE,top-bottom,
+          solid.height*SCALE),occluderMaterial);
+        proxy.position.copy(world(solid.x+solid.width/2,solid.y+solid.height/2,(top+bottom)/2));
+        proxy.layers.set(1);this.stage.add(proxy);this.wallOccluders.push(proxy);
+      }
+    }
     if(temple) {
       collectStaticModel(createTempleEnvironment(map,walls),new THREE.Vector3(),terrainBatches);
       // Keep label/health-bar occlusion aligned to authoritative collision even
@@ -890,8 +845,15 @@ export class Arena3D {
       if(solid.kind==='exitDoor'||solid.kind==='heightfield'||solid.collisionOnly)continue;
       const model = createTerrainModel(solid);
       const position=world(solid.x,solid.y,solid.kind==='rail'?0:solid.bottom||0);
-      if(solid.kind==='candyConveyor'||solid.kind==='candyVat'||solid.kind==='candyTemperingDrum'||solid.kind==='foundryCastingLine'||solid.kind==='foundryPress'||solid.kind==='foundryTurbine'||solid.kind==='towerCore'||
+      if(solid.kind==='candyConveyor'||solid.kind==='candyVat'||solid.kind==='candyCooker'||solid.kind==='candyDepositor'||solid.kind==='candyTemperingDrum'||solid.kind==='foundryCastingLine'||solid.kind==='foundryPress'||solid.kind==='foundryTurbine'||solid.kind==='towerCore'||
         (solid.kind==='furnace'&&solid.style==='foundry')) {
+        if(candy||tower) {
+          // Merge stationary housings and the rigid pieces of each moving
+          // assembly. Retain the animated groups and instanced belt batches.
+          const instances=new Set(model.children.filter(child=>child.isInstancedMesh));
+          for(const child of model.children)if(child.isGroup)mergeRigidMeshes(child);
+          mergeRigidMeshes(model,instances);
+        }
         model.position.copy(position);this.stage.add(model);this.animatedTerrain.push(model);
         model.traverse(mesh=>{if(mesh.isMesh){mesh.layers.enable(1);this.wallOccluders.push(mesh);}});
       } else if(solid.kind==='lift'||solid.liftId) {
@@ -912,7 +874,7 @@ export class Arena3D {
       if(mesh)this.stage.add(mesh);
     }
     if(map.ceiling&&map.roof!==false&&!strike) {
-      const ceilingMat=this.material(candy?'#ead5b2':foundry?'#bacbb8':tower?'#d9e1d8':'#b5c7c6',
+      const ceilingMat=this.material(candy?'#ead5b2':foundry?'#bacbb8':tower?'#858d96':'#b5c7c6',
         candy?.28:foundry ? .42 : tower ? .48 : .12,
         candy?.35:foundry ? .62 : tower ? .6 : .8);
       for(const rectangle of floorRectangles) {

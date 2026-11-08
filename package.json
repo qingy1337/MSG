@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "start:test": "node scripts/startTest.js",
-    "test": "node --test tests/hitscan.test.js tests/pve.test.mjs tests/floors.test.mjs tests/vertical.test.mjs tests/marioPipe.test.mjs tests/autoRifle.test.mjs tests/pistol.test.mjs tests/heavyWeapons.test.mjs tests/ogre.test.mjs tests/guardian.test.mjs tests/strikeRuntime.test.mjs tests/performance.test.mjs tests/prediction.test.mjs tests/shotgun.test.mjs tests/grenades.test.mjs tests/elevatorTravel.test.mjs tests/deathEffects.test.mjs tests/lobbies.test.mjs tests/pvpTeams.test.mjs tests/teamLobby.test.mjs tests/userStats.test.mjs tests/testApp.test.mjs tests/coinRewards.test.js",
+    "test": "node --test tests/hitscan.test.js tests/pve.test.mjs tests/floors.test.mjs tests/tower.test.mjs tests/vertical.test.mjs tests/marioPipe.test.mjs tests/autoRifle.test.mjs tests/pistol.test.mjs tests/heavyWeapons.test.mjs tests/ogre.test.mjs tests/guardian.test.mjs tests/strikeRuntime.test.mjs tests/performance.test.mjs tests/prediction.test.mjs tests/shotgun.test.mjs tests/grenades.test.mjs tests/elevatorTravel.test.mjs tests/deathEffects.test.mjs tests/lobbies.test.mjs tests/pvpTeams.test.mjs tests/teamLobby.test.mjs tests/userStats.test.mjs tests/testApp.test.mjs tests/coinRewards.test.js",
     "test:performance": "node --test tests/performance.test.mjs tests/prediction.test.mjs",
     "benchmark:bots": "node scripts/benchmarkBots.js",
     "test:browser": "playwright test"

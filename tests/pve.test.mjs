@@ -14,6 +14,8 @@ import { createTerrainModel } from '../public/pveEnvironment.mjs';
 import {createTempleEnvironment} from '../public/templeEnvironment.mjs';
 import {createSpaceEnvironment} from '../public/spaceEnvironment.mjs';
 import {createAirportEnvironment} from '../public/airportEnvironment.mjs';
+import {createCandyEnvironment} from '../public/candyEnvironment.mjs';
+import {Arena3D} from '../public/arena3d.js';
 import { createElevatorModel } from '../public/elevator.mjs';
 const { createPveMap, moveOnTerrain, groundHeight, canOccupy, regeneratePlayers } = maps;
 const { startJump, advanceJump } = movement;
@@ -595,28 +597,32 @@ test('Candy Factory renders colorful machinery, accurate solids, and live belts'
   const fixtures=map.terrain.filter(s=>s.kind.startsWith('candy')||
     s.kind==='ramp'||s.kind==='rail'||s.kind==='candyConveyor');
   const models=fixtures.map(createTerrainModel);
-  assert.ok(models.some(model=>model.name==='candy-mixing-floor'));
-  assert.ok(models.some(model=>model.name==='candy-packing-gallery'));
-  assert.ok(models.some(model=>model.name==='candy-enclosed-stair'));
-  assert.ok(models.some(model=>model.name==='candy-gallery-guard'));
-  assert.ok(models.some(model=>model.name==='candy-rotary-sugar-press'));
+  assert.equal(models.filter(model=>model.name==='candy-packing-gallery').length,2);
+  assert.equal(models.filter(model=>model.name==='candy-enclosed-stair').length,2);
+  assert.equal(models.filter(model=>model.name==='candy-gallery-guard').length,4);
+  for(const name of ['candy-ingredient-bank','candy-syrup-cooker','candy-mould-depositor',
+    'candy-cooling-enclosure','candy-line-control-booth','candy-mould-rack','candy-receiving-shutter',
+    'candy-roof-truss','candy-process-wayfinding'])
+    assert.ok(models.some(model=>model.name===name),`${name} has a dedicated model`);
   const mixer=models.find(model=>model.name==='candy-syrup-mixer');
   assert.ok(mixer&&typeof mixer.userData.update==='function');
   const paddle=mixer.children.find(child=>child.isGroup),initialPaddleYaw=paddle.rotation.y;
   mixer.userData.update(2);assert.notEqual(paddle.rotation.y,initialPaddleYaw);
-  const temperer=models.find(model=>model.name==='candy-tempering-drum');
-  assert.ok(temperer&&typeof temperer.userData.update==='function');
-  const rotor=temperer.children.find(child=>child.isGroup),initialRotorAngle=rotor.rotation.x;
-  assert.ok(temperer.getObjectByName('candy-tempering-inspection-glass')?.material.transparent&&
-    rotor.children.length>=12,'the rotating product is visible through the drum');
-  temperer.userData.update(2);assert.notEqual(rotor.rotation.x,initialRotorAngle);
-  assert.ok(models.filter(model=>model.name==='candy-wall-maintenance-rail').length>=7);
+  const cooker=models.find(model=>model.name==='candy-syrup-cooker');
+  const stirrer=cooker.children.find(child=>child.isGroup),stirrerYaw=stirrer.rotation.y;
+  cooker.userData.update(2);assert.notEqual(stirrer.rotation.y,stirrerYaw);
+  const depositor=models.find(model=>model.name==='candy-mould-depositor');
+  const head=depositor.children.find(child=>child.isGroup),headY=head.position.y;
+  depositor.userData.update(2);assert.notEqual(head.position.y,headY);
+  const drum=models.find(model=>model.name==='candy-tempering-drum');
+  const contents=drum.getObjectByName('candy-tempering-contents'),rotation=contents.rotation.x;
+  drum.userData.update(2);assert.notEqual(contents.rotation.x,rotation);
   const colors=new Set();
   for(const model of models)model.traverse(object=>{
     const materials=Array.isArray(object.material)?object.material:[object.material];
     for(const value of materials)if(value?.color)colors.add(`#${value.color.getHexString()}`);
   });
-  assert.ok(colors.has('#cb7654')&&colors.has('#f0d6ae')&&colors.has('#427574'),
+  assert.ok(colors.has('#d59768')&&colors.has('#f0d7b0')&&colors.has('#7bc6b5'),
     'terracotta, ivory, and teal are actual architecture materials');
   for(const [index,solid] of fixtures.entries()) {
     if(solid.collisionOnly)continue;
@@ -631,10 +637,14 @@ test('Candy Factory renders colorful machinery, accurate solids, and live belts'
       assert.ok(bounds.min.x>=-.13&&bounds.min.z>=-.13&&
         bounds.max.x<=solid.width*.05+.13&&bounds.max.z<=solid.height*.05+.13,
         `${solid.kind} model stays within its collision footprint`);
+      if(['candyIngredientBank','candyCooker','candyDepositor','candyCoolingHousing',
+        'candyControlBooth','candyMouldRack'].includes(solid.kind))
+        assert.ok(bounds.min.y>=-.05&&bounds.max.y<=solid.top-(solid.bottom||0)+.05,
+          `${solid.kind} has no visible volume above its physical top`);
     }
   }
   const conveyors=models.filter(model=>model.name==='candy-moving-belt');
-  assert.equal(conveyors.length,2);
+  assert.equal(conveyors.length,3);
   for(const conveyor of conveyors) {
     const markers=conveyor.getObjectByName('candy-conveyor-markers');
     assert.ok(markers?.isInstancedMesh&&markers.count===10);
@@ -643,6 +653,62 @@ test('Candy Factory renders colorful machinery, accurate solids, and live belts'
     assert.notDeepEqual(Array.from(markers.instanceMatrix.array),before);
   }
   for(const model of models)model.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});
+});
+
+test('Candy Factory architecture preserves physical openings and wall bounds',()=>{
+  const {map,walls}=maps.createPvpMap(0,'candyFactory'),model=createCandyEnvironment(map,walls);
+  model.updateMatrixWorld(true);
+  const bodies=[];model.traverse(o=>{if(o.name==='candy-wall-solid')bodies.push(o);});
+  assert.equal(bodies.length,walls.length);
+  for(let i=0;i<walls.length;i++) {
+    const wall=walls[i],b=new THREE.Box3().setFromObject(bodies[i]);
+    for(const [actual,expected] of [[b.min.x,(wall.x-450)*.05],
+      [b.max.x,(wall.x+wall.width-450)*.05],[b.min.z,(wall.y-300)*.05],
+      [b.max.z,(wall.y+wall.height-300)*.05],[b.min.y,wall.bottom||0],[b.max.y,wall.top]])
+      assert.ok(Math.abs(actual-expected)<1e-5,'visible masonry agrees with collision');
+  }
+  const rayAt=(y,height)=>new THREE.Raycaster(new THREE.Vector3(0,height,(y-300)*.05),
+    new THREE.Vector3(1,0,0),0,20).intersectObject(model,true);
+  assert.equal(rayAt(410,1.84).length,0,'lower production doorway stays visually open');
+  assert.equal(rayAt(350,7.64).length,0,'observation opening stays visually open');
+  assert.ok(rayAt(440,7.64).length,'the adjacent upper wall is visually solid');
+  assert.ok(model.getObjectByName('candy-batch-clock'));
+  model.traverse(o=>{
+    if(o.geometry)assert.ok(Array.from(o.geometry.attributes.position.array).every(Number.isFinite));
+    o.geometry?.dispose();o.material?.dispose();
+  });
+});
+
+test('Candy Factory batches its architecture and preserves moving machine assemblies',t=>{
+  const old=Object.getOwnPropertyDescriptor(globalThis,'document');
+  Object.defineProperty(globalThis,'document',{value:{getElementById:()=>({checked:false})},configurable:true});
+  t.after(()=>old?Object.defineProperty(globalThis,'document',old):delete globalThis.document);
+  const {map,walls}=maps.createPvpMap(0,'candyFactory'),arena=Object.create(Arena3D.prototype);
+  Object.assign(arena,{stage:new THREE.Group(),viewWeapon:new THREE.Group(),scene:new THREE.Scene(),
+    camera:new THREE.PerspectiveCamera(),ambient:new THREE.HemisphereLight(),
+    sun:new THREE.DirectionalLight(),rim:new THREE.DirectionalLight(),labels:{replaceChildren(){}},
+    renderer:{shadowMap:{}},resize(){},deadIds:new Set()});
+  arena.scene.background=new THREE.Color();arena.scene.add(arena.stage);
+  for(const key of ['characters','grenades','guardianProjectiles','wardenAttacks','pickups','weaponSwitchTimes'])
+    arena[key]=new Map();
+  t.after(()=>arena.clearObject(arena.stage));
+  arena.build(walls,map);
+  let meshes=0,triangles=0;
+  arena.stage.traverse(o=>{
+    if(!o.isMesh||o.material.colorWrite===false||o.material.isShadowMaterial)return;
+    meshes++;triangles+=(o.geometry.index?.count||o.geometry.attributes.position.count)/3*(o.isInstancedMesh?o.count:1);
+  });
+  assert.ok(meshes<180,`batched factory uses ${meshes} visible meshes`);
+  assert.ok(triangles<300000,`factory geometry budget: ${triangles} triangles`);
+  const drum=arena.animatedTerrain.find(m=>m.name==='candy-tempering-drum');
+  const rotor=drum.getObjectByName('candy-tempering-contents'),oldRotation=rotor.rotation.x;
+  for(const model of arena.animatedTerrain)model.userData.update(2);
+  assert.notEqual(rotor.rotation.x,oldRotation,'merging retains the moving rotor');
+  for(const model of arena.animatedTerrain.filter(m=>m.name==='candy-moving-belt')) {
+    const markers=model.getObjectByName('candy-conveyor-markers');
+    assert.ok(markers.isInstancedMesh&&markers.count===10,'merging retains instanced belt markers');
+    assert.ok(Array.from(markers.instanceMatrix.array).every(Number.isFinite));
+  }
 });
 
 test('Terminal 7 has a finite bespoke shell, runway, aircraft and jet bridge',()=>{

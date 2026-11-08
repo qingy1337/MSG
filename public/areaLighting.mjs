@@ -18,32 +18,25 @@ export function planAreaLighting(map,walls=[]) {
     // Warm production lighting reveals the terracotta, ivory and teal
     // materials without tinting the entire room strawberry pink.
     return [
-      {kind:'candy-mixing',x:map.width*.23,y:map.height*.40,height:5.2,sourceHeight:map.ceiling-.55,
-        color:'#ffe6b8',intensity:96,radius:12,castsShadow:false},
-      {kind:'candy-loading',x:map.width*.42,y:map.height*.69,height:0,sourceHeight:map.ceiling-.55,
-        color:'#fff0d2',intensity:92,radius:10.5,castsShadow:false},
-      {kind:'candy-packing',x:map.width*.60,y:map.height*.52,height:0,sourceHeight:map.ceiling-.55,
-        color:'#e3fff1',intensity:94,radius:10.5,castsShadow:false},
-      {kind:'candy-press',x:map.width*.82,y:map.height*.31,height:0,sourceHeight:map.ceiling-.55,
-        color:'#ffe4c5',intensity:102,radius:11,castsShadow:false},
-      {kind:'candy-return',x:map.width*.55,y:map.height*.86,height:0,sourceHeight:map.ceiling-.55,
-        color:'#ffe8c4',intensity:92,radius:11,castsShadow:false},
-      {kind:'candy-lower-mixing',x:map.width*.25,y:map.height*.46,height:0,sourceHeight:3.82,
-        color:'#ffe7c0',intensity:74,radius:9,castsShadow:false},
+      ...map.terrain.filter(s=>s.kind==='candyLight').map((s,i)=>({
+        kind:`candy-overhead-${i}`,x:s.x+s.width/2,y:s.y+s.height/2,height:0,
+        sourceHeight:(s.bottom||0)+.01,color:'#fff0d5',intensity:108,radius:15,
+        castsShadow:false,fixture:'integrated'})),
+      ...[170,1430].map(x=>({kind:`candy-preparation-${x}`,x,y:350,height:0,
+        sourceHeight:5.15,color:'#e7fff0',intensity:68,radius:8.5,
+        castsShadow:false,fixture:'integrated'})),
     ];
   }
   if(map.style==='tower') {
-    // Warm ceiling pools reveal the three gallery heights and keep the shaft
-    // bright without adding another shadow-map pass.
+    // Four fixtures actually sit below the control-room slabs. The two
+    // overhead pools belong to the double-height bays, not the sheltered halls.
     return [
-      {kind:'tower-north-west',x:map.width*.24,y:map.height*.19,height:3,sourceHeight:map.ceiling-.55,
-        color:'#fff0d1',intensity:72,radius:10.5,castsShadow:false},
-      {kind:'tower-north-east',x:map.width*.76,y:map.height*.19,height:3,sourceHeight:map.ceiling-.55,
-        color:'#fff0d1',intensity:72,radius:10.5,castsShadow:false},
-      {kind:'tower-south-west',x:map.width*.25,y:map.height*.72,height:6,sourceHeight:map.ceiling-.55,
-        color:'#ffe1b4',intensity:78,radius:10.5,castsShadow:false},
-      {kind:'tower-south-east',x:map.width*.76,y:map.height*.72,height:6,sourceHeight:map.ceiling-.55,
-        color:'#fff0d1',intensity:78,radius:10.5,castsShadow:false},
+      ...[190,930].flatMap(x=>[460,920].map(y=>({
+        kind:'tower-service',x,y,height:0,sourceHeight:4.56,color:'#d9e8ff',
+        intensity:72,radius:11,castsShadow:false,fixture:'integrated'}))),
+      ...[300,700].map(y=>({kind:'tower-turbine-hall',x:560,y,height:5.2,
+        sourceHeight:16.08,color:'#dcecff',intensity:125,radius:19,
+        castsShadow:false,fixture:'integrated'})),
     ];
   }
   if(map.style==='airport') {
@@ -126,7 +119,7 @@ export function createAreaLighting(plan,world) {
     light.shadow.normalBias=0.035;light.shadow.bias=-0.0001;
     light.shadow.camera.near=0.1;
     group.add(light,light.target);
-    if(area.fixture==='lantern')continue;
+    if(area.fixture==='lantern'||area.fixture==='integrated')continue;
     const housing=new THREE.Mesh(new THREE.BoxGeometry(area.castsShadow||area.kind==='workspace'?3.8:1.5,0.14,0.65),
       new THREE.MeshStandardMaterial({color:'#34444b',roughness:0.65,metalness:0.4}));
     housing.position.copy(light.position);housing.position.y+=0.08;

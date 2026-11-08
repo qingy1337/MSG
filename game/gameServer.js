@@ -7,6 +7,7 @@ const {throwGrenade,stepGrenade,blastDamage}=require('./grenades');
 const {splitCoinReward}=require('./coinRewards');
 const {deathDescriptor,makeDeathPickup,collectPickups}=require('./deathEffects');
 const { floorDifficulty, tickOgre } = require('./pveDifficulty');
+const {rollPveBuff,weaponCooldown}=require('./pveBuffs');
 const { advanceKnockback,addKnockbackImpulse } = require('../public/arenaMap');
 const {NavigationService}=require('./navigationService');
 const {playerSnapshot,playerFrame}=require('./snapshots');
@@ -139,6 +140,17 @@ function createGameServer(io, options = {}) {
   const gameWalls = [];
   let gameMap = DEFAULT_MAP;
   let floorState = { phase: 'combat', floor: 1, startedAt: 0 };
+  const currentPveBuff=()=>gameMap.mode==='pve'&&gameMap.activity!=='strike'?floorState.buff:null;
+  function applyFloorHealthBuff() {
+    const doubled=currentPveBuff()==='doubleHealth';
+    for(const player of activePlayers)if(!player.isBot) {
+      const oldMax=player.maxHealth||MAX_HEALTH;
+      player.maxHealth=doubled?MAX_HEALTH*2:MAX_HEALTH;
+      const bonus=doubled&&oldMax<player.maxHealth?player.maxHealth-oldMax:0;
+      player.health=Math.min(player.maxHealth,Math.max(0,(player.health||0)+bonus));
+      pendingHealth.set(player.id,{id:player.id,health:player.health,maxHealth:player.maxHealth});
+    }
+  }
   let strikeState = null;
   const strikeHazardTickAt=new Map();
   let strikeHazardSignature='';
@@ -301,7 +313,7 @@ function createGameServer(io, options = {}) {
         !data||!Number.isFinite(data.angle)||!Number.isFinite(data.pitch)||Math.abs(data.pitch)>1.35)return;
       const now=Date.now();updateCargoLifts(gameMap,activePlayers,now);advanceJump(p,now);
       activatePveEncounter();
-      p.grenades--;
+      if(currentPveBuff()!=='infiniteGrenades')p.grenades--;
       const g=throwGrenade(p,data.angle,data.pitch,now-started,now,nextGrenadeId++);
       grenades.push(g);
       if (p.accountUsername) {
@@ -457,7 +469,8 @@ function createGameServer(io, options = {}) {
     BOT_CONFIG.canvasHeight = gameMap.height;
     const matchStartedAt=Date.now();
     lastRegenAt = matchStartedAt; squadOrders.clear();
-    floorState = { phase: 'combat', floor: startFloor, startedAt: matchStartedAt };
+    floorState = { phase: 'combat', floor: startFloor, startedAt: matchStartedAt,
+      buff:enableBots&&!strikeId?rollPveBuff(gameMap.seed,startFloor):null };
     strikeState=strikeId?strikeTravelState(0,matchStartedAt,{checkpointIndex:-1,openedIds:[],
       machineryState:{},missionFlags:{}}):null;
     strikeHazardTickAt.clear();strikeHazardSignature='';strikeHazardPublishedAt=0;
@@ -511,6 +524,7 @@ function createGameServer(io, options = {}) {
       }
     }
 
+    if(enableBots&&!strikeId)applyFloorHealthBuff();
     if (botCount > 0 && !strikeId) {
       createBotsForCurrentMatch(botCount);
     }
@@ -582,7 +596,8 @@ function createGameServer(io, options = {}) {
     if (!bulletData || !Number.isFinite(bulletData.angle)) return;
     const pitch = bulletData.pitch ?? 0;
     if (!Number.isFinite(pitch) || Math.abs(pitch) > 1.35) return;
-    if(player?.automaticFire&&WEAPONS[player.weapon]?.automatic)return;
+    if(player?.automaticFire&&
+      (WEAPONS[player.weapon]?.automatic||player.weapon==='pistol'&&currentPveBuff()==='automaticPistol'))return;
     fireHitscan(player, bulletData.angle, pitch);
   }
 
@@ -592,11 +607,12 @@ function createGameServer(io, options = {}) {
 
   function handleAutomaticFireStart(socket, aim) {
     const player=activePlayers.find(p=>p.id===socket.id);
-    if(!player?.alive||player.isBot||!WEAPONS[player.weapon]?.automatic||!validAutomaticAim(aim)||
+    if(!player?.alive||player.isBot||
+      !(WEAPONS[player.weapon]?.automatic||(player.weapon==='pistol'&&currentPveBuff()==='automaticPistol'))||!validAutomaticAim(aim)||
       !gameInProgress.status||gameOverTimeout||riding())return;
     if(player.automaticFire)return;
     const now=Date.now(),config=WEAPONS[player.weapon];
-    let nextShotAt=Math.max(now,(player.lastShotAt||0)+config.cooldownMs);
+    let nextShotAt=Math.max(now,(player.lastShotAt||0)+weaponCooldown(config.cooldownMs,currentPveBuff()));
     if(player.weapon==='miniGun'){
       if(player.miniGunSpinStartedAt==null||player.miniGunLastAttemptAt==null||
         now-player.miniGunLastAttemptAt>config.triggerReleaseMs)player.miniGunSpinStartedAt=now;
@@ -627,7 +643,7 @@ function createGameServer(io, options = {}) {
       if(!held)continue;
       if(!player.alive||!gameInProgress.status||gameOverTimeout||riding()||
         held.weapon!==player.weapon){player.automaticFire=null;continue;}
-      const interval=WEAPONS[player.weapon].cooldownMs;
+      const interval=weaponCooldown(WEAPONS[player.weapon].cooldownMs,currentPveBuff());
       // A late server tick catches up the rounds due during that tick. Cap a
       // pathological stall so one client cannot create an unbounded burst.
       for(let rounds=0;held.nextShotAt<=now&&rounds<16;rounds++) {
@@ -668,14 +684,15 @@ function createGameServer(io, options = {}) {
       player.miniGunLastAttemptAt=now;
       if(now-(player.miniGunSpinStartedAt??now)<weaponConfig.spinUpMs)return false;
     }
-    const cooldown = weaponConfig.cooldownMs;
+    const cooldown = weaponCooldown(weaponConfig.cooldownMs,currentPveBuff());
     if (shotTime - (player.lastShotAt || 0) < cooldown) return false;
     if(player.weapon==='shotgun') {
       if(now<(player.shotgunReloadUntil||0))return false;
       if(player.shotgunShotsRemaining==null||player.shotgunShotsRemaining===0)
         player.shotgunShotsRemaining=WEAPONS.shotgun.shotsPerReload;
       player.shotgunShotsRemaining--;
-      player.shotgunReloadUntil=player.shotgunShotsRemaining===0?now+WEAPONS.shotgun.reloadMs:0;
+      player.shotgunReloadUntil=player.shotgunShotsRemaining===0?
+        now+weaponCooldown(WEAPONS.shotgun.reloadMs,currentPveBuff()):0;
       queueSnapshot();
     }
     if(!player.isBot)activatePveEncounter();
@@ -995,7 +1012,7 @@ function createGameServer(io, options = {}) {
         if(gameMap.mode==='pve'&&gameMap.activity!=='strike') {
           if(!activePlayers.some(p=>!p.isBot)) { resetGame([...matchParticipantIds]); return; }
           if(floorState.phase!=='wiped') {
-            floorState={phase:'wiped',floor:gameMap.floor,startedAt:Date.now()};
+            floorState={...floorState,phase:'wiped',startedAt:Date.now()};
             grenades.length=0;guardianProjectiles.length=0;pickups.length=0;
             publishFloorState();queueSnapshot();
           }
@@ -1007,7 +1024,7 @@ function createGameServer(io, options = {}) {
           clearStrikeCombatPhase(Date.now());
       }
       else if (!alivePlayers.some(p => p.isBot) && floorState.phase === 'combat') {
-        floorState = { phase: 'ready', floor: gameMap.floor, startedAt: Date.now() };
+        floorState = {...floorState,phase:'ready',startedAt:Date.now()};
         publishFloorState();
       }
       return;
@@ -1054,7 +1071,9 @@ function createGameServer(io, options = {}) {
     pveEncounterActive=false;lastRegenAt=now;
     wallLayoutVersion++;invalidateCachedNavGrid();navigation.configure(gameMap,gameWalls);
     createBotsForCurrentMatch(floorBotCount);
-    floorState={phase:'opening',floor:gameMap.floor,startedAt:now};
+    floorState={phase:'opening',floor:gameMap.floor,startedAt:now,
+      buff:rollPveBuff(gameMap.seed,gameMap.floor)};
+    applyFloorHealthBuff();
     io.emit('floorStarting',{players:activePlayers.map(playerSnapshot),walls:gameWalls,map:gameMap,
       state:{...floorState,serverNow:now}});
     options.onFloorStateChange?.();
@@ -3951,7 +3970,7 @@ function createGameServer(io, options = {}) {
     const humans=activePlayers.filter(p=>!p.isBot&&p.alive);
     if(gameMap.mode!=='pve'||gameMap.activity==='strike'||!['combat','ready'].includes(floorState.phase)||!humans.length||
       activePlayers.some(p=>p.isBot&&p.alive)||!humans.every(p=>inElevator(p,gameMap)))return false;
-    floorState={phase:'riding',floor:gameMap.floor,startedAt:now};
+    floorState={...floorState,phase:'riding',startedAt:now};
     grenades.length=0;guardianProjectiles.length=0;pickups.length=0;queueSnapshot();
     for(const p of activePlayers)p.grenadeChargeAt=null;
     for(const p of humans) {
@@ -4022,11 +4041,13 @@ function createGameServer(io, options = {}) {
       clearActiveBullets(activeBullets);
       guardianProjectiles.length=0;
       createBotsForCurrentMatch(floorBotCount);
-      floorState = {phase:'opening',floor:gameMap.floor,startedAt:now};
+      floorState = {phase:'opening',floor:gameMap.floor,startedAt:now,
+        buff:rollPveBuff(gameMap.seed,gameMap.floor)};
+      applyFloorHealthBuff();
       io.emit('floorStarting',{players:activePlayers.map(playerSnapshot),walls:gameWalls,map:gameMap,
         state:{...floorState,serverNow:now}});
     } else if (floorState.phase === 'opening' && now-floorState.startedAt >= LIFT_TIMING.open) {
-      floorState = {phase:'combat',floor:gameMap.floor,startedAt:now};publishFloorState();
+      floorState = {...floorState,phase:'combat',startedAt:now};publishFloorState();
     }
   }
 

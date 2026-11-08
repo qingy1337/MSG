@@ -1431,6 +1431,14 @@ body.in-game .app-header { min-height: 52px; padding-top: 7px; padding-bottom: 7
 #performance-info { right: 22px; bottom: 42px; padding: 5px 8px; color: #70898e; font: 9px monospace; opacity: 1; }
 #game-message { top: 22px; left: 50%; transform: translateX(-50%); min-width: 240px; padding: 9px 13px; color: #d8ebe7; font-size: 11px; letter-spacing: .04em; text-align: center; }
 #game-message:empty { display: none; }
+#pve-buff-banner { position:absolute;z-index:8;top:64px;left:50%;transform:translateX(-50%);
+    display:flex;align-items:center;gap:12px;padding:11px 18px;border:1px solid #f5ce61;
+    border-radius:7px;background:rgba(40,32,10,.94);color:#ffe5a0;pointer-events:none;
+    box-shadow:0 8px 28px rgba(0,0,0,.22);animation:pve-buff-in .32s ease-out both; }
+#pve-buff-banner[hidden] { display:none; }
+#pve-buff-banner span { font:800 9px Manrope,sans-serif;letter-spacing:.15em;color:#e1bc63; }
+#pve-buff-banner strong { font:400 16px Rowdies,sans-serif; }
+@keyframes pve-buff-in { from {opacity:0;transform:translate(-50%,-18px)} to {opacity:1;transform:translate(-50%,0)} }
 .pve-wipe { position: absolute; z-index: 12; top: 50%; left: 50%; width: min(420px, calc(100% - 32px));
     transform: translate(-50%, -50%); padding: 30px; border: 1px solid rgba(137, 190, 202, .5);
     border-radius: 18px; background: rgba(12, 27, 36, .94); color: #e7f4f2;

@@ -12,6 +12,12 @@
   ];
   const wall=(x,y,width,height,top=3.1)=>({x,y,width,height,top});
   const terrain=(kind,x,y,width,height,top,extra={})=>({kind,x,y,width,height,top,...extra});
+  const candyPair=solid=>[solid,{...solid,x:1600-solid.x-solid.width,
+    ...(solid.kind==='candyConveyor'&&solid.width>=solid.height?
+      {direction:-(solid.direction||1)}:{})}];
+  // Tower is mirrored across its turbine axis, including stair direction.
+  const towerPair=solid=>[solid,{...solid,x:1120-solid.x-solid.width,
+    ...(solid.axis==='x'?{reverse:!solid.reverse}:{})}];
   const pointInPolygon=(points,x,y)=>{
     let inside=false;
     for(let i=0,j=points.length-1;i<points.length;j=i++) {
@@ -210,248 +216,232 @@
     },
     candyFactory:{
       id:'candyFactory',name:'Candy Factory',
-      description:'A working sweetworks with two production floors, a tempering drum, moving belts, and a sugar press.',
-      width:1360,height:1040,ceiling:16.2,scale:1.08,style:'candy',accent:'#df453f',
-      palette:{sky:'#e6cbb0',wall:'#ad5847',panel:'#ead3b5',cap:'#f2dfbf',glow:'#e83d40',
-        floorLow:'#b77155',floorHigh:'#dfa578',reflection:'#ae704e',reflectionGlow:'#e85d4b',groundStyle:'candy',
-        ambient:'#ffe5be',ground:'#a46b54',sun:'#fff0ca',rim:'#72b5b1',
-        ambientIntensity:3.45,sunIntensity:3.55,rimIntensity:1.55},
-      // The shell follows mixing, cooling, packing and the return belt. Each
-      // wing changes width for a production reason, not to fill an arena box.
+      description:'Twin candy production lines face a broad shared cooking and packing hall.',
+      width:1600,height:1120,ceiling:17.5,scale:1,style:'candy',accent:'#d85146',
+      palette:{sky:'#e7d4ba',wall:'#a95748',panel:'#ead5b5',cap:'#f3dfc3',glow:'#e75d4b',
+        floorLow:'#b8795c',floorHigh:'#e3ae81',reflection:'#ae7656',reflectionGlow:'#df8066',groundStyle:'candy',
+        ambient:'#ffe9cf',ground:'#b88467',sun:'#fff1d6',rim:'#79bcb6',
+        ambientIntensity:3.55,sunIntensity:3.55,rimIntensity:1.5},
+      // A mirrored pair of production wings opens into one genuinely broad,
+      // double-height hall. The north/south setbacks make a cruciform shell.
       floorRects:[
-        {x:80,y:200,width:580,height:600},{x:660,y:330,width:290,height:470},
-        {x:950,y:80,width:330,height:770},{x:420,y:800,width:530,height:200},
+        {x:500,y:100,width:600,height:920},
+        ...candyPair({x:80,y:180,width:420,height:760}),
       ],
       floorPolygon:[
-        {x:950,y:80},{x:1280,y:80},{x:1280,y:850},{x:950,y:850},
-        {x:950,y:1000},{x:420,y:1000},{x:420,y:800},{x:80,y:800},
-        {x:80,y:200},{x:660,y:200},{x:660,y:330},{x:950,y:330},
+        {x:500,y:100},{x:1100,y:100},{x:1100,y:180},{x:1520,y:180},
+        {x:1520,y:940},{x:1100,y:940},{x:1100,y:1020},{x:500,y:1020},
+        {x:500,y:940},{x:80,y:940},{x:80,y:180},{x:500,y:180},
       ],
       perimeter:[
-        {...wall(950,80,330,14,16.2),kind:'boundary'},
-        {...wall(1266,94,14,742,16.2),kind:'boundary'},
-        {...wall(950,836,330,14,16.2),kind:'boundary'},
-        {...wall(936,850,14,136,16.2),kind:'boundary'},
-        {...wall(420,986,530,14,16.2),kind:'boundary'},
-        {...wall(420,800,14,186,16.2),kind:'boundary'},
-        {...wall(80,786,340,14,16.2),kind:'boundary'},
-        {...wall(80,214,14,572,16.2),kind:'boundary'},
-        {...wall(80,200,580,14,16.2),kind:'boundary'},
-        {...wall(646,214,14,116,16.2),kind:'boundary'},
-        {...wall(660,330,290,14,16.2),kind:'boundary'},
-        {...wall(936,94,14,236,16.2),kind:'boundary'},
+        {...wall(500,100,600,14,17.5),kind:'boundary'},
+        {...wall(500,1006,600,14,17.5),kind:'boundary'},
+        ...candyPair({...wall(80,180,420,14,17.5),kind:'boundary'}),
+        ...candyPair({...wall(80,926,420,14,17.5),kind:'boundary'}),
+        ...candyPair({...wall(80,194,14,732,17.5),kind:'boundary'}),
+        ...candyPair({...wall(500,114,14,66,17.5),kind:'boundary'}),
+        ...candyPair({...wall(500,940,14,66,17.5),kind:'boundary'}),
       ],
       walls:[
-        // Load-bearing production walls leave real openings for the belts.
-        // Their positions follow the building's two changes in width.
-        wall(646,344,26,106,16.2),wall(646,700,26,100,16.2),
-        wall(935,344,30,126,16.2),wall(935,690,30,110,16.2),
+        // Each wing has the same two broad production doors. These walls
+        // belong to the rooms; no unattached cover blocks sit in the hall.
+        ...candyPair(wall(500,180,26,140,17.5)),
+        ...candyPair(wall(500,500,26,160,17.5)),
+        ...candyPair(wall(500,840,26,100,17.5)),
+        // The upper inspection opening has a real sill and lintel; the
+        // rest of the partition continues to the roof over each doorway.
+        ...candyPair({...wall(500,320,26,74,6.85),bottom:4.2}),
+        ...candyPair({...wall(500,320,26,74,17.5),bottom:10}),
+        ...candyPair({...wall(500,394,26,106,17.5),bottom:4.2}),
+        ...candyPair({...wall(500,660,26,180,17.5),bottom:4.2}),
       ],
       terrain:[
-        // A complete second storey meets the mixing wing's perimeter walls.
-        // Its stair mouth and inspection well are deliberate openings; a thin
-        // slab leaves the lower mixing room usable.
-        // A small inspection opening looks into the ingredient room below.
-        // Four flush slab pieces form one continuous room around that cutout.
-        terrain('candyMixingFloor',94,214,386,326,4.4,{bottom:4.15,walkable:true,seamless:true}),
-        terrain('candyMixingFloor',94,630,386,156,4.4,{bottom:4.15,walkable:true,seamless:true}),
-        terrain('candyMixingFloor',94,540,86,90,4.4,{bottom:4.15,walkable:true,seamless:true}),
-        terrain('candyMixingFloor',280,540,200,90,4.4,{bottom:4.15,walkable:true,seamless:true}),
-        terrain('candyMixingFloor',480,214,166,406,4.4,{bottom:4.15,walkable:true,seamless:true}),
-        terrain('candyMixingFloor',480,692,166,94,4.4,{bottom:4.15,walkable:true,seamless:true}),
-        terrain('candyMixingFloor',646,330,14,14,4.4,{bottom:4.15,walkable:true,seamless:true}),
-        terrain('candyMixingFloor',646,692,14,8,4.4,{bottom:4.15,walkable:true,seamless:true}),
-        // The bridge joins a second full-width production room, not a strip
-        // floating beside the walls. Its small west jog follows the real wall.
-        terrain('candyGallery',646,470,319,100,4.4,{bottom:4.15,walkable:true,bridge:true}),
-        terrain('candyGallery',950,200,316,144,4.4,{bottom:4.15,walkable:true,seamless:true}),
-        terrain('candyGallery',965,344,301,226,4.4,{bottom:4.15,walkable:true,seamless:true}),
-        // Closed-riser stairs occupy only their dedicated openings. Their
-        // narrower treads and the physical slope agree in both directions.
-        terrain('ramp',480,627,180,58,4.4,{axis:'x',reverse:true,stairs:true,steps:16,style:'candy'}),
-        terrain('ramp',1111,570,58,170,4.4,{axis:'y',reverse:true,stairs:true,steps:16,style:'candy'}),
-        // Solid guards mark exposed edges; slim wall-side handrails follow
-        // later as decoration within the wall's existing collision clearance.
-        terrain('rail',639,450,7,20,5.45,{bottom:4.4,style:'candy'}),
-        terrain('rail',639,570,7,50,5.45,{bottom:4.4,style:'candy'}),
-        terrain('rail',646,470,319,7,5.45,{bottom:4.4,style:'candy'}),
-        terrain('rail',646,563,319,7,5.45,{bottom:4.4,style:'candy'}),
-        terrain('rail',950,200,316,7,5.45,{bottom:4.4,style:'candy'}),
-        terrain('rail',965,563,139,7,5.45,{bottom:4.4,style:'candy'}),
-        terrain('rail',1176,563,90,7,5.45,{bottom:4.4,style:'candy'}),
-        // The guard has one intentional opening on its east side for a drop
-        // into the supply room. All broad routes around the well stay open.
-        terrain('rail',180,540,100,7,5.45,{bottom:4.4,style:'candy'}),
-        terrain('rail',180,623,100,7,5.45,{bottom:4.4,style:'candy'}),
-        terrain('rail',180,547,7,76,5.45,{bottom:4.4,style:'candy'}),
-        terrain('rail',280,547,7,13,5.45,{bottom:4.4,style:'candy'}),
-        terrain('rail',280,615,7,8,5.45,{bottom:4.4,style:'candy'}),
-        terrain('rail',480,620,180,7,1.05,{style:'candy',axis:'x',rise:4.4,reverse:true}),
-        terrain('rail',480,685,180,7,1.05,{style:'candy',axis:'x',rise:4.4,reverse:true}),
-        terrain('rail',1104,570,7,170,1.05,{style:'candy',axis:'y',rise:4.4,reverse:true}),
-        terrain('rail',1169,570,7,170,1.05,{style:'candy',axis:'y',rise:4.4,reverse:true}),
-        terrain('candyVat',275,300,64,64,7.3,{bottom:4.4,collisionShape:'circle',collisionRadius:26}),
-        terrain('candyVat',330,430,64,64,7.3,{bottom:4.4,collisionShape:'circle',collisionRadius:26}),
-        terrain('candyTemperingDrum',490,455,100,70,8.2,{bottom:4.4}),
-        terrain('candySupplyTank',275,300,64,64,4.15,{collisionShape:'circle',collisionRadius:26}),
-        terrain('candySupplyTank',330,430,64,64,4.15,{collisionShape:'circle',collisionRadius:26}),
-        // The rotary sugar press and its actuators anchor the far room.
-        terrain('candyPress',1020,94,190,30,14.2),
-        terrain('candyPiston',975,124,42,52,12.2,{collisionShape:'circle',collisionRadius:19}),
-        terrain('candyPiston',1215,124,42,52,12.2,{collisionShape:'circle',collisionRadius:19}),
-        terrain('candyControl',1080,408,72,48,5.65,{bottom:4.4}),
-        // Syrup leaves the raised mixers through a closed manifold. The pipe
-        // follows the packing gallery, turns into the press, and stays above
-        // the playable space rather than inventing ground-level obstructions.
-        terrain('candyProcessPipe',300,328,155,16,8.35,{bottom:7.85,nonSolid:true,axis:'x',line:'syrup'}),
-        terrain('candyProcessPipe',360,452,95,16,8.35,{bottom:7.85,nonSolid:true,axis:'x',line:'syrup'}),
-        terrain('candyProcessPipe',447,328,16,160,8.35,{bottom:7.85,nonSolid:true,axis:'y',line:'syrup'}),
-        terrain('candyProcessPipe',447,480,43,16,8.35,{bottom:7.85,nonSolid:true,axis:'x',line:'syrup'}),
-        terrain('candyProcessPipe',590,480,507,16,8.35,{bottom:7.85,nonSolid:true,axis:'x',line:'syrup'}),
-        terrain('candyProcessPipe',1089,120,16,368,8.35,{bottom:7.85,nonSolid:true,axis:'y',line:'syrup'}),
-        // Finished candy exits the press along the east wall, then drops into
-        // the cooling belt. Both belts lead to the wrapper at the return bay.
-        terrain('candyProcessPipe',1190,120,16,560,8.35,{bottom:7.85,nonSolid:true,axis:'y',line:'pressed'}),
-        terrain('candyProcessPipe',895,672,303,16,8.35,{bottom:7.85,nonSolid:true,axis:'x',line:'pressed'}),
-        terrain('candyHopper',879,663,35,64,7.9,{nonSolid:true}),
-        terrain('candyHopperCollider',889,688,14,14,7.9,{bottom:1.4,collisionOnly:true,
-          collisionShape:'circle',collisionRadius:7}),
-        terrain('candyConveyor',730,680,170,46,1.18,{speed:.62,direction:-1,style:'candy'}),
-        terrain('candyTransfer',706,722,48,149,1.3,{nonSolid:true}),
-        terrain('candyConveyor',520,856,300,50,1.18,{speed:.58,direction:1,style:'candy'}),
-        terrain('candyWrapper',780,836,66,88,2.8,{nonSolid:true}),
-        terrain('candyWrapperPost',811,836,7,7,2.8,{collisionOnly:true}),
-        terrain('candyWrapperPost',811,917,7,7,2.8,{collisionOnly:true}),
-        terrain('candyDispatch',865,900,70,82,2.45),
-        // Belt guides and roof lighting stay decorative and above the physical
-        // floor, never as extra coplanar walking surfaces.
-        terrain('candyTrack',695,455,205,300,.03,{nonSolid:true}),
-        terrain('candyLight',150,235,420,30,16.19,{bottom:15.58,nonSolid:true}),
-        terrain('candyLight',700,360,185,30,16.19,{bottom:15.58,nonSolid:true}),
-        terrain('candyLight',990,225,245,30,16.19,{bottom:15.58,nonSolid:true}),
-        terrain('candyLight',520,935,320,28,16.19,{bottom:15.58,nonSolid:true}),
-        terrain('candyLight',130,390,170,22,4.12,{bottom:3.88,nonSolid:true}),
-        terrain('candyLight',350,390,170,22,4.12,{bottom:3.88,nonSolid:true}),
-        // Wall-side rails are maintenance handholds tucked into the wall's
-        // existing collision clearance, not extra barriers through the floor.
-        terrain('candyWallHandrail',97,242,6,490,5.45,{bottom:4.4,nonSolid:true}),
-        terrain('candyWallHandrail',120,217,500,6,5.45,{bottom:4.4,nonSolid:true}),
-        terrain('candyWallHandrail',115,778,495,6,5.45,{bottom:4.4,nonSolid:true}),
-        terrain('candyWallHandrail',639,220,6,230,5.45,{bottom:4.4,nonSolid:true}),
-        terrain('candyWallHandrail',639,700,6,80,5.45,{bottom:4.4,nonSolid:true}),
-        terrain('candyWallHandrail',1258,220,6,330,5.45,{bottom:4.4,nonSolid:true}),
-        terrain('candyWallHandrail',968,350,6,110,5.45,{bottom:4.4,nonSolid:true}),
+        // Wall-backed inspection galleries have room to circulate around
+        // the vessels. The cooking hall keeps the full roof height.
+        ...candyPair(terrain('candyGallery',94,194,406,200,5.8,
+          {bottom:5.38,walkable:true,seamless:true})),
+        ...candyPair(terrain('ramp',290,394,120,240,5.8,
+          {axis:'y',reverse:true,stairs:true,steps:20,style:'candy'})),
+        ...candyPair(terrain('rail',94,387,196,7,6.85,{bottom:5.8,style:'candy'})),
+        ...candyPair(terrain('rail',410,387,90,7,6.85,{bottom:5.8,style:'candy'})),
+        ...candyPair(terrain('candyPier',94,370,16,24,5.38)),
+        ...candyPair(terrain('candyPier',484,370,16,24,5.38)),
+        // Ingredient preparation, inspection and control are identical on
+        // both sides so either team has the same raised and ground cover.
+        ...candyPair(terrain('candyIngredientBank',120,245,125,75,4.7)),
+        ...candyPair(terrain('candyVat',160,240,64,64,8.7,
+          {bottom:5.8,collisionShape:'circle',collisionRadius:26})),
+        ...candyPair(terrain('candyControlBooth',305,210,150,65,8.9,{bottom:5.8})),
+        ...candyPair(terrain('candyMouldRack',120,850,90,70,2.7)),
+        ...candyPair(terrain('candyDepositor',220,695,170,70,3.6)),
+        ...candyPair(terrain('candyDockFacade',94,575,6,150,4.7,{nonSolid:true})),
+        // Twin syrup cookers are the north-hall landmarks. Their circular
+        // bodies give cover while leaving routes around and between them.
+        ...candyPair(terrain('candyCooker',610,170,140,140,8.4,
+          {collisionShape:'circle',collisionRadius:58})),
+        ...candyPair(terrain('candyQualityBench',526,540,110,75,2.55)),
+        terrain('candyTemperingDrum',725,440,150,110,4.3,{factoryLine:true,nonSolid:true}),
+        terrain('candyDrumBase',725,440,150,110,.64,{collisionOnly:true}),
+        terrain('candyDrumBody',725,462,150,66,4.3,{bottom:.64,collisionOnly:true}),
+        // Two powered belts cross the lower doors and feed one enclosed
+        // cooler. Players can ride over the belts rather than snag on them.
+        ...candyPair(terrain('candyConveyor',390,705,325,50,1.18,
+          {speed:.50,direction:1,style:'candy'})),
+        terrain('candyCoolingHousing',715,682,170,138,3.3),
+        terrain('candyConveyor',770,820,60,140,1.18,
+          {speed:.44,direction:1,style:'candy'}),
+        terrain('candyWrapper',758,874,84,72,4.1,{nonSolid:true,axis:'y'}),
+        ...candyPair(terrain('candyWrapperPost',759,901,7,18,3.5,{collisionOnly:true})),
+        terrain('candyWrapperHead',758,901,84,18,4.1,{bottom:3.5,collisionOnly:true}),
+        terrain('candyDispatch',730,960,140,40,2.45),
+        // Visible feed pipes pass through the north production doors and
+        // terminate at actual vessels and depositors, not arbitrary walls.
+        ...candyPair(terrain('candyPipeRiser',184,264,16,16,5.85,
+          {bottom:4.65,nonSolid:true})),
+        ...candyPair(terrain('candyPipeRiser',184,264,16,16,10.25,
+          {bottom:8.65,nonSolid:true})),
+        ...candyPair(terrain('candyProcessPipe',184,264,16,139,10.25,
+          {bottom:9.75,nonSolid:true,axis:'y',line:'syrup'})),
+        ...candyPair(terrain('candyProcessPipe',184,390,504,16,10.25,
+          {bottom:9.75,nonSolid:true,axis:'x',line:'syrup'})),
+        ...candyPair(terrain('candyProcessPipe',672,232,16,174,10.25,
+          {bottom:9.75,nonSolid:true,axis:'y',line:'syrup'})),
+        ...candyPair(terrain('candyPipeRiser',672,232,16,16,10.25,
+          {bottom:8.35,nonSolid:true})),
+        ...candyPair(terrain('candyProcessPipe',672,232,16,263,6.5,
+          {bottom:6,nonSolid:true,axis:'y',line:'cooked'})),
+        ...candyPair(terrain('candyProcessPipe',672,482,77,16,6.5,
+          {bottom:6,nonSolid:true,axis:'x',line:'cooked'})),
+        ...candyPair(terrain('candyPipeRiser',733,482,16,16,6.5,
+          {bottom:4.1,nonSolid:true})),
+        ...candyPair(terrain('candyPipeRiser',743,508,16,16,8,
+          {bottom:3.55,nonSolid:true})),
+        ...candyPair(terrain('candyProcessPipe',340,508,419,16,8,
+          {bottom:7.5,nonSolid:true,axis:'x',line:'cooked'})),
+        ...candyPair(terrain('candyProcessPipe',340,508,16,250,8,
+          {bottom:7.5,nonSolid:true,axis:'y',line:'cooked'})),
+        ...candyPair(terrain('candyPipeRiser',340,742,16,16,8,
+          {bottom:3.45,nonSolid:true})),
+        // Structural detail and task lighting sit high above combat and have
+        // no phantom collision boxes or extra coplanar floor meshes.
+        ...candyPair(terrain('candyRoofTruss',94,550,406,24,17.15,
+          {bottom:15.6,nonSolid:true})),
+        terrain('candyRoofTruss',526,350,548,24,17.15,{bottom:15.6,nonSolid:true}),
+        terrain('candyRoofTruss',526,600,548,24,17.15,{bottom:15.6,nonSolid:true}),
+        terrain('candyRoofTruss',526,850,548,24,17.15,{bottom:15.6,nonSolid:true}),
+        ...candyPair(terrain('candyLight',130,520,320,28,17.49,
+          {bottom:16.88,nonSolid:true})),
+        terrain('candyLight',590,360,420,28,17.49,{bottom:16.88,nonSolid:true}),
+        terrain('candyLight',590,670,420,28,17.49,{bottom:16.88,nonSolid:true}),
+        ...candyPair(terrain('candyZoneSign',527,235,4,55,4.4,
+          {bottom:2.65,nonSolid:true,station:'cook'})),
+        ...candyPair(terrain('candyZoneSign',527,535,4,55,4.4,
+          {bottom:2.65,nonSolid:true,station:'mould'})),
       ],
       variants:[
-        [terrain('candyCrate',520,705,96,54,1.12),terrain('candyCrate',1180,660,60,58,1.12)],
-        [terrain('candyCrate',480,705,96,54,1.12),terrain('candyCrate',750,390,92,58,1.12)],
-        [terrain('candyCrate',530,730,96,54,1.12),terrain('candyCrate',820,365,92,58,1.12)],
+        candyPair(terrain('candyCrate',140,520,70,50,1.12)),
+        candyPair(terrain('candyCrate',155,540,70,50,1.12)),
+        candyPair(terrain('candyCrate',145,555,70,50,1.12)),
       ],
       spawns:[
-        [120,710],[480,835],[720,750],[1010,800],[1220,590],[1200,280],
-        [1080,220],[870,450],[570,940],[470,870],[125,350],
-        [210,360,4.4],[420,500,4.4],[585,400,4.4],[820,520,4.4],[1120,530,4.4],
+        ...[[140,460],[300,865],[430,255],[440,590],[310,660],[430,865],
+          [360,345,5.8]].flatMap(([x,y,height=0])=>[[x,y,height],[1600-x,y,height]]),
       ],
     },
     tower:{
-      id:'tower',name:'Tower',description:'A vertical power station with layered galleries, a suspended command deck, and two cargo lifts.',
-      width:900,height:900,ceiling:16.5,scale:1.04,style:'tower',accent:'#f3bc62',
-      palette:{sky:'#cbd8d2',wall:'#657c7d',panel:'#9db5b1',cap:'#eeeae0',glow:'#f2c27c',
-        floorLow:'#647c7b',floorHigh:'#9ab2ac',reflection:'#a6bcb5',reflectionGlow:'#e8bd76',
-        ambient:'#fff3df',ground:'#b7c9be',sun:'#fff4dc',rim:'#c4e8df',
-        ambientIntensity:3.55,sunIntensity:3.6,rimIntensity:1.5},
-      // The bulkheads form three connected ground-floor bays around a central
-      // power spindle. Every route has a second approach and clear turn space.
+      id:'tower',name:'Tower',description:'Twin control halls around a towering turbine, with sheltered switchback stairs and a contested overhead crossing.',
+      width:1120,height:1040,ceiling:16.8,scale:1,style:'tower',accent:'#dc8650',
+      palette:{sky:'#9db8d0',wall:'#4e7094',panel:'#355f8e',cap:'#94acbd',glow:'#83c9ee',
+        floorLow:'#465f7b',floorHigh:'#7894af',reflection:'#6b93b5',reflectionGlow:'#82badb',
+        ambient:'#e3efff',ground:'#90a8c2',sun:'#ffebd5',rim:'#a5d8ff',
+        ambientIntensity:3.5,sunIntensity:3.4,rimIntensity:1.45},
       walls:[
-        wall(410,250,70,130,8.5),
-        wall(270,425,24,145,4.2),wall(650,470,24,145,4.2),
-        wall(430,650,140,24,4.2),wall(620,680,24,130,4.2),
+        // Two bay portals and a rear bypass serve each ground hall. Its walls hold
+        // the occupied floor above; service bays are rooms, not loose cover.
+        ...[
+          wall(360,12,20,218,4.85),wall(360,390,20,290,4.85),wall(360,860,20,40,4.85),
+          {...wall(360,900,20,128,4.85),bottom:4.15},
+          {...wall(360,230,20,160,4.85),bottom:4.15},
+          {...wall(360,680,20,180,4.85),bottom:4.15},
+          wall(12,390,220,24,4.85),
+          // Enclosed lift wells meet actual holes in the upper slab.
+          wall(130,12,20,163,10.2),wall(260,12,20,163,10.2),wall(150,12,110,53,10.2),
+          // Switchback spine and casing fill otherwise misleading under-stair
+          // pockets. Both flights have wide, unobstructed turning landings.
+          {...wall(130,550,30,200,7.8),towerFinish:'concrete'},wall(160,550,90,200,2.6),{...wall(12,550,21,300,7.8),towerFinish:'concrete'},
+          wall(33,850,224,20,4.85),
+          {...wall(12,530,148,20,7.8),bottom:5.2,towerFinish:'concrete'},
+          // Upper rooms have limited inspection windows. Their 1.45 m sills
+          // are above a normal floor-level jump, keeping drops in the open bays.
+          {...wall(360,12,20,231,12.2),bottom:5.2},
+          {...wall(360,243,20,134,12.2),bottom:10.8},
+          {...wall(360,377,20,63,12.2),bottom:5.2},
+          {...wall(360,440,20,120,6.65),bottom:5.2},
+          {...wall(360,440,20,120,12.2),bottom:8.65},
+          {...wall(360,560,20,280,9.4),bottom:5.2},
+          // A structural return protects the stair landing and forces the
+          // last approach to turn into the control room at equal elevation.
+          {...wall(240,480,120,20,8.8),bottom:5.2,towerFinish:'concrete'},
+        ].flatMap(towerPair),
+        wall(380,880,100,20,4.85),wall(640,880,100,20,4.85),
+        {...wall(480,880,160,20,4.85),bottom:4.15},
       ],
       terrain:[
-        // Level one wraps the north wall and can be reached from either side.
-        terrain('catwalk',12,70,318,180,3,{bottom:2.75,walkable:true,style:'tower'}),
-        terrain('catwalk',330,120,240,70,3,{bottom:2.75,walkable:true,bridge:true,style:'tower'}),
-        terrain('catwalk',570,70,318,180,3,{bottom:2.75,walkable:true,style:'tower'}),
-        terrain('ramp',100,250,100,210,3,{axis:'y',reverse:true,stairs:true,steps:18,style:'tower'}),
-
-        // A floor-to-floor switchback climbs from level one into the southern
-        // wall walk, with a second long staircase rising directly from below.
-        terrain('ramp',700,250,100,250,6,{bottom:3,axis:'y',stairs:true,steps:20,style:'tower'}),
-        terrain('catwalk',600,500,288,150,6,{bottom:5.75,walkable:true,style:'tower'}),
-        terrain('catwalk',500,580,100,70,6,{bottom:5.75,walkable:true,bridge:true,style:'tower'}),
-        terrain('catwalk',300,580,200,170,6,{bottom:5.75,walkable:true,style:'tower'}),
-        // The west cargo platform itself bridges this 90-unit opening at the
-        // upper stop. Keeping the shaft clear prevents its deck entering a
-        // fixed floor during travel.
-        terrain('catwalk',12,600,198,150,6,{bottom:5.75,walkable:true,style:'tower'}),
-        terrain('catwalk',210,600,90,43,6,{bottom:5.75,walkable:true,bridge:true,style:'tower'}),
-        terrain('ramp',12,390,70,210,6,{axis:'y',stairs:true,steps:28,style:'tower'}),
-
-        // The nine-metre command walk hangs in the middle of the shaft, with
-        // open sightlines down onto both lower circulation loops.
-        terrain('ramp',360,400,100,180,9,{bottom:6,axis:'y',reverse:true,stairs:true,steps:20,style:'tower'}),
-        terrain('catwalk',280,240,260,160,9,{bottom:8.75,walkable:true,style:'tower'}),
-
-        // Console banks are part of the station's working galleries. Their
-        // footprints provide useful cover without consuming the walk lanes.
-        terrain('towerConsole',220,95,70,32,4.25,{bottom:3}),
-        terrain('towerConsole',425,120,60,25,4.25,{bottom:3}),
-        terrain('towerConsole',625,190,65,30,4.25,{bottom:3}),
-        terrain('towerConsole',335,275,65,40,10.15,{bottom:9}),
-        terrain('towerConsole',475,335,50,40,10.15,{bottom:9}),
-
-        // A power spindle gives the shaft a vertical landmark and breaks the
-        // old uninterrupted view across its centre. The model fits a round
-        // collider, so circling it feels like circling the actual machinery.
-        terrain('towerCore',500,440,80,80,13.2,{collisionShape:'circle',collisionRadius:32}),
-        terrain('towerPowerBank',130,555,80,40,1.55),
-        terrain('towerPowerBank',740,540,80,42,1.55),
-        terrain('towerCeilingTruss',65,35,770,30,16.25,{bottom:14.75,nonSolid:true}),
-        terrain('towerCeilingTruss',65,825,770,30,16.25,{bottom:14.75,nonSolid:true}),
-
-        // Open cargo platforms serve level two and the command walk.
-        terrain('lift',210,650,90,90,0,{id:'tower-lift-west',maxTop:6}),
-        terrain('lift',540,335,90,90,0,{id:'tower-lift-core',maxTop:9,phaseOffset:4000}),
-
-        // Fixed guardrails outline the exposed paths while deliberately
-        // leaving openings at every stair, bridge, and lift landing.
-        terrain('rail',12,63,318,7,4,{style:'tower',bottom:3}),
-        terrain('rail',12,250,88,7,4,{style:'tower',bottom:3}),terrain('rail',200,250,130,7,4,{style:'tower',bottom:3}),
-        terrain('rail',323,70,7,50,4,{style:'tower',bottom:3}),terrain('rail',323,190,7,60,4,{style:'tower',bottom:3}),
-        terrain('rail',330,113,233,7,4,{style:'tower',bottom:3}),terrain('rail',330,190,233,7,4,{style:'tower',bottom:3}),
-        terrain('rail',570,63,318,7,4,{style:'tower',bottom:3}),terrain('rail',807,250,81,7,4,{style:'tower',bottom:3}),
-        terrain('rail',563,70,7,50,4,{style:'tower',bottom:3}),terrain('rail',563,190,7,60,4,{style:'tower',bottom:3}),
-        terrain('rail',93,250,7,210,1,{style:'tower',axis:'y',rise:3,reverse:true}),
-        terrain('rail',200,250,7,210,1,{style:'tower',axis:'y',rise:3,reverse:true}),
-        terrain('rail',693,250,7,250,4,{style:'tower',bottom:3,axis:'y',rise:3}),
-        terrain('rail',800,250,7,250,4,{style:'tower',bottom:3,axis:'y',rise:3}),
-        terrain('rail',600,493,100,7,7,{style:'tower',bottom:6}),terrain('rail',800,493,88,7,7,{style:'tower',bottom:6}),
-        terrain('rail',600,650,288,7,7,{style:'tower',bottom:6}),terrain('rail',593,500,7,80,7,{style:'tower',bottom:6}),
-        terrain('rail',500,573,93,7,7,{style:'tower',bottom:6}),terrain('rail',500,650,100,7,7,{style:'tower',bottom:6}),
-        terrain('rail',300,573,53,7,7,{style:'tower',bottom:6}),terrain('rail',467,573,33,7,7,{style:'tower',bottom:6}),
-        terrain('rail',300,750,200,7,7,{style:'tower',bottom:6}),
-        terrain('rail',82,593,218,7,7,{style:'tower',bottom:6}),terrain('rail',12,750,198,7,7,{style:'tower',bottom:6}),
-        terrain('rail',82,390,7,210,1,{style:'tower',axis:'y',rise:6}),
-        terrain('rail',353,400,7,180,7,{style:'tower',bottom:6,axis:'y',rise:3,reverse:true}),
-        terrain('rail',460,400,7,180,7,{style:'tower',bottom:6,axis:'y',rise:3,reverse:true}),
-        terrain('rail',280,233,260,7,10,{style:'tower',bottom:9}),
-        terrain('rail',280,400,80,7,10,{style:'tower',bottom:9}),terrain('rail',460,400,80,7,10,{style:'tower',bottom:9}),
-        terrain('rail',540,240,7,88,10,{style:'tower',bottom:9}),
-
-        terrain('towerColumn',240,290,40,40,14.5),terrain('towerColumn',430,760,40,40,14.5),
-        terrain('towerPowerBank',390,12,120,50,2),
-        terrain('pipe',720,790,120,42,0.95,{collisionShape:'capsule',collisionRadius:15}),
+        // Substantial matching upper wings. These pieces tile one continuous
+        // slab, with only the two lift wells and switchbacks cut out.
+        ...[
+          terrain('catwalk',12,12,118,163,5.2,{bottom:4.85,walkable:true,style:'tower',seamless:true}),
+          terrain('catwalk',280,12,80,163,5.2,{bottom:4.85,walkable:true,style:'tower',seamless:true}),
+          terrain('catwalk',360,12,20,163,5.2,{bottom:4.85,style:'tower',seamless:true}),
+          terrain('catwalk',12,175,368,375,5.2,{bottom:4.85,walkable:true,style:'tower',seamless:true}),
+          terrain('catwalk',257,550,123,300,5.2,{bottom:4.85,walkable:true,style:'tower',seamless:true}),
+          terrain('catwalk',12,850,368,178,5.2,{bottom:4.85,walkable:true,style:'tower',seamless:true}),
+          terrain('ramp',40,550,90,200,2.6,{axis:'y',stairs:true,steps:16,style:'tower'}),
+          terrain('catwalk',40,750,210,100,2.6,{bottom:0,walkable:true,style:'tower',seamless:true}),
+          terrain('ramp',160,550,90,200,5.2,{bottom:2.6,axis:'y',reverse:true,stairs:true,steps:16,style:'tower'}),
+          terrain('rail',33,550,7,200,1,{axis:'y',rise:2.6,style:'tower'}),
+          terrain('rail',250,550,7,200,3.6,{bottom:2.6,axis:'y',rise:2.6,reverse:true,style:'tower'}),
+          terrain('rail',33,750,7,100,3.6,{bottom:2.6,style:'tower'}),
+          terrain('rail',250,750,7,100,3.6,{bottom:2.6,style:'tower'}),
+          terrain('rail',40,850,210,7,6.2,{bottom:5.2,style:'tower'}),
+          // Both rooms reach the same short upper crossing. There is no
+          // terminal perch; a player holding it can be challenged from either end.
+          terrain('ramp',240,250,200,120,8,{bottom:5.2,axis:'x',stairs:true,steps:18,style:'tower'}),
+          terrain('rail',240,243,200,7,6.2,{bottom:5.2,axis:'x',rise:2.8,style:'tower'}),
+          terrain('rail',240,370,200,7,6.2,{bottom:5.2,axis:'x',rise:2.8,style:'tower'}),
+          // Real switchgear and workstations are recessed along structural
+          // walls, keeping the middle of the halls clear for movement.
+          terrain('towerSwitchgear',24,326,120,64,2.8),
+          terrain('towerSwitchgear',12,870,112,132,2.8),
+          terrain('towerSwitchgear',12,270,76,150,8.25,{bottom:5.2}),
+          terrain('towerConsole',265,448,85,32,6.45,{bottom:5.2}),
+          terrain('towerConsole',260,970,80,40,6.45,{bottom:5.2}),
+        ].flatMap(towerPair),
+        // A sheltered lower bypass and a generous upper connection. The
+        // overhead floor, not a scattering of crates, protects the lower route.
+        terrain('catwalk',380,840,360,188,5.2,{bottom:4.85,walkable:true,style:'tower',seamless:true}),
+        terrain('towerSwitchgear',500,950,120,78,8.6,{bottom:5.2}),
+        terrain('rail',380,833,360,7,6.2,{bottom:5.2,style:'tower'}),
+        terrain('catwalk',440,250,240,120,8,{bottom:7.65,walkable:true,style:'tower',bridge:true,seamless:true}),
+        terrain('rail',440,243,240,7,9,{bottom:8,style:'tower'}),
+        terrain('rail',440,370,240,7,9,{bottom:8,style:'tower'}),
+        // The turbine and its two connected generator housings organise the
+        // double-height bays. The tall shell genuinely blocks crossfire.
+        terrain('towerCore',470,430,180,180,15.8,{collisionShape:'circle',collisionRadius:68,redesigned:true}),
+        terrain('towerGenerator',485,140,150,110,3.0),
+        terrain('towerGenerator',485,715,150,110,3.0),
+        terrain('towerRiser',551,186,18,18,14.2,{bottom:3}),
+        terrain('towerRiser',551,761,18,18,14.2,{bottom:3}),
+        terrain('towerCeilingTruss',380,94,360,22,16.45,{bottom:15.25,nonSolid:true}),
+        terrain('towerCeilingTruss',380,924,360,22,16.45,{bottom:15.25,nonSolid:true}),
+        terrain('lift',150,65,110,110,0,{id:'tower-lift-west',maxTop:5.2,style:'tower'}),
+        terrain('lift',860,65,110,110,0,{id:'tower-lift-east',maxTop:5.2,phaseOffset:4000,style:'tower'}),
       ],
-      variants:[
-        [terrain('towerPowerBank',310,810,100,40,1.1),terrain('towerPowerBank',490,810,100,40,1.1)],
-        [terrain('towerPowerBank',700,700,80,80,2.5),
-          terrain('pipe',90,800,150,42,0.95,{collisionShape:'capsule',collisionRadius:15})],
-        [terrain('conveyor',320,820,260,50,1.05),terrain('towerConsole',760,590,65,36,1.05)],
-      ],
+      // Cosmetic variations must never alter the competitive circulation.
+      variants:[[],[],[]],
       spawns:[
-        [120,520],[650,850],[845,450],[110,770],[535,735],[710,610],
-        [150,155,3],[740,155,3],[550,155,3],
-        [700,575,6],[400,680,6],[120,680,6],
+        ...[[110,210],[285,315],[180,470],[300,730],[175,930],[270,970]]
+          .flatMap(([x,y])=>[[x,y,0],[1120-x,y,0]]),
       ],
     },
     temple:{
