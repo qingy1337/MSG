@@ -687,11 +687,11 @@ test('only authenticated qing starting from the lobby can select a PvE floor',t=
       if(!scenario.pvp) {
         assert.equal(game.gameMap.floor,scenario.expected);
         const bots=game.activePlayers.filter(p=>p.isBot);
-        assert.equal(bots.length,Math.min(24,4+Math.min(scenario.expected,20)-1));
-        assert.equal(bots.filter(p=>p.botType==='ogre').length,scenario.expected<5?0:Math.min(4,1+Math.floor((scenario.expected-5)/3)));
+        assert.equal(bots.length,2*Math.min(24,4+Math.min(scenario.expected,20)-1));
+        assert.equal(bots.filter(p=>p.botType==='ogre').length,scenario.expected<5?0:2*Math.min(4,1+Math.floor((scenario.expected-5)/3)));
         if(scenario.expected>20) {
           const dreads=bots.filter(p=>p.botType==='dread');
-          assert.equal(dreads.length,3);assert.equal(dreads.filter(p=>p.botRank==='captain').length,3);
+          assert.equal(dreads.length,6);assert.equal(dreads.filter(p=>p.botRank==='captain').length,6);
           assert.ok(dreads.every(p=>p.color.startsWith('#')&&!p.color.toLowerCase().includes('purple')));
           assert.ok(dreads.filter(p=>p.botRank==='captain').every(p=>p.health===Math.min(300,220+(scenario.expected-21)*5)+40));
         }
@@ -1138,9 +1138,9 @@ test('elevator transitions preserve health and scale waves through the Ogre floo
       assert.equal(shooter.x,oldX);assert.equal(shooter.jumpStartedAt,null);
       now+=LIFT_TIMING.close+LIFT_TIMING.travel-1;tick();assert.equal(game.gameMap.floor,floor);
       now++;tick();assert.equal(game.gameMap.floor,floor+1);assert.equal(game.floorState.phase,'opening');
-      assert.equal(bots().length,count+floor);
+      assert.equal(bots().length,count+floor*2);
       assert.ok(bots().filter(b=>b.botType!=='ogre').every(b=>b.health===health+floor*4&&b.moveScale===1+floor*0.025));
-      assert.equal(bots().filter(b=>b.botType==='ogre').length,floor>=4?1:0);
+      assert.equal(bots().filter(b=>b.botType==='ogre').length,floor>=4?2:0);
       for(const b of bots())assert.ok(maps.canOccupy(b.x,b.y,b.height,[...game.gameWalls,...game.gameMap.terrain],b.bodyRadius,0.001,b.bodyHeight));
       assert.ok(inElevator(shooter,{...game.gameMap,elevator:game.gameMap.arrivalElevator}),'passenger transferred into new arrival cabin while doors are closed');
       assert.equal(shooter.x-game.gameMap.arrivalElevator.x,oldExit.width-(oldX-oldExit.x));

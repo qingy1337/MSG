@@ -5,6 +5,7 @@ const path = require("path");
 
 const { createAuthRoutes } = require("./routes/authRoutes");
 const { createShopRoutes } = require("./routes/shopRoutes");
+const {createArmorRoutes}=require('./routes/armorRoutes');
 const { createLobbyServer } = require("./game/lobbyServer");
 
 const app = express();
@@ -26,6 +27,7 @@ app.use(express.static(path.join(__dirname, "public")));
 // Attach core features
 const gameState = createLobbyServer(io);
 app.use("/api", createAuthRoutes());
+app.use('/api/armor',createArmorRoutes());
 app.use(
   "/api/shop",
   createShopRoutes({ io, getActivePlayers: () => gameState.getActivePlayers() }),

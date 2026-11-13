@@ -10,7 +10,7 @@ The server honors `PORT`, so `PORT=3005 npm start` serves the app on port 3005.
 Set an admin password and run `TEST_ADMIN_PASSWORD='your-password' npm run start:test`.
 The test app listens on port 3002 by default (`PORT` can override it), uses
 `data/test/users.json`, and sets a separate browser login cookie. It has one
-account, `qing`, with every weapon skin unlocked; registration is disabled.
+account, `qing`, with every weapon skin and armor design unlocked; registration is disabled.
 Set `AUTH_SECRET` to a stable private value for a deployed test instance so
 logins remain valid after a restart. Without it, the test command generates a
 new secret each time it starts.
@@ -36,6 +36,63 @@ Press Space to jump (release before jumping again). Jumping follows gravity, wit
 server-tracked height for hit detection. PvE ramps lead onto elevated structures;
 you can jump from platforms and fall back to the ground.
 Movement speed and mouse sensitivity are tuned in `public/movement.js`.
+
+### Armor
+
+The home-page character sits between weapon slots on the left and armor slots on
+the right. Hover or focus a slot to open its item grid; hover an item for its 3D
+preview, description, and stat comparison. Click owned gear to swap it in. On
+touchscreens, tap an item then **Equip**. Arrow keys navigate the grid; Escape
+closes it. Drag the character to rotate.
+Helmet, chest, gauntlets, and boots change the character in both modes. **All armor
+stats and exotic abilities apply only to PvE.** PvP retains 101 health and its
+ordinary movement and grenade behavior. Equipment is captured at deployment and
+stays fixed for the run, including retries and subsequent floors.
+
+Locked items can be previewed in the same grid. Their detail card has an explicit
+priced purchase button; browsing or clicking a locked square never spends Coins.
+Armor is purchased with Coins; there is no free starter armor or floor-drop
+armor. Helmet, chest, gauntlets, and boots are purchased individually from their
+slot grids. Each purchase unlocks only the selected piece, which can be mixed
+with other owned pieces. Purchases and rolled stats are saved to your account.
+Buying an already-owned piece never charges or rerolls it again; pieces from
+earlier whole-set purchases remain owned.
+
+| Design | Coins per piece | Finish | Stats per piece |
+| --- | --- | --- | --- |
+| Bastion | 4,000 | Porcelain and copper | Fixed +10 HP, +0.125 HP/s regeneration |
+| Lifeline | 3,000 | Jade and ivory | Fixed +3 HP, +0.625 HP/s regeneration |
+| Vector | 3,750 | Satin cobalt alloy, cyan inserts, ice-blue visor | Fixed +5% movement, +2% firing rate |
+| Slipstream (exotic boots only) | 20,000 | Ceramic thrusters | +1.5–2.5% movement, +5–8% grenade charge speed, air dash |
+| Quartermaster (exotic helmet only) | 30,000 | Satin silver shell, charcoal hardware, muted amber accents and side canisters | Full grenade refill every 30 seconds in PvE |
+
+Bastion has fixed stats, including previously purchased pieces: the full set gives
+141 maximum health and 5.5 HP/s regeneration before room buffs. Lifeline is also
+fixed, including previously purchased pieces: its full set gives 113 maximum
+health and 7.5 HP/s regeneration. Vector gives fixed +5% movement and +2% firing
+rate per piece (+20% movement and +8% firing rate for the full set), including
+older purchases. Its previous grenade-charge bonus is removed. The firing bonus
+shortens weapon cooldowns and shotgun reloads, and multiplies with rapid-fire rooms.
+Slipstream's stats roll once within their displayed ranges. Combined bonuses cap
+at +40 HP, +2.5 HP/s regeneration, +20% movement, +8% firing rate, and +30% grenade charge
+speed. Room double-health buffs double the armor-adjusted maximum; regeneration
+does not double. Armor does not change damage or hitboxes.
+
+**Slipstream:** press **Shift while airborne** to dash in your movement direction
+(or forward when no movement key is held). The burst lasts 0.18 seconds, then
+momentum eases back to normal movement over 0.45 seconds. Both phases respect
+world collision. The dash has a four-second cooldown with one use per jump. The HUD
+shows its cooldown. One exotic can be equipped at a time.
+
+**Quartermaster:** automatically refills your grenades to three every 30 seconds
+while alive in PvE. Its countdown carries across floors; deployment, late joining,
+and retry start a new 30-second timer. A HUD countdown shows the next refill.
+
+Catalog/prices/rules: `public/armor.js`; purchases/persistence: `lib/armor.js`; shared character
+fittings: `public/armorModels.mjs`. The separate test account owns all designs for
+previewing and testing without farming drops.
+
+### Arenas and progression
 
 PvP keeps its seeded 1800 × 1200 procedural scatter arena, including
 scattered walls, landmarks, ramps, and a ceiling. Players spawn separately across
@@ -123,8 +180,14 @@ leave a living teammate behind. It can bypass the normal departure timer.
 Survivors keep their health (including ongoing regeneration); eliminated players
 spectate until the survivors reach the next floor, then respawn in its arrival cabin
 with 100 HP and their existing equipment. A team wipe still ends the run.
-Each floor adds one enemy (up to 24), 4 soldier HP (up to 160),
-and 2.5% movement speed (up to +30%). From floor 5, one wave slot becomes a
+The solo wave starts at four enemies and adds one per floor through floor 20
+(23 enemies). Each floor multiplies that roster by the deployed fireteam size:
+two players get twice as many soldiers, Ogres, Dread Captains, and Guardians;
+three get three times as many, and four get four times as many. Individual enemy
+stats stay the same. Counts update at floor start (including retries), after late
+joiners deploy; deaths or departures never remove enemies mid-fight.
+Early floors add 4 soldier HP (up to 160) and 2.5% movement speed (up to +30%).
+From floor 5, one solo wave slot becomes a
 360-HP Ogre; another Ogre joins every three floors, capped at four. Ogres are
 large, slower armored mutants with hunched shoulders, oversized fists, asymmetric
 metal armor, and recessed faces. A faceted purple chest crystal powers their laser,

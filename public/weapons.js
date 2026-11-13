@@ -7,9 +7,8 @@ const WEAPONS = {
     key: 'shotgun', name: 'Shotgun',
     description: 'Eight-pellet hitscan blast.',
     weaponLength: 44, bulletSpeed: 14, bulletRadius: 3,
-    // Both loaded barrels may be fired back-to-back. The reload gate below is
-    // still authoritative once the second shot has been spent.
-    cooldownMs: 0, shotsPerReload: 2, reloadMs: 1000, automatic: false,
+    // Loaded barrels fire 200 ms apart, then reload after the second shot.
+    cooldownMs: 200, shotsPerReload: 2, reloadMs: 1000, automatic: false,
   },
   pistol: {
     key: 'pistol',

@@ -1,6 +1,7 @@
 // Explicit wire contract. Never serialize bot brains, account identifiers, or paths.
 const FIELDS=['id','name','displayName','color','weapon','weaponSkinKey','primaryWeapon','primaryWeaponSkinKey','secondaryWeapon','secondaryWeaponSkinKey','weaponSwapUntil','spawnShieldUntil','x','y','angle','alive','health','maxHealth',
-  'isBot','team','botType','botRank','strikeEncounterId','wardenPhase','spawnReadyAt','bodyHeight','hoverOffset','height','groundHeight','ceilingHeight','jumpStartedAt','jumpBase','jumpVelocity','jumpInputSeq','jumpPlatformId','groundPlatformId','platformId','lastProcessedInput','movementEpoch','shotgunShotsRemaining','shotgunReloadUntil','grenades'];
+  'isBot','team','botType','botRank','strikeEncounterId','wardenPhase','spawnReadyAt','bodyHeight','hoverOffset','height','groundHeight','ceilingHeight','jumpStartedAt','jumpBase','jumpVelocity','jumpInputSeq','jumpPlatformId','groundPlatformId','platformId','lastProcessedInput','movementEpoch','shotgunShotsRemaining','shotgunReloadUntil','grenades',
+  'armorAppearance','armorStats'];
 // Static identity/loadout data is sent by gameStarting/floorStarting. At 20 Hz,
 // repeating names, colors, teams and both loadout slots for every bot wastes a
 // large fraction of later-floor bandwidth.
@@ -8,7 +9,12 @@ const FRAME_FIELDS=['id','x','y','angle','alive','health','isBot',
   'wardenPhase','height','groundHeight','ceilingHeight','jumpStartedAt','jumpBase','jumpVelocity','jumpInputSeq',
   'jumpPlatformId','groundPlatformId','platformId','lastProcessedInput','movementEpoch',
   'shotgunShotsRemaining','shotgunReloadUntil','grenades'];
+const DASH_FIELDS=['dashRemaining','dashCoastRemaining','dashX','dashY','dashReadyAt','dashUsedInAir'];
 function copyState(player,fields){const result={};for(const key of fields)if(player[key]!==undefined)result[key]=player[key];
+  // Only an equipped, active exotic needs transient ability state. Keep armor
+  // inventory, stat rolls, and ordinary PvP frames off this 20 Hz path.
+  if(player.armorStats?.airDash)for(const key of DASH_FIELDS)result[key]=player[key]??(key==='dashUsedInAir'?false:0);
+  if(player.armorStats?.grenadeRefill)result.grenadeRefillAt=player.grenadeRefillAt??0;
   // Frames are merged client-side, so the end of residual impact motion must
   // be explicit or an old velocity can be resurrected by retained state.
   if(player.knockback!==undefined)result.knockback=player.knockback?{...player.knockback}:null;

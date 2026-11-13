@@ -10,7 +10,6 @@ function kit() {
     copper=mat('#d77d43',.55,.43),deck=mat('#8b9399',.48,.58),
     concrete=mat('#9a968b',.04,.9),rubber=mat('#283a50',.1,.8);
   const light=new THREE.MeshBasicMaterial({color:'#dcecff'});
-  const opal=new THREE.MeshStandardMaterial({color:'#83bdde',emissive:'#589ec2',emissiveIntensity:.32,roughness:.45});
   const add=(parent,g,m,x,y,z,name)=>{
     const mesh=new THREE.Mesh(g,m);mesh.position.set(x,y,z);mesh.castShadow=true;mesh.receiveShadow=true;
     if(name)mesh.name=name;parent.add(mesh);return mesh;
@@ -24,13 +23,43 @@ function kit() {
       (a[0]+b[0])/2,(a[1]+b[1])/2,(a[2]+b[2])/2);
     mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),delta.normalize());return mesh;
   };
-  return {alloy,blue,panel,frame,copper,deck,concrete,rubber,light,opal,add,box,cylinder,beam};
+  let inlaidMaterial;
+  // Tessellate markings into the cap itself. A second box at the same top
+  // height flickers; raising it would put the finish above the walking surface.
+  const inlaidCap=(parent,w,h,d,x,y,z,inlays,name)=>{
+    if(!inlaidMaterial) {
+      inlaidMaterial=deck.clone();inlaidMaterial.color.set('#ffffff');inlaidMaterial.vertexColors=true;
+    }
+    const source=new THREE.BoxGeometry(w,h,d).toNonIndexed(),
+      positions=[],normals=[],uvs=[],colors=[];
+    const vertex=(px,py,pz,nx,ny,nz,u,v,color)=>{
+      positions.push(px,py,pz);normals.push(nx,ny,nz);uvs.push(u,v);colors.push(color.r,color.g,color.b);
+    };
+    const {position,normal,uv}=source.attributes;
+    for(let i=0;i<position.count;i++)if(normal.getY(i)<.5)
+      vertex(position.getX(i),position.getY(i),position.getZ(i),normal.getX(i),normal.getY(i),normal.getZ(i),
+        uv.getX(i),uv.getY(i),deck.color);
+    const xs=[...new Set([0,w,...inlays.flatMap(r=>[r.x,r.x+r.width])])].sort((a,b)=>a-b),
+      zs=[...new Set([0,d,...inlays.flatMap(r=>[r.z,r.z+r.depth])])].sort((a,b)=>a-b);
+    for(let i=0;i<xs.length-1;i++)for(let j=0;j<zs.length-1;j++) {
+      const x0=xs[i],x1=xs[i+1],z0=zs[j],z1=zs[j+1],cx=(x0+x1)/2,cz=(z0+z1)/2,
+        color=inlays.find(r=>cx>r.x&&cx<r.x+r.width&&cz>r.z&&cz<r.z+r.depth)?.color||deck.color;
+      for(const [px,pz] of [[x0,z0],[x0,z1],[x1,z1],[x0,z0],[x1,z1],[x1,z0]])
+        vertex(px-w/2,h/2,pz-d/2,0,1,0,px/w,pz/d,color);
+    }
+    source.dispose();
+    const geometry=new THREE.BufferGeometry();
+    for(const [key,values,size] of [['position',positions,3],['normal',normals,3],['uv',uvs,2],['color',colors,3]])
+      geometry.setAttribute(key,new THREE.Float32BufferAttribute(values,size));
+    return add(parent,geometry,inlaidMaterial,x,y,z,name);
+  };
+  return {alloy,blue,panel,frame,copper,deck,concrete,rubber,light,add,box,cylinder,beam,inlaidCap};
 }
 const world=(x,y,h=0)=>new THREE.Vector3((x-450)*.05,h,(y-300)*.05);
 
 export function createTowerEnvironment(map,walls) {
   const root=new THREE.Group();root.name='tower-station-architecture';
-  const {alloy,blue,panel,frame,copper,concrete,light,opal,box,add,beam}=kit();
+  const {alloy,blue,panel,frame,copper,concrete,light,box,add,beam}=kit();
   for(const wall of walls) {
     const bottom=wall.bottom||0,height=(wall.top??3.1)-bottom,
       w=wall.width*.05,d=wall.height*.05,alongX=w>=d,len=alongX?w:d,thickness=alongX?d:w;
@@ -47,11 +76,14 @@ export function createTowerEnvironment(map,walls) {
       const panelHeight=Math.min(wall.kind==='boundary'?8.8:height-.38,height-.38);
       if(!structural&&panelHeight>.35&&len>.65) {
         const bays=Math.max(1,Math.ceil(len/4.8)),pitch=len/bays;
+        // Occasional service labels belong on the long ground-floor walls,
+        // with one per face. Upper rooms and perimeter panels stay unmarked.
+        const serviceWall=wall.kind!=='boundary'&&bottom===0&&height>4&&len>6;
         for(let i=0;i<bays;i++) {
           const at=-len/2+(i+.5)*pitch;
           face(sign,pitch-.16,panelHeight,.025,at,panelHeight/2+.19,.025,blue,'tower-steel-cassette');
           face(sign,.045,panelHeight-.10,.018,at-pitch/2+.07,panelHeight/2+.19,.052,frame);
-          if(pitch>1.1&&height>2.4)
+          if(serviceWall&&i===Math.floor(bays/2)&&pitch>1.1)
             face(sign,.25,.08,.012,at+pitch*.26,Math.min(2.7,height-.45),.048,copper,'tower-service-tab');
         }
       }
@@ -68,16 +100,6 @@ export function createTowerEnvironment(map,walls) {
           const left=-len/2+.4+i*pitch,right=left+pitch;
           beam(group,point(left+.14,9.5),point(right-.14,12.8),.055,frame);
           beam(group,point(left+.14,12.8),point(right-.14,9.5),.055,frame);
-        }
-      }
-      if(wall.kind==='boundary'&&height>14&&len>8) {
-        const count=Math.max(1,Math.floor(len/6.6)),pitch=(len-.9)/count;
-        for(let i=0;i<count;i++) {
-          const at=-len/2+.45+(i+.5)*pitch,span=pitch-.5;
-          face(sign,span,2.15,.06,at,14.55,.055,frame,'tower-clerestory-frame');
-          face(sign,span-.13,1.98,.025,at,14.55,.10,opal,'tower-clerestory');
-          for(const fraction of [-.25,0,.25])
-            face(sign,.045,1.98,.025,at+span*fraction,14.55,.127,alloy);
         }
       }
     }
@@ -184,7 +206,7 @@ export function createTowerTerrain(s) {
     !['towerGenerator','towerSwitchgear','towerRiser'].includes(s.kind)&&
     !(s.kind==='towerCore'&&s.redesigned))return null;
   const group=new THREE.Group(),w=s.width*.05,d=s.height*.05,h=s.top-(s.bottom||0);
-  const {alloy,blue,panel,frame,copper,deck,concrete,rubber,light,opal,add,box,cylinder,beam}=kit();
+  const {alloy,blue,panel,frame,copper,deck,concrete,rubber,light,add,box,cylinder,beam,inlaidCap}=kit();
   if(s.kind==='catwalk') {
     // Adjacent slabs share a genuinely continuous flat finish, with no raised
     // edging or decorative stripes across walking seams.
@@ -198,10 +220,11 @@ export function createTowerTerrain(s) {
       const index=s.reverse?s.steps-1-i:i,rise=h*(i+1)/s.steps,
         x=alongY?w/2:(index+.5)*step,z=alongY?(index+.5)*step:d/2;
       box(group,alongY?w:step,rise-.022,alongY?step:d,x,(rise-.022)/2,z,deck);
-      box(group,alongY?w:step,.022,alongY?step:d,x,rise-.011,z,deck,'tower-stair-tread');
-      const front=(s.reverse?1:-1)*(step/2-.035);
-      box(group,alongY?w-.14:.035,.008,alongY?.035:d-.14,
-        alongY?x:x+front,rise-.004,alongY?z+front:z,i%4===0?copper:frame);
+      const front=s.reverse?step-.0525:.0175;
+      inlaidCap(group,alongY?w:step,.022,alongY?step:d,x,rise-.011,z,[{
+        x:alongY?.07:front,z:alongY?front:.07,width:alongY?w-.14:.035,
+        depth:alongY?.035:d-.14,color:(i%4===0?copper:frame).color,
+      }],'tower-stair-tread');
     }
     group.name='tower-switchback-stair';
   } else if(s.kind==='rail') {
@@ -226,10 +249,9 @@ export function createTowerTerrain(s) {
     const piston=box(group,w-.12,1,d-.12,w/2,.5,d/2,frame),
       platform=box(group,w,.16,d,w/2,-.08,d/2,blue,'tower-lift-platform'),ribs=[];
     for(let i=0;i<8;i++)ribs.push(box(group,w-.08,.035,d-.08,w/2,0,d/2,i%2?frame:panel));
-    const top=box(group,w-.18,.016,d-.18,w/2,.012,d/2,deck);top.userData.onDeck=true;
-    for(const x of [.14,w-.14]) {
-      const strip=box(group,.065,.016,d-.30,x,.012,d/2,copper);strip.userData.onDeck=true;
-    }
+    const top=inlaidCap(group,w-.18,.016,d-.18,w/2,.012,d/2,[.14,w-.14].map(x=>({
+      x:x-.09-.0325,z:.06,width:.065,depth:d-.30,color:copper.color,
+    })),'tower-lift-finish');top.userData.onDeck=true;
     piston.scale.y=.001;piston.position.y=0;ribs.forEach(r=>r.visible=false);
     group.userData={piston,deck:platform,ribs};group.name='tower-counterweight-lift';
   } else if(s.kind==='towerRiser') {
@@ -237,8 +259,9 @@ export function createTowerTerrain(s) {
     for(let y=.1;y<h;y+=2.8)cylinder(group,Math.min(w,d)/2,.12,w/2,y,d/2,copper,16);
     group.name='tower-generator-riser';
   } else if(s.kind==='towerSwitchgear') {
-    box(group,w-.08,h,d-.08,w/2,h/2,d/2,frame,'tower-switchgear-shell',.05);
-    box(group,w-.04,.16,d-.04,w/2,h-.08,d/2,alloy);
+    // The lid owns the top .16 m; the shell ends at its underside.
+    box(group,w-.08,h-.16,d-.08,w/2,(h-.16)/2,d/2,frame,'tower-switchgear-shell',.05);
+    box(group,w-.04,.16,d-.04,w/2,h-.08,d/2,alloy,'tower-switchgear-lid');
     const alongX=w>=d,span=alongX?w:d,bays=Math.max(2,Math.round(span/1.1));
     for(const side of [-1,1])for(let i=0;i<bays;i++) {
       const at=(i+.5)*span/bays,panelWidth=span/bays-.12;

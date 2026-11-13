@@ -1,7 +1,8 @@
 const {traceShot}=require('./hitscan');
 
 function shotgunPelletDamageAtDistance(distance) {
-  return Math.max(1,12-Math.max(0,distance-140)/45);
+  // Full damage to 6 m, then lose one damage per pellet every 2 m.
+  return Math.max(1,12-Math.max(0,distance-120)/40);
 }
 
 // Fixed-density disk, rotated per blast. Clients supply aim only, never pellets

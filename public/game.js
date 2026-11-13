@@ -3,10 +3,13 @@ import { SnapshotMotion } from './snapshotMotion.mjs';
 import { InputPrediction } from './inputPrediction.mjs';
 import {createGrenadeHud} from './grenadeHud.mjs';
 import {createMinigunSpoolHud} from './minigunSpoolHud.mjs';
+import {createDashHud} from './armorHud.mjs';
+const updateDashHud=createDashHud(document);
 const updateGrenadeHud=createGrenadeHud(document);
 const updateMinigunSpool=createMinigunSpoolHud(document);
 const inputPrediction=new InputPrediction();
 let jumpRequested=false;
+let dashRequested=false;
 let grenadeChargeAt=null;
 let minigunSpinAt=null,minigunReleasedAt=-Infinity;
 function resetMinigunSpool(){minigunSpinAt=null;minigunReleasedAt=-Infinity;updateMinigunSpool();}
@@ -58,8 +61,8 @@ function updateWeaponReady(viewed,now) {
     if(weapon)weaponReadyTrack.setAttribute('aria-label',`${WEAPONS[weapon].name} ready`);
   }
   if(!weapon){weaponReadyTrack.hidden=true;return;}
-  const duration=(weapon==='sniper'?WEAPONS.sniper.cooldownMs:WEAPONS.shotgun.reloadMs)*
-    (floorState.buff==='rapidFire'?0.5:1);
+  const duration=ARMOR.weaponInterval(weapon==='sniper'?WEAPONS.sniper.cooldownMs:WEAPONS.shotgun.reloadMs,
+    viewed.armorStats,gameMap.mode,floorState.buff==='rapidFire');
   const remaining=weapon==='sniper'?
     duration-(now-(sniperShotTimes.get(viewed.id)??-Infinity)):
     (viewed.shotgunReloadUntil||0)-(Date.now()+floorClockOffset);
@@ -344,7 +347,7 @@ function releaseMouse() {
   cancelStrikeInteraction();
   resetMinigunSpool();
   stopAutomaticFire();
-  firing = false; keys.clear();jumpRequested=false;
+  firing = false; keys.clear();jumpRequested=false;dashRequested=false;
   if (locked()) document.exitPointerLock();
 }
 
@@ -385,6 +388,7 @@ function stop() {
   gameActive = false; releaseMouse(); cancelAnimationFrame(frame);
   pveBuffBanner.hidden=true;clearTimeout(pveBuffTimer);lastPveBuffRoom=null;
   weaponReadyTrack.hidden=true;previousReadyWeapon='';
+  updateDashHud(null);
   clearKillFeed();
   pveWipe?.classList.add('hidden');
   strikeState=null;updateStrikeHud();
@@ -407,9 +411,9 @@ function update(dt, now) {
   let dy = Math.sin(localPlayer.angle) * forward + Math.cos(localPlayer.angle) * right;
   const magnitude = Math.max(1,Math.hypot(dx,dy));
   if(dt>0){
-    const input=inputPrediction.record(dx/magnitude,dy/magnitude,dt,jumpRequested,localPlayer.movementEpoch||0);
+    const input=inputPrediction.record(dx/magnitude,dy/magnitude,dt,jumpRequested,localPlayer.movementEpoch||0,dashRequested);
     applyMovementInput(localPlayer,input,gameMap,mapSolids,inputPrediction.time,travelCabin());
-    jumpRequested=false;dirty=true;
+    jumpRequested=false;dashRequested=false;dirty=true;
   }
   if (dirty && now - lastUpdateAt >= 33) sendPosition(now);
 }
@@ -424,7 +428,7 @@ function attemptFire(now = performance.now()) {
   const cfg = WEAPONS[localPlayer.weapon] || WEAPONS.pistol;
   if(Date.now()+floorClockOffset<(localPlayer.weaponSwapUntil||0))return;
   if(localPlayer.weapon==='shotgun'&&Date.now()+floorClockOffset<(localPlayer.shotgunReloadUntil||0))return;
-  if (now - lastShotAt < cfg.cooldownMs*(floorState.buff==='rapidFire'?0.5:1)) return;
+  if (now - lastShotAt < ARMOR.weaponInterval(cfg.cooldownMs,localPlayer.armorStats,gameMap.mode,floorState.buff==='rapidFire')) return;
   sendPosition(now); socket.emit('shoot', { angle: localPlayer.angle, pitch }); lastShotAt = now;
 }
 
@@ -457,7 +461,9 @@ function gameLoop(now) {
   arena.setMinigunTriggerHeld(firing&&localPlayer?.alive&&localPlayer.weapon==='miniGun');
   arena.render(renderedPlayers, socket.id, dt, pitch);
   const canInteract=updateStrikeInteractionHud(now);
-  updateGrenadeHud(viewed?.grenades??0,grenadeChargeAt==null||!localPlayer?.alive?null:performance.now()-grenadeChargeAt);
+  const chargeMultiplier=1+ARMOR.effects(localPlayer?.armorStats,gameMap.mode).charge/100;
+  updateGrenadeHud(viewed?.grenades??0,grenadeChargeAt==null||!localPlayer?.alive?null:(performance.now()-grenadeChargeAt)*chargeMultiplier);
+  updateDashHud(localPlayer,gameMap.mode,Date.now()+floorClockOffset);
   updateMinigunSpool(firing&&localPlayer?.alive&&localPlayer.weapon==='miniGun'&&minigunSpinAt!=null?
     performance.now()-minigunSpinAt:null,WEAPONS.miniGun.spinUpMs);
   const statusHidden=!viewed?.alive;
@@ -490,6 +496,12 @@ function gameLoop(now) {
 window.addEventListener('keydown', e => {
   if (!gameActive || /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
   const key = e.key.toLowerCase();
+  if(key==='shift'&&locked()) {
+    if(!e.repeat&&!riding()&&localPlayer?.alive&&gameMap.mode==='pve'&&localPlayer.armorStats?.airDash) {
+      e.preventDefault();dashRequested=true;
+    }
+    return;
+  }
   if(key==='e'&&locked()) {
     e.preventDefault();
     const aim=strikeInteractionAim();
@@ -528,7 +540,7 @@ window.addEventListener('keyup', e => {
   }
 });
 window.addEventListener('blur', releaseMouse);
-document.addEventListener('visibilitychange', () => { if (document.hidden) { cancelGrenade();cancelStrikeInteraction();resetMinigunSpool();keys.clear();stopAutomaticFire();firing = false; } });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { cancelGrenade();cancelStrikeInteraction();resetMinigunSpool();keys.clear();stopAutomaticFire();firing = false;dashRequested=false; } });
 document.addEventListener('mousemove', e => {
   if (!locked() || !gameActive || !localPlayer?.alive) return;
   const sensitivity = mouseSensitivitySettings.getSensitivity();
@@ -541,7 +553,7 @@ document.addEventListener('pointerlockchange', () => {
   cancelGrenade();
   if(!locked())cancelStrikeInteraction();
   if(!locked())resetMinigunSpool();
-  stopAutomaticFire();firing = false;keys.clear();
+  stopAutomaticFire();firing = false;keys.clear();dashRequested=false;
   lookPrompt.hidden = locked() || !gameActive || !localPlayer?.alive;
 });
 document.addEventListener('pointerlockerror', () => {
@@ -705,7 +717,7 @@ function applyFloorState(state) {
   floorState=state;floorClockOffset=state.serverNow-Date.now();
   showPveBuff(state);
   clearTimeout(messageTimer);
-  if(riding()){firing=false;resetMinigunSpool();dirty=false;jumpRequested=false;inputPrediction.reset(state.serverNow);}
+  if(riding()){firing=false;resetMinigunSpool();dirty=false;jumpRequested=false;dashRequested=false;inputPrediction.reset(state.serverNow);}
   updateExitDoor(gameMap,state,Date.now()+floorClockOffset);
   gameMessage.textContent=state.phase==='ready'?'Floor clear · Exit elevator unlocked (E on minimap)':
     state.phase==='riding'?`Ascending to floor ${state.floor+1}…`:
@@ -732,7 +744,7 @@ socket.on('floorStarting',data=>{
   if(localPlayer?.alive&&!wasAlive){pitch=0;firing=false;resetMinigunSpool();keys.clear();gameMessage.textContent='';}
   arena.build(walls,gameMap);
   snapshotMotion.clear();
-  inputPrediction.reset(data.state.serverNow);jumpRequested=false;
+  inputPrediction.reset(data.state.serverNow);jumpRequested=false;dashRequested=false;
   applyFloorState(data.state);
   arena.animateElevator(floorState,Date.now()+floorClockOffset);
   lookPrompt.textContent='Click to resume';

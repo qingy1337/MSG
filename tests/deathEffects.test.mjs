@@ -4,7 +4,8 @@ import * as THREE from 'three';
 import deaths from '../game/deathEffects.js';
 import server from '../game/gameServer.js';
 import weapons from '../public/weapons.js';
-import {Arena3D,resolveViewPlayer,healthHudState,syncCharacterLabelVisibility,createPvpSpawnShieldOutline} from '../public/arena3d.js';
+import {Arena3D,resolveViewPlayer,healthHudState,syncCharacterLabelVisibility,createPvpSpawnShieldOutline,
+  createTerrainLabelOccluder,isCharacterLabelOccluded} from '../public/arena3d.js';
 import {createCorpse,poseCorpse,createDeathRemains,poseDeathRemains,MAX_CORPSES,MAX_REMAINS} from '../public/deathEffects.mjs';
 
 const map={width:900,height:900,terrain:[]},target={id:'bot',isBot:true,x:300,y:300,height:0,angle:0};
@@ -67,6 +68,58 @@ test('wall-occluded character labels cannot be revived by a stale DOM write',()=
   assert.equal(syncCharacterLabelVisibility(character,true),false);
   assert.equal(syncCharacterLabelVisibility(character,false),true);
   assert.equal(character.label.hidden,false);
+});
+
+test('nametags respect stairs from inside their bounding box without hiding clear side views',()=>{
+  const material=new THREE.MeshBasicMaterial({side:THREE.DoubleSide}),ray=new THREE.Raycaster();
+  ray.layers.set(1);
+  for(const axis of ['x','y'])for(const reverse of [false,true])for(const bottom of [0,3]) {
+    const stair={kind:'ramp',x:100,y:100,width:axis==='x'?200:80,height:axis==='y'?200:80,
+      bottom,top:bottom+6,axis,reverse,stairs:true,steps:12};
+    const proxy=createTerrainLabelOccluder(stair,material);proxy.updateMatrixWorld(true);
+    const at=(along,across,height)=>{
+      if(reverse)along=200-along;
+      return world(100+(axis==='x'?along:across),100+(axis==='y'?along:across),bottom+height);
+    };
+    // Standing a quarter of the way up: above the real steps, but inside the
+    // old full-height proxy. Its front faces missed the staircase ahead.
+    const camera=at(50,40,3.34);
+    assert.ok(new THREE.Box3().setFromObject(proxy).containsPoint(camera));
+    assert.equal(isCharacterLabelOccluded(ray,[proxy],camera,at(230,40,1.1),at(230,40,2.4)),true);
+    assert.equal(isCharacterLabelOccluded(ray,[proxy],camera,at(50,140,3.34),at(50,140,4.64)),false,
+      'the empty space above the lower steps must not hide a visible player');
+    assert.equal(isCharacterLabelOccluded(ray,[proxy],at(230,40,1.84),at(50,40,1.1),at(50,40,2.4)),true,
+      'stairs also block sight from the far end');
+    assert.equal(isCharacterLabelOccluded(ray,[proxy],at(-30,40,8),at(230,40,8),at(230,40,9.3)),false);
+    if(bottom>0)assert.equal(isCharacterLabelOccluded(ray,[proxy],at(-30,40,-.6),
+      at(230,40,-.6),at(230,40,-.3)),false,'raised flights leave space below them');
+    proxy.geometry.dispose();
+  }
+  material.dispose();
+});
+
+test('sloped ramp occlusion preserves open space above and below its actual shell',()=>{
+  const material=new THREE.MeshBasicMaterial({side:THREE.DoubleSide}),ray=new THREE.Raycaster();ray.layers.set(1);
+  for(const axis of ['x','y'])for(const reverse of [false,true]) {
+    const ramp={kind:'ramp',x:100,y:100,width:axis==='x'?200:80,height:axis==='y'?200:80,
+      bottom:3,top:9,axis,reverse,structureDepth:.6};
+    const proxy=createTerrainLabelOccluder(ramp,material);proxy.updateMatrixWorld(true);
+    const at=(across,height)=>world(axis==='x'?200:100+across,axis==='y'?200:100+across,height);
+    for(const [height,blocked] of [[5,false],[5.7,true],[6.3,false]])
+      assert.equal(isCharacterLabelOccluded(ray,[proxy],at(-40,height),at(120,height),at(120,height)),blocked);
+    proxy.geometry.dispose();
+  }
+  material.dispose();
+});
+
+test('a visible torso does not expose its nametag through an overhead landing',()=>{
+  const material=new THREE.MeshBasicMaterial({side:THREE.DoubleSide}),ray=new THREE.Raycaster();ray.layers.set(1);
+  const proxy=createTerrainLabelOccluder({kind:'catwalk',x:150,y:50,width:30,height:100,bottom:2,top:2.2},material);
+  proxy.updateMatrixWorld(true);
+  const camera=world(100,100,1.84),body=world(240,100,1.1),anchor=world(240,100,2.4);
+  assert.equal(isCharacterLabelOccluded(ray,[proxy],camera,body,body),false,'torso is visible underneath');
+  assert.equal(isCharacterLabelOccluded(ray,[proxy],camera,body,anchor),true,'the label itself is behind the slab');
+  proxy.geometry.dispose();material.dispose();
 });
 
 test('PvP spawn protection uses a thin reusable blue silhouette',()=>{

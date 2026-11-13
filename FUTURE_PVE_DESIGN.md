@@ -1,7 +1,7 @@
 # Future PvE: Strikes, Loot, and Armor
 
-> Design direction only. None of the systems in this document should be treated
-> as implemented or scheduled yet.
+> The strike ideas below remain design direction. The first armor release is
+> implemented for Endless PvE; see the Armor section in README.md for its rules.
 
 ## PvE modes
 
@@ -45,7 +45,7 @@ locked out indefinitely.
 
 ## Armor and loadouts
 
-Armor should become part of the player's loadout. Each armor piece has:
+Armor is part of the player's loadout. Each armor piece has:
 
 - A recognizable visual design
 - A defined range for several gameplay stats
@@ -65,8 +65,19 @@ Possible stat categories include:
 - Weapon handling or reload behavior
 - Ability recharge, once abilities exist
 
-Exact stats, caps, armor slots, and stacking rules remain undecided. PvP balance
-must be considered separately before armor bonuses are allowed there.
+The initial release has helmet, chest, gauntlet, and boot slots; Bastion,
+Lifeline, and Vector sets; and Slipstream exotic boots. Its stats cover health,
+regeneration, movement, and grenade charge speed. Other categories above remain
+future possibilities. PvP uses armor appearances only, with no stats or abilities.
+Armor is sold as individual pieces for each slot: Bastion costs 4,000 Coins per
+piece, Lifeline 3,000, and Vector 3,750. There is no free starter set or floor drops.
+Slipstream boots cost 20,000 Coins. Previously purchased pieces remain owned.
+Bastion has fixed bonuses totaling 141 max health and 5.5 HP/sec regeneration
+for the full set. Lifeline also has fixed bonuses, totaling 113 max health and
+7.5 HP/sec regeneration. Vector gives fixed +5% movement and +2% firing rate per
+piece; Slipstream rolls stats once on purchase. Strike-specific armor loot remains a
+future possibility. Loadouts stay fixed throughout each run, and one exotic
+can be equipped at a time.
 
 ## Exotic armor
 
@@ -74,9 +85,8 @@ Exotic armor should change what the player can **do**, rather than merely provid
 larger stat bonuses. An exotic perk might add a new action, alter an existing
 mechanic, or enable a distinctive playstyle.
 
-Examples of the intended design space—not committed items—include:
+Slipstream's directional air dash is implemented. Further ideas include:
 
-- A directional air dash
 - A grenade converted into a deployable shield
 - A ground slam after falling far enough
 - A precision kill that briefly reveals or weakens nearby enemies
@@ -84,7 +94,7 @@ Examples of the intended design space—not committed items—include:
 
 Exotics should create interesting build decisions and visible gameplay changes.
 They should not simply be mandatory, numerically superior versions of ordinary
-armor. Loadout rules may need to limit how many exotic pieces can be equipped.
+armor. The initial loadout limit is one equipped exotic.
 
 ## Guiding principles
 

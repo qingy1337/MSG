@@ -354,8 +354,9 @@ test('PvE teams, grouped safe spawns, idle awareness, and timed server regenerat
   try {
     assert.equal(game.gameMap.mode,'pve');
     const humans=game.activePlayers.filter(p=>!p.isBot), bots=game.activePlayers.filter(p=>p.isBot);
-    assert.equal(bots.length,8,'bots still spawn with four human players');
-    assert.ok(humans.every(p=>p.health===101&&p.maxHealth===101));
+    assert.equal(bots.length,16,'four human players each add a full solo wave');
+    const expectedHealth=game.floorState.buff==='doubleHealth'?202:101;
+    assert.ok(humans.every(p=>p.health===expectedHealth&&p.maxHealth===expectedHealth));
     assert.ok(humans.every(p=>p.team==='players')); assert.ok(bots.every(p=>p.team==='bots'));
     const solids=[...game.gameWalls,...game.gameMap.terrain];
     for(const p of game.activePlayers) assert.ok(canOccupy(p.x,p.y,p.height||0,solids));

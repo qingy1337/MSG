@@ -22,10 +22,10 @@ test('shotgun reticle ring projects the authoritative pellet cone at the camera 
 
 test('shotgun pellets spread, respect walls and friendly filtering, and lose damage at range',()=>{
   assert.equal(shotgun.shotgunPelletDamageAtDistance(100),12);
-  assert.equal(shotgun.shotgunPelletDamageAtDistance(140),12);
-  assert.equal(shotgun.shotgunPelletDamageAtDistance(185),11);
-  assert.equal(shotgun.shotgunPelletDamageAtDistance(230),10);
-  assert.equal(shotgun.shotgunPelletDamageAtDistance(635),1);
+  assert.equal(shotgun.shotgunPelletDamageAtDistance(120),12);
+  assert.equal(shotgun.shotgunPelletDamageAtDistance(185),10.375);
+  assert.equal(shotgun.shotgunPelletDamageAtDistance(230),9.25);
+  assert.equal(shotgun.shotgunPelletDamageAtDistance(560),1);
   const fire=(players,walls=[],allow=()=>true)=>shotgun.traceShotgun(shooter,0,0,walls,players,allow,map,()=>0);
   const close=fire([target]);assert.equal(close.pellets.length,8);assert.equal(close.damage.get('t'),96);
   assert.equal(new Set(close.pellets.map(p=>`${p.angle}/${p.pitch}`)).size,8);
@@ -37,7 +37,7 @@ test('shotgun pellets spread, respect walls and friendly filtering, and lose dam
   assert.equal(split.damage.size,2,'a spread can hit multiple enemies');
 });
 
-test('server allows both loaded shotgun shots back-to-back but owns the reload gate',t=>{
+test('server enforces the shotgun shot delay and the reload gate',t=>{
   let now=100000;
   t.mock.method(global,'setInterval',()=>0);t.mock.method(Date,'now',()=>now);
   let connect;const handlers={},events=[];
@@ -52,8 +52,15 @@ test('server allows both loaded shotgun shots back-to-back but owns the reload g
     assert.equal(events.find(e=>e.name==='shotFired').data.pellets.length,8);
     assert.equal(events.find(e=>e.name==='shotFired').data.shotgunBarrel,0);
     assert.equal(events.find(e=>e.name==='shotFired').data.weaponSkinKey,'shotgun_bubble_trouble');
+    handlers.shoot({angle:0});assert.equal(game.activePlayers[1].health,104,
+      'the second loaded shot cannot fire immediately');
+    now+=199;
+    handlers.shoot({angle:0,cooldownMs:0,lastShotAt:0});
+    assert.equal(events.filter(e=>e.name==='shotFired').length,1,'cannot bypass the 200 ms delay');
+    assert.equal(game.activePlayers[0].shotgunShotsRemaining,1,'blocked shots do not consume ammo');
+    now++;
     handlers.shoot({angle:0});assert.equal(game.activePlayers[1].health,8,
-      'the second loaded shot can fire in the same millisecond');
+      'the second loaded shot is ready at exactly 200 ms');
     assert.equal(events.filter(e=>e.name==='shotFired').at(-1).data.shotgunBarrel,1);
     assert.equal(game.activePlayers[0].shotgunShotsRemaining,0);
     now+=999;
@@ -62,6 +69,7 @@ test('server allows both loaded shotgun shots back-to-back but owns the reload g
     game.gameWalls.push({x:130,y:0,width:10,height:600,top:7.5});
     now++;handlers.shoot({angle:0});assert.equal(game.activePlayers[1].health,8);
     assert.equal(game.activePlayers[0].shotgunShotsRemaining,1);
+    now+=200;
     handlers.shoot({angle:0});
     assert.equal(game.activePlayers[0].shotgunShotsRemaining,0);
     assert.equal(events.filter(e=>e.name==='shotFired').length,4,'next reload gives another two shots');
@@ -70,7 +78,7 @@ test('server allows both loaded shotgun shots back-to-back but owns the reload g
 
 test('shotgun has a selectable registry entry, free default skin and detailed models at both scales',()=>{
   assert.equal(weapons.WEAPONS.shotgun.automatic,false);
-  assert.equal(weapons.WEAPONS.shotgun.cooldownMs,0);
+  assert.equal(weapons.WEAPONS.shotgun.cooldownMs,200);
   assert.equal(weapons.WEAPONS.shotgun.reloadMs,1000);
   assert.equal(weapons.WEAPONS.shotgun.description,'Eight-pellet hitscan blast.');
   assert.equal(skins.DEFAULT_SKIN_BY_WEAPON.shotgun,'shotgun_default');

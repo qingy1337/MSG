@@ -56,7 +56,20 @@ test('test instance isolates its admin account, cookie, and unlocked skins',asyn
   const me=await (await fetch(`${base}/api/me`,{headers:{cookie}})).json();
   assert.equal(me.loadout.playerColor,'#e078ab','changing weapons preserves color');
   assert.equal(me.loadout.primaryWeapon,'sniper');
+  const armor=await (await fetch(`${base}/api/armor`,{headers:{cookie}})).json();
+  assert.ok(armor.items.some(item=>item.key==='slipstream_boots'),'test admin can preview the exotic');
+  assert.ok(armor.items.some(item=>item.key==='vector_helmet'));
+  const equip=(body,headers={cookie})=>fetch(`${base}/api/armor/equip`,{
+    method:'POST',headers:{...headers,'content-type':'application/json'},body:JSON.stringify(body)});
+  const boots=armor.items.find(item=>item.key==='slipstream_boots');
+  assert.equal((await equip({slot:'boots',itemId:boots.id},{})).status,401);
+  assert.equal((await equip({slot:'helmet',itemId:boots.id})).status,400);
+  assert.equal((await equip({slot:'boots',itemId:'not-owned'})).status,400);
+  const equipped=await equip({slot:'boots',itemId:boots.id});
+  assert.equal(equipped.status,200);
+  assert.equal((await equipped.json()).armor.stats.airDash,true);
   const stored=JSON.parse(fs.readFileSync(path.join(dataDir,'users.json'),'utf8'));
   assert.deepEqual(stored.map(user=>user.username),['qing']);
   assert.equal(stored[0].loadout.playerColor,'#e078ab','color is persisted to the account');
+  assert.equal(stored[0].armor.equipped.boots,boots.id,'armor selection is durable');
 });

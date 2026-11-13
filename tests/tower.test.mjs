@@ -143,6 +143,40 @@ test('Tower architecture and walking surfaces match their authoritative geometry
   }
 });
 
+test('Tower stair markings, cabinet lids and lift trim have a single visible top surface',()=>{
+  const {map}=maps.createPvpMap(0,'tower'),ray=new THREE.Raycaster();
+  const checkTop=(model,x,z,top,label)=>{
+    ray.set(new THREE.Vector3(x,top+.08,z),new THREE.Vector3(0,-1,0));ray.far=.1;
+    const hits=ray.intersectObject(model,true).filter(hit=>Math.abs(hit.point.y-top)<1e-5);
+    assert.equal(hits.length,1,`${label}: overlapping top faces would flicker`);
+  };
+  for(const s of map.terrain.filter(s=>['ramp','towerSwitchgear','lift'].includes(s.kind))) {
+    const model=createTerrainModel(s),w=s.width*.05,d=s.height*.05,h=s.top-(s.bottom||0);
+    if(s.kind==='ramp') {
+      model.updateMatrixWorld(true);
+      const alongY=s.axis==='y',step=(alongY?d:w)/s.steps;
+      for(let i=0;i<s.steps;i++)for(const across of [.321,.619]) {
+        const index=s.reverse?s.steps-1-i:i,rise=h*(i+1)/s.steps;
+        for(const along of [s.reverse?step-.035:.035,step*.473]) {
+          const x=alongY?w*across:index*step+along,z=alongY?index*step+along:d*across;
+          checkTop(model,x,z,rise,`${s.kind} at ${s.x},${s.y}, tread ${i}`);
+        }
+      }
+    } else if(s.kind==='lift') {
+      for(const height of [0,2.6,5.2]) {
+        poseCargoLift(model,height);model.updateMatrixWorld(true);
+        for(const x of [.14,w*.413,w-.14])
+          checkTop(model,x,d*.391,height+.02,'lift finish throughout travel');
+      }
+    } else {
+      model.updateMatrixWorld(true);
+      for(const x of [.29,.63])for(const z of [.37,.71])
+        checkTop(model,w*x,d*z,h,'switchgear lid');
+    }
+    dispose(model);
+  }
+});
+
 test('Tower lights the sheltered ground rooms with a fixed symmetric lighting budget',()=>{
   const {map,walls}=maps.createPvpMap(0,'tower'),plan=planAreaLighting(map,walls);
   assert.equal(plan.length,6);

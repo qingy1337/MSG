@@ -520,9 +520,10 @@ function createPvpMap(seed, mapId, excludeId) {
   return layout;
 }
 
-function regeneratePlayers(players, seconds) {
+function regeneratePlayers(players, seconds, mode='pve') {
+  const armor=typeof module!=='undefined'&&module.exports?require('./armor'):ARMOR;
   for (const p of players) if (p.alive && !p.isBot)
-    p.health = Math.min(p.maxHealth ?? 101, p.health + 5 * seconds);
+    p.health = Math.min(p.maxHealth ?? 101, p.health + (5+armor.effects(p.armorStats,mode).regen) * seconds);
 }
 
 if (typeof module !== 'undefined' && module.exports)

@@ -8,6 +8,10 @@ const {splitCoinReward}=require('./coinRewards');
 const {deathDescriptor,makeDeathPickup,collectPickups}=require('./deathEffects');
 const { floorDifficulty, tickOgre } = require('./pveDifficulty');
 const {rollPveBuff,weaponCooldown}=require('./pveBuffs');
+const {armorLoadout}=require('../lib/armor');
+const {advanceArmorAbilities}=require('./armorAbilities');
+const {GRENADE_REFILL_MS}=require('../public/armor');
+const {effects:armorEffects}=require('../public/armor');
 const { advanceKnockback,addKnockbackImpulse } = require('../public/arenaMap');
 const {NavigationService}=require('./navigationService');
 const {playerSnapshot,playerFrame}=require('./snapshots');
@@ -141,13 +145,19 @@ function createGameServer(io, options = {}) {
   let gameMap = DEFAULT_MAP;
   let floorState = { phase: 'combat', floor: 1, startedAt: 0 };
   const currentPveBuff=()=>gameMap.mode==='pve'&&gameMap.activity!=='strike'?floorState.buff:null;
+  function matchArmor(player) {
+    const loadout=player.armorStats?{armorStats:player.armorStats,armorAppearance:player.armorAppearance||{}}:
+      armorLoadout(usersByUsername.get(player.accountUsername));
+    return {...loadout,armorStats:armorEffects(loadout.armorStats,gameMap.mode)};
+  }
   function applyFloorHealthBuff() {
     const doubled=currentPveBuff()==='doubleHealth';
     for(const player of activePlayers)if(!player.isBot) {
       const oldMax=player.maxHealth||MAX_HEALTH;
-      player.maxHealth=doubled?MAX_HEALTH*2:MAX_HEALTH;
-      const bonus=doubled&&oldMax<player.maxHealth?player.maxHealth-oldMax:0;
-      player.health=Math.min(player.maxHealth,Math.max(0,(player.health||0)+bonus));
+      const base=MAX_HEALTH+armorEffects(player.armorStats,gameMap.mode).health;
+      player.maxHealth=doubled?base*2:base;
+      const bonus=Math.max(0,player.maxHealth-oldMax);
+      player.health=player.alive?Math.min(player.maxHealth,Math.max(0,(player.health||0)+bonus)):0;
       pendingHealth.set(player.id,{id:player.id,health:player.health,maxHealth:player.maxHealth});
     }
   }
@@ -155,7 +165,6 @@ function createGameServer(io, options = {}) {
   const strikeHazardTickAt=new Map();
   let strikeHazardSignature='';
   let strikeHazardPublishedAt=0;
-  let floorBotCount = 0;
   let pveEncounterActive = true;
   let recentTerrain=[];
   let lastPvpMapId=null;
@@ -314,7 +323,8 @@ function createGameServer(io, options = {}) {
       const now=Date.now();updateCargoLifts(gameMap,activePlayers,now);advanceJump(p,now);
       activatePveEncounter();
       if(currentPveBuff()!=='infiniteGrenades')p.grenades--;
-      const g=throwGrenade(p,data.angle,data.pitch,now-started,now,nextGrenadeId++);
+      const charge=(now-started)*(1+armorEffects(p.armorStats,gameMap.mode).charge/100);
+      const g=throwGrenade(p,data.angle,data.pitch,charge,now,nextGrenadeId++);
       grenades.push(g);
       if (p.accountUsername) {
         const accountUser = usersByUsername.get(p.accountUsername);
@@ -373,16 +383,20 @@ function createGameServer(io, options = {}) {
 
   function activateHumanPlayer(player, spawnPosition, now) {
     const cooperativeMatch=cooperative();
+    const armor=matchArmor(player),baseHealth=MAX_HEALTH+armor.armorStats.health;
     const height=spawnPosition.height||0;
     return {
       ...player,
+      ...armor,
       x:spawnPosition.x,
       y:spawnPosition.y,
       angle:0,
       alive:true,
-      health:MAX_HEALTH,
-      maxHealth:MAX_HEALTH,
+      health:baseHealth,
+      maxHealth:baseHealth,
+      dashRemaining:0,dashCoastRemaining:0,dashReadyAt:0,dashUsedInAir:false,dashX:0,dashY:0,
       grenades:3,
+      grenadeRefillAt:armor.armorStats.grenadeRefill?now+GRENADE_REFILL_MS:undefined,
       team:cooperativeMatch?'players':player.id,
       color:accountPlayerColor(player),
       height,
@@ -423,14 +437,7 @@ function createGameServer(io, options = {}) {
       ? config.startFloor : 1;
 
     const humanCount = waitingPlayers.length;
-    let botCount = 0;
-    if (enableBots) {
-      const maxBots = BOT_CONFIG.maxPerMatch;
-      botCount = Math.min(maxBots, Math.max(4, humanCount * 2));
-      if (humanCount === 1 && botCount === 0 && maxBots > 0) {
-        botCount = 1;
-      }
-    }
+    const botCount = enableBots ? 4 : 0;
 
     const totalPlayers = humanCount + botCount + (debugDouble?1:0);
     if (humanCount === 0 || totalPlayers < 2) return;
@@ -474,7 +481,6 @@ function createGameServer(io, options = {}) {
     strikeState=strikeId?strikeTravelState(0,matchStartedAt,{checkpointIndex:-1,openedIds:[],
       machineryState:{},missionFlags:{}}):null;
     strikeHazardTickAt.clear();strikeHazardSignature='';strikeHazardPublishedAt=0;
-    floorBotCount = botCount;
     wallLayoutVersion += 1;
     invalidateCachedNavGrid();
     gameWalls.length = 0;
@@ -488,18 +494,22 @@ function createGameServer(io, options = {}) {
 
     while (waitingPlayers.length > 0) {
       const player = waitingPlayers.pop();
+      const armor=matchArmor(player),baseHealth=MAX_HEALTH+armor.armorStats.health;
       matchParticipantIds.add(player.id);
       const spawnPosition = enableBots ? getTeamSpawn(false, activePlayers.filter(p => !p.isBot).length) :
         teamSpawns?.get(player.id)||getValidSpawnPosition(solids(), activePlayers);
       const activePlayer={
         ...player,
+        ...armor,
         x: spawnPosition.x,
         y: spawnPosition.y,
         angle: 0,
         alive: true,
-        health: MAX_HEALTH,
-        maxHealth: MAX_HEALTH,
+        health: baseHealth,
+        maxHealth: baseHealth,
+        dashRemaining:0,dashCoastRemaining:0,dashReadyAt:0,dashUsedInAir:false,dashX:0,dashY:0,
         grenades: 3,
+        grenadeRefillAt:armor.armorStats.grenadeRefill?matchStartedAt+GRENADE_REFILL_MS:undefined,
         team: enableBots ? 'players' : teams.get(player.id)||player.id,
         color: accountPlayerColor(player),
         height: spawnPosition.height || 0,
@@ -612,7 +622,7 @@ function createGameServer(io, options = {}) {
       !gameInProgress.status||gameOverTimeout||riding())return;
     if(player.automaticFire)return;
     const now=Date.now(),config=WEAPONS[player.weapon];
-    let nextShotAt=Math.max(now,(player.lastShotAt||0)+weaponCooldown(config.cooldownMs,currentPveBuff()));
+    let nextShotAt=Math.max(now,(player.lastShotAt||0)+weaponCooldown(config.cooldownMs,currentPveBuff(),player.armorStats,gameMap.mode));
     if(player.weapon==='miniGun'){
       if(player.miniGunSpinStartedAt==null||player.miniGunLastAttemptAt==null||
         now-player.miniGunLastAttemptAt>config.triggerReleaseMs)player.miniGunSpinStartedAt=now;
@@ -643,15 +653,22 @@ function createGameServer(io, options = {}) {
       if(!held)continue;
       if(!player.alive||!gameInProgress.status||gameOverTimeout||riding()||
         held.weapon!==player.weapon){player.automaticFire=null;continue;}
-      const interval=weaponCooldown(WEAPONS[player.weapon].cooldownMs,currentPveBuff());
+      const interval=weaponCooldown(WEAPONS[player.weapon].cooldownMs,currentPveBuff(),player.armorStats,gameMap.mode);
+      if(held.intervalMs!==interval) {
+        held.intervalMs=interval;held.scheduleStartAt=held.nextShotAt;held.roundsScheduled=0;
+      }
       // A late server tick catches up the rounds due during that tick. Cap a
       // pathological stall so one client cannot create an unbounded burst.
       for(let rounds=0;held.nextShotAt<=now&&rounds<16;rounds++) {
         fireHitscan(player,held.angle,held.pitch,held.nextShotAt,true);
-        held.nextShotAt+=interval;
+        // Anchor to the first deadline instead of repeatedly adding fractions
+        // to epoch-sized timestamps, which drifts and skips boundary shots.
+        held.nextShotAt=held.scheduleStartAt+(++held.roundsScheduled)*interval;
         if(!player.alive||player.automaticFire!==held||gameOverTimeout)break;
       }
-      if(held.nextShotAt<=now)held.nextShotAt=now+interval;
+      if(held.nextShotAt<=now) {
+        held.nextShotAt=now+interval;held.scheduleStartAt=held.nextShotAt;held.roundsScheduled=0;
+      }
     }
   }
 
@@ -684,15 +701,17 @@ function createGameServer(io, options = {}) {
       player.miniGunLastAttemptAt=now;
       if(now-(player.miniGunSpinStartedAt??now)<weaponConfig.spinUpMs)return false;
     }
-    const cooldown = weaponCooldown(weaponConfig.cooldownMs,currentPveBuff());
-    if (shotTime - (player.lastShotAt || 0) < cooldown) return false;
+    const cooldown = weaponCooldown(weaponConfig.cooldownMs,currentPveBuff(),player.armorStats,gameMap.mode);
+    // Fractional intervals lose a fraction of a millisecond at epoch-sized
+    // timestamps. Do not drop alternate scheduled rounds to float rounding.
+    if (shotTime - (player.lastShotAt || 0) + .001 < cooldown) return false;
     if(player.weapon==='shotgun') {
       if(now<(player.shotgunReloadUntil||0))return false;
       if(player.shotgunShotsRemaining==null||player.shotgunShotsRemaining===0)
         player.shotgunShotsRemaining=WEAPONS.shotgun.shotsPerReload;
       player.shotgunShotsRemaining--;
       player.shotgunReloadUntil=player.shotgunShotsRemaining===0?
-        now+weaponCooldown(WEAPONS.shotgun.reloadMs,currentPveBuff()):0;
+        now+weaponCooldown(WEAPONS.shotgun.reloadMs,currentPveBuff(),player.armorStats,gameMap.mode):0;
       queueSnapshot();
     }
     if(!player.isBot)activatePveEncounter();
@@ -1070,7 +1089,7 @@ function createGameServer(io, options = {}) {
     clearActiveBullets(activeBullets);squadOrders.clear();
     pveEncounterActive=false;lastRegenAt=now;
     wallLayoutVersion++;invalidateCachedNavGrid();navigation.configure(gameMap,gameWalls);
-    createBotsForCurrentMatch(floorBotCount);
+    createBotsForCurrentMatch();
     floorState={phase:'opening',floor:gameMap.floor,startedAt:now,
       buff:rollPveBuff(gameMap.seed,gameMap.floor)};
     applyFloorHealthBuff();
@@ -1098,7 +1117,7 @@ function createGameServer(io, options = {}) {
     nextBotId = 1;
     gameMap = DEFAULT_MAP; squadOrders.clear(); lastRegenAt = 0;pveEncounterActive=true;strikeState=null;
     strikeHazardTickAt.clear();strikeHazardSignature='';strikeHazardPublishedAt=0;
-    floorState = {phase:'combat',floor:1,startedAt:0}; floorBotCount = 0;
+    floorState = {phase:'combat',floor:1,startedAt:0};
     // Reset bullet bookkeeping between matches
     clearActiveBullets(activeBullets);
     nextBulletId = 1;
@@ -1921,22 +1940,28 @@ function createGameServer(io, options = {}) {
       y: 480 + Math.floor(index / cols) * 55 };
   }
 
-  function createBotsForCurrentMatch(count) {
+  function createBotsForCurrentMatch(count = 4) {
     const difficulty = floorDifficulty(gameMap.floor, count);
     const elite = cooperative() && gameMap.floor > 20;
+    // Snapshot the deployed fireteam when the floor starts. Dead teammates
+    // still belong to it; queued late joiners count only after promotion.
+    // Multiply the solo roster, never enemy health or the authored Strike waves.
+    const partySize = gameMap.mode==='pve' && gameMap.activity!=='strike'
+      ? Math.max(1,activePlayers.filter(player=>!player.isBot&&!player.debugCloneOf).length) : 1;
     const numBots = Math.max(
       0,gameMap.activity==='strike'?Math.floor(count||0):
-        cooperative() ? difficulty.count : Math.min(count || 0, BOT_CONFIG.maxPerMatch),
+        cooperative() ? difficulty.count*partySize : Math.min(count || 0, BOT_CONFIG.maxPerMatch),
     );
     if (numBots === 0) return;
 
-    const guardianCount=Math.min(difficulty.guardians||0,Math.max(0,numBots-difficulty.ogres));
-    const ogreStart=Math.max(0,numBots-difficulty.ogres);
-    // Three Dread Captains replace ordinary soldiers from floor 21 onward.
+    const ogreCount=difficulty.ogres*partySize;
+    const guardianCount=Math.min((difficulty.guardians||0)*partySize,Math.max(0,numBots-ogreCount));
+    const ogreStart=Math.max(0,numBots-ogreCount);
+    // Three Dread Captains per player replace soldiers from floor 21 onward.
     // Guardians subsequently replace more soldiers, while the Captains and four
     // Ogres remain part of the same floor-20-sized wave.
     const dreadStart=guardianCount;
-    const dreadEnd=Math.min(ogreStart,dreadStart+(elite?3:0));
+    const dreadEnd=Math.min(ogreStart,dreadStart+(elite?3*partySize:0));
     for (let i = 0; i < numBots; i++) {
       const botId = `bot-${nextBotId++}`;
       const color =
@@ -3975,6 +4000,7 @@ function createGameServer(io, options = {}) {
     for(const p of activePlayers)p.grenadeChargeAt=null;
     for(const p of humans) {
       p.jumpStartedAt=null;p.height=0;p.groundHeight=0;p.knockback=null;
+      p.dashRemaining=0;p.dashCoastRemaining=0;
       p.platformId=null;p.groundPlatformId=null;p.movementEpoch=(p.movementEpoch||0)+1;
     }
     updateExitDoor(gameMap,floorState,now);publishFloorState();return true;
@@ -3992,10 +4018,6 @@ function createGameServer(io, options = {}) {
       activePlayers.push(player);
       matchParticipantIds.add(player.id);
     }
-    // Scale only future waves to the enlarged fireteam. The wave they joined
-    // during was deliberately left untouched.
-    const humanCount=activePlayers.filter(player=>!player.isBot&&!player.debugCloneOf).length;
-    floorBotCount=Math.min(BOT_CONFIG.maxPerMatch,Math.max(floorBotCount,4,humanCount*2));
     io.to('waiting').emit('updateWaitingList',waitingPlayers);
     return queued.length;
   }
@@ -4025,7 +4047,8 @@ function createGameServer(io, options = {}) {
         const slots=Array.from({length:12},(_,i)=>floorSpawn(gameMap,false,i));
         const spawn=slots.find(s=>activePlayers.every(other=>other.isBot||!other.alive||
           Math.hypot(other.x-s.x,other.y-s.y)>=32))||slots[0];
-        Object.assign(p,spawn,{alive:true,health:MAX_HEALTH,maxHealth:MAX_HEALTH,angle:0,height:0,groundHeight:0,
+        const baseHealth=MAX_HEALTH+armorEffects(p.armorStats,gameMap.mode).health;
+        Object.assign(p,spawn,{alive:true,health:baseHealth,maxHealth:baseHealth,angle:0,height:0,groundHeight:0,
           ceilingHeight:gameMap.arrivalElevator.ceiling,jumpStartedAt:null,jumpBase:0,jumpVelocity:0,
           jumpInputSeq:null,jumpPlatformId:null,platformId:null,groundPlatformId:null,knockback:null,
           movementEpoch:(p.movementEpoch||0)+1,inputBudget:0.25,inputBudgetAt:now,lastShotAt:0,
@@ -4033,14 +4056,16 @@ function createGameServer(io, options = {}) {
       }
       promoteLatePveJoiners(now);
       gameMap.platformEpoch=now;
-      for(const p of activePlayers)if(!p.isBot)p.grenades=3;
+      for(const p of activePlayers)if(!p.isBot) {
+        p.grenades=3;p.dashRemaining=0;p.dashCoastRemaining=0;p.dashReadyAt=0;p.dashUsedInAir=false;
+      }
       gameWalls.splice(0,gameWalls.length,...next.walls);
       for(let i=activePlayers.length-1;i>=0;i--) if(activePlayers[i].isBot)activePlayers.splice(i,1);
       squadOrders.clear(); wallLayoutVersion++; invalidateCachedNavGrid();
       navigation.configure(gameMap,gameWalls);
       clearActiveBullets(activeBullets);
       guardianProjectiles.length=0;
-      createBotsForCurrentMatch(floorBotCount);
+      createBotsForCurrentMatch();
       floorState = {phase:'opening',floor:gameMap.floor,startedAt:now,
         buff:rollPveBuff(gameMap.seed,gameMap.floor)};
       applyFloorHealthBuff();
@@ -4059,8 +4084,9 @@ function createGameServer(io, options = {}) {
     processAutomaticFire(jumpNow);
     navigation.beginTick();
     if (cooperative()) {
+      advanceArmorAbilities(activePlayers,gameMap.mode,jumpNow);
       const beforeHealth=activePlayers.map(player=>player.health);
-      regeneratePlayers(activePlayers, Math.max(0, (jumpNow - lastRegenAt) / 1000));
+      regeneratePlayers(activePlayers, Math.max(0, (jumpNow - lastRegenAt) / 1000),gameMap.mode);
       for(let i=0;i<activePlayers.length;i++)if(activePlayers[i].health!==beforeHealth[i]){
         const player=activePlayers[i];
         pendingHealth.set(player.id,{id:player.id,health:player.health,maxHealth:player.maxHealth??MAX_HEALTH});

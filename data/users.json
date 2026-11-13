@@ -4,7 +4,7 @@
     "username": "qing",
     "passwordHash": "120000:527376a4c7facb358546550205746662:8803cf5b1c16b4a2f9a8f8be0478fa4bec09c8104df42842cc397818c661e2ff",
     "currencies": {
-      "Coins": 9746
+      "Coins": 2969
     },
     "skins": {
       "owned": [
@@ -34,27 +34,64 @@
         "shotgun_imperial_dragon"
       ],
       "equippedByWeapon": {
-        "pistol": "pistol_pocket_dragon",
+        "pistol": "pistol_kintsugi",
         "autoRifle": "autoRifle_thunderbird",
-        "miniGun": "miniGun_midas",
+        "miniGun": "miniGun_crimson_guard",
         "sniper": "sniper_kintsugi",
-        "shotgun": "shotgun_imperial_dragon"
+        "shotgun": "shotgun_bubble_trouble"
       }
     },
     "loadout": {
-      "primaryWeapon": "shotgun",
-      "playerColor": "#a861ff"
+      "primaryWeapon": "sniper",
+      "playerColor": "#ffffff"
     },
     "stats": {
-      "pveKills": 3901,
-      "pvpKills": 1676,
-      "grenadesThrown": 4403,
+      "pveKills": 6258,
+      "pvpKills": 1889,
+      "grenadesThrown": 6967,
       "weaponKills": {
-        "autoRifle": 120,
-        "shotgun": 501,
-        "sniper": 2373,
-        "miniGun": 728,
-        "pistol": 1421
+        "autoRifle": 143,
+        "shotgun": 581,
+        "sniper": 4215,
+        "miniGun": 767,
+        "pistol": 1615
+      }
+    },
+    "armor": {
+      "items": [
+        {
+          "id": "aef88af9-ee33-406c-a0da-0dd58d0922ba",
+          "key": "slipstream_boots",
+          "stats": {
+            "speed": 1.81,
+            "charge": 5.18
+          },
+          "acquiredAt": 1794460580783
+        },
+        {
+          "id": "993170f4-8338-4467-b762-8e24527f86be",
+          "key": "bastion_chest",
+          "stats": {
+            "health": 10,
+            "regen": 0.125
+          },
+          "acquiredAt": 1794521471970
+        },
+        {
+          "id": "bfbf434a-016e-4efe-b165-8a1e3cf22b2b",
+          "key": "bastion_gauntlets",
+          "stats": {
+            "health": 10,
+            "regen": 0.125
+          },
+          "acquiredAt": 1794527600597
+        }
+      ],
+      "equipped": {
+        "helmet": null,
+        "chest": "993170f4-8338-4467-b762-8e24527f86be",
+        "gauntlets": "bfbf434a-016e-4efe-b165-8a1e3cf22b2b",
+        "boots": "aef88af9-ee33-406c-a0da-0dd58d0922ba"
       }
     }
   },
@@ -63,7 +100,7 @@
     "username": "ggg",
     "passwordHash": "120000:6e213f5bc9566e97880dca1ac766b17a:ee762808405c3234c19bd55b0fa3283dac8b6398d850c4223254b980bd8ba576",
     "currencies": {
-      "Coins": 4185
+      "Coins": 811
     },
     "skins": {
       "owned": [
@@ -89,30 +126,86 @@
         "miniGun_crimson_guard",
         "sniper_kintsugi",
         "autoRifle_thunderbird",
-        "pistol_kintsugi"
+        "pistol_kintsugi",
+        "shotgun_imperial_dragon"
       ],
       "equippedByWeapon": {
         "pistol": "pistol_kintsugi",
-        "autoRifle": "autoRifle_thunderbird",
+        "autoRifle": "autoRifle_cybernetic",
         "miniGun": "miniGun_crimson_guard",
         "sniper": "sniper_kintsugi",
         "shotgun": "shotgun_bubble_trouble"
       }
     },
     "loadout": {
-      "primaryWeapon": "sniper",
-      "playerColor": "#000000"
+      "primaryWeapon": "miniGun",
+      "playerColor": "#cc6714"
     },
     "stats": {
-      "pveKills": 5751,
-      "pvpKills": 1124,
-      "grenadesThrown": 3832,
+      "pveKills": 8227,
+      "pvpKills": 1329,
+      "grenadesThrown": 6245,
       "weaponKills": {
-        "autoRifle": 1979,
-        "shotgun": 222,
-        "sniper": 1203,
-        "miniGun": 2026,
-        "pistol": 947
+        "autoRifle": 2075,
+        "shotgun": 709,
+        "sniper": 1594,
+        "miniGun": 3251,
+        "pistol": 1066
+      }
+    },
+    "armor": {
+      "items": [
+        {
+          "id": "5674a7de-aca5-498f-9676-233b089329bb",
+          "key": "vector_helmet",
+          "stats": {
+            "speed": 5,
+            "fireRate": 3
+          },
+          "acquiredAt": 1794525059327
+        },
+        {
+          "id": "b831e560-ece8-46ec-96f9-3a3d68a51d5b",
+          "key": "vector_chest",
+          "stats": {
+            "speed": 5,
+            "fireRate": 3
+          },
+          "acquiredAt": 1794525069626
+        },
+        {
+          "id": "42a3749b-c15c-4031-91d2-98248e3db0b1",
+          "key": "vector_gauntlets",
+          "stats": {
+            "speed": 5,
+            "fireRate": 3
+          },
+          "acquiredAt": 1794525078016
+        },
+        {
+          "id": "423a38c7-be51-4dce-842f-575f14116088",
+          "key": "vector_boots",
+          "stats": {
+            "speed": 5,
+            "fireRate": 3
+          },
+          "acquiredAt": 1794525086279
+        },
+        {
+          "id": "b89c9dec-18d6-40f4-9918-0f019a138e4f",
+          "key": "bastion_chest",
+          "stats": {
+            "health": 10,
+            "regen": 0.125
+          },
+          "acquiredAt": 1794547298987
+        }
+      ],
+      "equipped": {
+        "helmet": "5674a7de-aca5-498f-9676-233b089329bb",
+        "chest": "b89c9dec-18d6-40f4-9918-0f019a138e4f",
+        "gauntlets": "42a3749b-c15c-4031-91d2-98248e3db0b1",
+        "boots": "423a38c7-be51-4dce-842f-575f14116088"
       }
     }
   },
@@ -121,7 +214,7 @@
     "username": "yxli",
     "passwordHash": "120000:6e213f5bc9566e97880dca1ac766b17a:ee762808405c3234c19bd55b0fa3283dac8b6398d850c4223254b980bd8ba576",
     "currencies": {
-      "Coins": 6942
+      "Coins": 8261
     },
     "skins": {
       "owned": [
@@ -142,7 +235,7 @@
       "equippedByWeapon": {
         "pistol": "pistol_pocket_dragon",
         "autoRifle": "autoRifle_poisonivy",
-        "miniGun": "miniGun_midas",
+        "miniGun": "miniGun_poison",
         "sniper": "sniper_default",
         "shotgun": "shotgun_default"
       }
@@ -152,15 +245,24 @@
       "playerColor": "#ffc800"
     },
     "stats": {
-      "pveKills": 2058,
-      "pvpKills": 455,
-      "grenadesThrown": 1391,
+      "pveKills": 2199,
+      "pvpKills": 497,
+      "grenadesThrown": 1758,
       "weaponKills": {
-        "autoRifle": 1290,
-        "shotgun": 16,
+        "autoRifle": 1386,
+        "shotgun": 19,
         "sniper": 295,
-        "miniGun": 331,
+        "miniGun": 370,
         "pistol": 408
+      }
+    },
+    "armor": {
+      "items": [],
+      "equipped": {
+        "helmet": null,
+        "chest": null,
+        "gauntlets": null,
+        "boots": null
       }
     }
   },
@@ -169,7 +271,7 @@
     "username": "ruo",
     "passwordHash": "120000:9de7999fc787ef76db2c60df93c88dab:c054a9e1c534b36bf85cf050a4892d55008d415533ffef40d3a89c35efd74572",
     "currencies": {
-      "Coins": 547
+      "Coins": 11109
     },
     "skins": {
       "owned": [
@@ -196,19 +298,28 @@
       }
     },
     "loadout": {
-      "primaryWeapon": "miniGun",
-      "playerColor": "#b90e0e"
+      "primaryWeapon": "sniper",
+      "playerColor": "#c71a4e"
     },
     "stats": {
-      "pveKills": 4683,
-      "pvpKills": 413,
-      "grenadesThrown": 589,
+      "pveKills": 6245,
+      "pvpKills": 448,
+      "grenadesThrown": 1097,
       "weaponKills": {
         "autoRifle": 559,
-        "shotgun": 171,
-        "sniper": 3407,
-        "miniGun": 265,
-        "pistol": 574
+        "shotgun": 198,
+        "sniper": 4850,
+        "miniGun": 285,
+        "pistol": 583
+      }
+    },
+    "armor": {
+      "items": [],
+      "equipped": {
+        "helmet": null,
+        "chest": null,
+        "gauntlets": null,
+        "boots": null
       }
     }
   },

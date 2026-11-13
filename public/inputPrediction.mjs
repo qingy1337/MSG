@@ -1,8 +1,9 @@
 export class InputPrediction {
   constructor(){this.sequence=0;this.reset(0);}
   reset(time){this.pending=[];this.sent=0;this.time=time;}
-  record(dx,dy,dt,jump,epoch){
+  record(dx,dy,dt,jump,epoch,dash=false){
     const input={seq:++this.sequence,dx,dy,dt,jump:!!jump,epoch:epoch||0};
+    if(dash)input.dash=true;
     this.pending.push(input);
     // Bound memory during a stalled connection. A lost history forces a rebase.
     if(this.pending.length>240)this.pending.shift();

@@ -6,11 +6,11 @@ function rollPveBuff(seed,floor) {
   value^=value>>>15;value=Math.imul(value,0x846ca68b);
   value^=value>>>16;
   value>>>=0;
-  return value%20===0?BUFFS[Math.floor(value/20)%BUFFS.length]:null;
+  return value%10===0?BUFFS[Math.floor(value/10)%BUFFS.length]:null;
 }
 
-function weaponCooldown(base,buff) {
-  return buff==='rapidFire'?base/2:base;
+function weaponCooldown(base,buff,stats=null,mode='pve') {
+  return require('../public/armor').weaponInterval(base,stats,mode,buff==='rapidFire');
 }
 
 module.exports={BUFFS,rollPveBuff,weaponCooldown};

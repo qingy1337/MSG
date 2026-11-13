@@ -25,6 +25,7 @@ import { planAreaLighting, createAreaLighting } from './areaLighting.mjs';
 import { planAmbientZones, ambientZoneGLSL, ambientZoneUniforms, applyAmbientZones } from './ambientZones.mjs';
 import {shotgunReticleDiameter} from './shotgunCrosshair.mjs';
 import {areaOccluderIndex,shadowOccluderGrid} from './floorLighting.mjs';
+import {fitCharacterArmor,createSlipstreamWake} from './armorModels.mjs';
 
 const SCALE = 0.05;
 const WALL_HEIGHT = 3.1;
@@ -367,6 +368,58 @@ export function syncCharacterLabelVisibility(character,hidden) {
   character.labelHidden=hidden;
   character.label.hidden=hidden;
   return true;
+}
+
+export function createTerrainLabelOccluder(solid,material) {
+  const w=solid.width*SCALE,d=solid.height*SCALE,bottom=solid.bottom||0,
+    h=Math.max(.02,(solid.top??WALL_HEIGHT)-bottom);
+  let geometry;
+  if(solid.kind==='ramp') {
+    // A full-height box surrounds the camera on the lower steps. Its back
+    // faces miss blocking stairs, while its empty upper half hides clear views.
+    const alongY=solid.axis==='y',length=alongY?d:w,profile=new THREE.Shape();
+    if(solid.stairs) {
+      const steps=Math.max(1,solid.steps||1);
+      profile.moveTo(0,0);profile.lineTo(length,0);
+      for(let i=steps;i>0;i--) {
+        profile.lineTo(length*i/steps,h*i/steps);
+        profile.lineTo(length*(i-1)/steps,h*i/steps);
+      }
+    } else {
+      const thickness=Number.isFinite(solid.structureDepth)?Math.max(0,solid.structureDepth):null;
+      profile.moveTo(0,thickness==null?0:-thickness);
+      profile.lineTo(length,thickness==null?0:h-thickness);
+      profile.lineTo(length,h);profile.lineTo(0,0);
+    }
+    profile.closePath();
+    geometry=new THREE.ExtrudeGeometry(profile,{depth:alongY?w:d,bevelEnabled:false,steps:1});
+    const positions=geometry.attributes.position;
+    for(let i=0;i<positions.count;i++) {
+      const along=solid.reverse?length-positions.getX(i):positions.getX(i),across=positions.getZ(i);
+      positions.setXYZ(i,(alongY?across:along)-w/2,positions.getY(i)-h/2,(alongY?along:across)-d/2);
+    }
+    geometry.computeVertexNormals();
+  } else geometry=new THREE.BoxGeometry(w,h,d);
+  geometry.computeBoundingBox();
+  const proxy=new THREE.Mesh(geometry,material);
+  proxy.name=`terrain-${solid.kind}-occluder`;
+  proxy.position.copy(world(solid.x+solid.width/2,solid.y+solid.height/2,bottom+h/2));
+  proxy.layers.set(1);return proxy;
+}
+
+export function isCharacterLabelOccluded(raycaster,occluders,origin,body,anchor) {
+  const hits=[];
+  // The actor can be visible below a stair while its floating label is behind
+  // the tread. Both the body and the label's actual position must be clear.
+  for(const target of [body,anchor]) {
+    raycaster.ray.origin.copy(origin);raycaster.ray.direction.subVectors(target,origin);
+    const distance=raycaster.ray.direction.length();
+    if(distance<.0001)continue;
+    raycaster.ray.direction.multiplyScalar(1/distance);raycaster.far=distance;
+    raycaster.intersectObjects(occluders,false,hits);
+    if(hits.length)return true;
+  }
+  return false;
 }
 
 // Merge rigid pieces that share a parent and material. Their parent still
@@ -804,7 +857,7 @@ export class Arena3D {
       if(mesh)this.stage.add(mesh);
     if(wallBody){wallBody.layers.enable(1);this.wallOccluders.push(wallBody);}
     const terrainBatches=new Map();
-    const occluderMaterial=new THREE.MeshBasicMaterial({colorWrite:false,depthWrite:false});
+    const occluderMaterial=new THREE.MeshBasicMaterial({colorWrite:false,depthWrite:false,side:THREE.DoubleSide});
     if(candy||tower) {
       collectStaticModel(tower?createTowerEnvironment(map,walls):createCandyEnvironment(map,walls),
         new THREE.Vector3(),terrainBatches);
@@ -862,10 +915,8 @@ export class Arena3D {
       } else {
         collectStaticModel(model,position,terrainBatches);
         if(!solid.nonSolid&&!['tree','templeTree','templePool'].includes(solid.kind)) {
-          const bottom=solid.bottom||0,top=solid.top??WALL_HEIGHT;
-          const proxy=new THREE.Mesh(new THREE.BoxGeometry(solid.width*SCALE,Math.max(0.02,top-bottom),solid.height*SCALE),occluderMaterial);
-          proxy.position.copy(world(solid.x+solid.width/2,solid.y+solid.height/2,(top+bottom)/2));
-          proxy.layers.set(1);this.stage.add(proxy);this.wallOccluders.push(proxy);
+          const proxy=createTerrainLabelOccluder(solid,occluderMaterial);
+          this.stage.add(proxy);this.wallOccluders.push(proxy);
         }
       }
     }
@@ -946,12 +997,12 @@ export class Arena3D {
     // keep the original mesh density so the cosmetic pass does not tax later floors.
     const smoothBody=!player.isBot;
     const bodySegments=smoothBody?4:2;
-    this.box(group, 0.72, 0.65, 0.52, 0, 1.19, 0, armor, 0.17, bodySegments);
-    this.box(group, 0.42, 0.31, 0.10, 0, 1.27, -0.28, white, 0.08, bodySegments);
-    this.box(group, 0.46, 0.57, 0.25, 0, 1.18, 0.34, undersuit, 0.08, bodySegments);
+    const torso=this.box(group, 0.72, 0.65, 0.52, 0, 1.19, 0, armor, 0.17, bodySegments);
+    const chest=this.box(group, 0.42, 0.31, 0.10, 0, 1.27, -0.28, white, 0.08, bodySegments);
+    const backPanel=this.box(group, 0.46, 0.57, 0.25, 0, 1.18, 0.34, undersuit, 0.08, bodySegments);
     const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.32, smoothBody?24:16, smoothBody?18:12), white);
     helmet.position.y = 1.84; helmet.scale.set(1, 1.08, 0.95); helmet.castShadow = true; group.add(helmet);
-    this.box(group, 0.48, 0.18, 0.16, 0, 1.86, -0.255, visor, 0.07, bodySegments);
+    const faceVisor=this.box(group, 0.48, 0.18, 0.16, 0, 1.86, -0.255, visor, 0.07, bodySegments);
     const legs = [], arms=[];
     for (const side of [-1, 1]) {
       const leg = new THREE.Group(); leg.position.set(side * 0.22, 0.88, 0); group.add(leg);
@@ -963,6 +1014,7 @@ export class Arena3D {
       this.box(arm, 0.20, 0.22, 0.57, -side*0.04, -0.2, -0.23, undersuit, 0.08, bodySegments);
       this.box(arm, 0.18, 0.19, 0.18, -side*0.07, -0.2, -0.51, white, 0.08, bodySegments);
     }
+    if(!player.isBot)fitCharacterArmor(group,{helmet,visor:faceVisor,torso,backPanel,chest,legs,arms},player.armorAppearance);
     let dreadCore=null,dreadTelegraph=null,wardenPresentation=null;
     if(dread) {
       // A sharper, top-heavy silhouette reads immediately as a new enemy even
@@ -1055,6 +1107,8 @@ export class Arena3D {
       mergeRigidMeshes(guardianModel.armor);
     }
     if(!ogreModel&&!guardianModel)mergeRigidMeshes(group,new Set([dreadCore]));
+    const dashWake=player.armorStats?.airDash?createSlipstreamWake():null;
+    if(dashWake)group.add(dashWake);
     // A character can contain dozens of cosmetic meshes. Only the largest
     // silhouette pieces need to render into shadow maps.
     const strikeCrowd=player.isBot&&(this.mapConfig.mode==='strike'||this.mapConfig.activity==='strike');
@@ -1079,7 +1133,7 @@ export class Arena3D {
     const bar = document.createElement('i'); const fill = document.createElement('b'); bar.append(fill);
     label.append(name, value, bar); this.labels.append(label); this.stage.add(group);
     if(this.mapConfig.mode==='pve')applyAmbientZones(group,this.zoneUniforms);
-    const record = { group, legs, arms, weapon, ogreModel, guardianModel, dread, warden, wardenPresentation,
+    const record = { group, legs, arms, weapon, ogreModel, guardianModel, dread, warden, wardenPresentation, dashWake,
       dreadCore, dreadTelegraph, label, value, fill, x: player.x, y: player.y, phase: 0, recoil: 0,
       weaponKey:player.weapon,weaponSwitchAt:this.weaponSwitchTimes?.get(player.id)??-Infinity,
       weaponSkinKey:skin?.key,muzzleBaseX:0.27,muzzleBarrelOffset:length*0.062,
@@ -1595,6 +1649,13 @@ export class Arena3D {
         c.ogreModel&&player.ogreAttack||c.guardianModel||c.recoil>0)this.shadowDirty=true;
       c.group.position.copy(characterPosition);c.group.rotation.y=characterRotation;
       c.group.rotation.z=motion.sway;
+      if(c.dashWake) {
+        c.dashWake.visible=this.mapConfig.mode==='pve'&&(player.dashRemaining||0)>0;
+        if(c.dashWake.visible) {
+          c.dashWake.rotation.y=-Math.atan2(player.dashY||0,player.dashX||0)-Math.PI/2-characterRotation;
+          c.dashWake.scale.z=.65+.35*Math.min(1,player.dashRemaining/.06);
+        }
+      }
       if(c.ogreModel)poseOgre(c.ogreModel,player.ogreAttack,world);
       if(c.guardianModel)poseGuardian(c.guardianModel,player.guardianAttack,this.renderTime+Number(player.id.replace(/\D/g,''))*.37);
       if(c.dreadTelegraph) {
@@ -1638,13 +1699,10 @@ export class Arena3D {
       c.weapon.rotation.x=0.25*Math.sin(Math.PI*remoteSwap);
       const anchor=world(c.x,c.y,(player.bodyHeight||2.2)+0.2+physicalBase+motion.bob,this.temp.anchor);
       const p=this.temp.projected.copy(anchor).project(this.camera);
-      const direction=world(player.x,player.y,physicalBase+(player.bodyHeight||2.2)*.5,this.temp.direction).sub(this.camera.position);
+      const body=world(c.x,c.y,physicalBase+motion.bob+(player.bodyHeight||2.2)*.5,this.temp.direction);
       const inView=c.group.visible&&p.z>=-1&&p.z<=1&&Math.abs(p.x)<=1&&Math.abs(p.y)<=1;
       if(inView&&this.renderTime>=(c.nextLabelCheck||0)){
-        const rayDistance=direction.length();
-        this.raycaster.set(this.camera.position,direction.multiplyScalar(1/Math.max(.0001,rayDistance)));
-        this.raycaster.far=rayDistance;
-        c.labelOccluded=this.raycaster.intersectObjects(this.wallOccluders,false).length>0;
+        c.labelOccluded=isCharacterLabelOccluded(this.raycaster,this.wallOccluders,this.camera.position,body,anchor);
         c.nextLabelCheck=this.renderTime+0.12+(Number(player.id.replace(/\D/g,''))%4||0)*0.01;
       }
       if(!inView)c.nextLabelCheck=0;

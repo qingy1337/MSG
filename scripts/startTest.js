@@ -22,6 +22,8 @@ if (!password || password.length < 8) {
 }
 
 const store = require('../lib/userStore');
+const armor=require('../lib/armor');
+const {CATALOG}=require('../public/armor');
 const username = 'qing';
 const admin = store.usersByUsername.get(username) || {
   id: store.issueUserId(),username,currencies:{Coins:0},stats:{},loadout:{primaryWeapon:'autoRifle'},skins:{},
@@ -34,6 +36,9 @@ admin.skins = {
 store.ensureUserCurrencies(admin);
 store.ensureUserLoadout(admin);
 store.ensureUserStats(admin);
+armor.ensureUserArmor(admin);
+for(const key of Object.keys(CATALOG))if(!admin.armor.items.some(item=>item.key===key&&!item.starter))
+  admin.armor.items.push(armor.makeItem(key,{random:()=>1}));
 store.usersByUsername.clear();
 store.usersByUsername.set(username,admin);
 store.saveUsers();

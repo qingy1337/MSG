@@ -34,10 +34,9 @@ function setActiveScreen(target) {
   document.body.classList.toggle('in-game', target === gameScreen);
   document.body.classList.toggle('in-shop', target === shopScreen);
   document.documentElement.classList.toggle('in-shop', target === shopScreen);
-  if (target !== homeScreen && loadoutDrawerLayer && !loadoutDrawerLayer.classList.contains('hidden')) {
-    loadoutDrawerLayer.classList.add('hidden');
-    document.body.classList.remove('loadout-open');
-  }
+  document.body.classList.toggle('in-home', target === homeScreen);
+  if (target !== homeScreen) loadoutUI.close();
+  else loadoutUI.render();
 }
 
 window.returnToHome = function returnToHome() {
@@ -69,18 +68,8 @@ const pvpDebugRow = document.getElementById('pvp-debug-row');
 const pvpDebugMap = document.getElementById('pvp-debug-map');
 const pvpDebugDouble = document.getElementById('pvp-debug-double');
 const waitingPlayersList = document.getElementById("waiting-players");
-const weaponOptionsEl = document.getElementById("weapon-options");
 const homeUsernameEl = document.getElementById('home-username');
-const selectedWeaponNameEl = document.getElementById('selected-weapon-name');
-const selectedWeaponDescriptionEl = document.getElementById('selected-weapon-description');
-const selectedSkinNameEl = document.getElementById('selected-skin-name');
-const secondarySkinNameEl = document.getElementById('secondary-skin-name');
 const loadoutPreviewCanvas = document.getElementById('loadout-weapon-preview');
-const changeLoadoutBtn = document.getElementById('change-loadout-btn');
-const loadoutDrawerLayer = document.getElementById('loadout-drawer-layer');
-const loadoutDrawerDismiss = document.getElementById('loadout-drawer-dismiss');
-const closeLoadoutBtn = document.getElementById('close-loadout-btn');
-const doneLoadoutBtn = document.getElementById('done-loadout-btn');
 const pvpLobbyListEl = document.getElementById('pvp-lobby-list');
 const pveLobbyListEl = document.getElementById('pve-lobby-list');
 const onlineLobbyCountEl = document.getElementById('online-lobby-count');
@@ -177,6 +166,15 @@ const shopContentEl = document.getElementById("shop-content");
 let selectedWeaponKey = (typeof DEFAULT_WEAPON_KEY !== 'undefined' ? DEFAULT_WEAPON_KEY : 'autoRifle');
 let selectedMode = 'pvp';
 let currentUser = null;
+const loadoutUI = window.createLoadoutUI({
+  root: document.getElementById('character-loadout'),
+  getUser: () => currentUser,
+  getPrimary: () => selectedWeaponKey,
+  weapons: WEAPONS,
+  skins: WEAPON_SKINS,
+  onEquip: equipLoadoutItem,
+  onPurchase: purchaseLoadoutItem,
+});
 let currentLobby = null;
 let knownLobbies = [];
 let lastNonShopScreen = homeScreen;
@@ -253,13 +251,14 @@ function applyAuthenticatedState(user) {
   if (!socket.connected) {
     socket.connect();
   }
-  renderWeaponOptions();
+  updateLoadoutSummary();
   renderCareerStats();
   setActiveScreen(homeScreen);
 }
 
 function applyLoggedOutState() {
   currentUser = null;
+  loadoutUI.clear();
   mouseSensitivitySettings.setUser(null);
   currentLobby = null;
   if(startFloorInput)startFloorInput.value='1';
@@ -413,15 +412,6 @@ if (resetMouseSensitivityBtn) resetMouseSensitivityBtn.addEventListener('click',
   mouseSensitivitySettings.setPercent(100);
   updateMouseSensitivityControls();
 });
-if (changeLoadoutBtn) changeLoadoutBtn.addEventListener('click', openLoadoutDrawer);
-if (loadoutDrawerDismiss) loadoutDrawerDismiss.addEventListener('click', closeLoadoutDrawer);
-if (closeLoadoutBtn) closeLoadoutBtn.addEventListener('click', closeLoadoutDrawer);
-if (doneLoadoutBtn) doneLoadoutBtn.addEventListener('click', closeLoadoutDrawer);
-document.addEventListener('keydown', event => {
-  if (event.key === 'Escape' && loadoutDrawerLayer && !loadoutDrawerLayer.classList.contains('hidden')) {
-    closeLoadoutDrawer();
-  }
-});
 modeChoices.forEach(button => button.addEventListener('click', () => {
   selectedMode = button.dataset.mode || 'pvp';
   modeChoices.forEach(choice => choice.classList.toggle('active', choice === button));
@@ -541,78 +531,48 @@ function leaveFireteam() {
   });
 }
 
-function renderWeaponOptions() {
-  if (typeof WEAPONS === 'undefined' || !weaponOptionsEl) return;
-  weaponOptionsEl.innerHTML = "";
-  const primaryKeys=Object.keys(WEAPONS).filter(key=>WEAPONS[key].selectable!==false);
-  if(!primaryKeys.includes(selectedWeaponKey))selectedWeaponKey=primaryKeys[0]||'autoRifle';
-  primaryKeys.forEach((key) => {
-    const w = WEAPONS[key];
-    const card = document.createElement('button');
-    card.type = 'button';
-    card.className = 'weapon-card' + (selectedWeaponKey === key ? ' selected' : '');
-    card.setAttribute('data-key', key);
-    card.setAttribute('aria-pressed', selectedWeaponKey === key ? 'true' : 'false');
-    const copy = document.createElement('span');
-    copy.className = 'loadout-option-copy';
-    const name = document.createElement('strong');
-    name.className = 'loadout-option-name';
-    name.textContent = w.name;
-    const description = document.createElement('small');
-    description.textContent = w.description || '';
-    copy.append(name, description);
-    const check = document.createElement('i');
-    check.className = 'loadout-option-check';
-    check.setAttribute('aria-hidden', 'true');
-    card.append(copy, check);
-    card.addEventListener('click', () => {
-      selectedWeaponKey = key;
-      Array.from(weaponOptionsEl.children).forEach((c) => {
-        c.classList.remove('selected');
-        c.setAttribute('aria-pressed', 'false');
-      });
-      card.classList.add('selected');
-      card.setAttribute('aria-pressed', 'true');
-      updateLoadoutSummary();
-      savePrimaryLoadout(selectedWeaponKey);
-      if (currentLobby) emitLobbyAction('lobby:loadout', { weapon: selectedWeaponKey });
-    });
-    weaponOptionsEl.appendChild(card);
+async function loadoutRequest(path, body) {
+  if (!currentUser) throw new Error('Sign in to change equipment.');
+  const username = currentUser.username;
+  const response = await fetch(path, {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   });
-  updateLoadoutSummary();
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || 'Could not save equipment. Try again.');
+  if (currentUser?.username !== username) throw new Error('Your account changed. Please try again.');
+  return data;
 }
 
-function openLoadoutDrawer() {
-  if (!loadoutDrawerLayer) return;
-  loadoutDrawerLayer.classList.remove('hidden');
-  document.body.classList.add('loadout-open');
-  const selected = weaponOptionsEl?.querySelector('.weapon-card.selected');
-  requestAnimationFrame(() => (selected || closeLoadoutBtn)?.focus());
-}
-
-function closeLoadoutDrawer() {
-  if (!loadoutDrawerLayer) return;
-  loadoutDrawerLayer.classList.add('hidden');
-  document.body.classList.remove('loadout-open');
-  changeLoadoutBtn?.focus();
-}
-
-async function savePrimaryLoadout(primaryWeapon) {
-  if (!currentUser) return;
-  if (!currentUser.loadout) currentUser.loadout = {};
-  currentUser.loadout.primaryWeapon = primaryWeapon;
-  try {
-    const res = await fetch('/api/loadout', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ primaryWeapon }),
+async function equipLoadoutItem(item) {
+  if (item.kind === 'weapon') {
+    // Save the weapon and finish together, so a failed request cannot leave
+    // the character displaying a combination the account didn't equip.
+    const data = await loadoutRequest('/api/loadout', {
+      skinKey: item.key,
+      ...(item.slot === 'primary' ? { primaryWeapon: item.weaponKey } : {}),
     });
-    if (!res.ok) throw new Error('Loadout save rejected');
-  } catch (error) {
-    console.error('Failed to save loadout:', error);
-    setLobbyStatus('Loadout selected locally; account sync failed.', true);
+    currentUser.skins = data.user.skins;
+    if (item.slot === 'primary') {
+      selectedWeaponKey = data.user.loadout.primaryWeapon;
+      currentUser.loadout = { ...currentUser.loadout, primaryWeapon: selectedWeaponKey };
+      if (currentLobby) emitLobbyAction('lobby:loadout', { weapon: selectedWeaponKey });
+    }
+  } else {
+    const data = await loadoutRequest('/api/armor/equip', { slot: item.slot, itemId: item.kind === 'none' ? null : item.id });
+    currentUser.armor = data.armor;
   }
+  updateLoadoutSummary(false);
+}
+
+async function purchaseLoadoutItem(item) {
+  const data = await loadoutRequest(item.kind === 'weapon' ? '/api/shop/purchase' : '/api/armor/purchase',
+    item.kind === 'weapon' ? { skinKey: item.key } : { itemKey: item.key });
+  if (data.user) currentUser.skins = data.user.skins;
+  if (data.armor) currentUser.armor = data.armor;
+  const currencies = data.currencies || data.user?.currencies;
+  if (currencies) setCoinsValue(currencies.Coins);
+  updateLoadoutSummary(false);
 }
 
 function equippedSkinName(weaponKey) {
@@ -671,13 +631,9 @@ function renderCareerStats() {
   }
 }
 
-function updateLoadoutSummary() {
+function updateLoadoutSummary(renderEquipment = true) {
   const weapon = WEAPONS?.[selectedWeaponKey];
   if (!weapon) return;
-  if (selectedWeaponNameEl) selectedWeaponNameEl.textContent = weapon.name;
-  if (selectedWeaponDescriptionEl) selectedWeaponDescriptionEl.textContent = weapon.description || '';
-  if (selectedSkinNameEl) selectedSkinNameEl.textContent = equippedSkinName(selectedWeaponKey);
-  if (secondarySkinNameEl) secondarySkinNameEl.textContent = equippedSkinName('pistol');
   if (loadoutPreviewCanvas) {
     const skinKey = equippedSkinKey(selectedWeaponKey);
     const secondarySkinKey = equippedSkinKey('pistol');
@@ -685,13 +641,16 @@ function updateLoadoutSummary() {
     loadoutPreviewCanvas.dataset.skinKey = skinKey;
     loadoutPreviewCanvas.dataset.secondarySkinKey = secondarySkinKey;
     const playerColor = currentUser?.loadout?.playerColor || '#59daca';
+    const armorAppearance=loadoutUI.appearance();
+    loadoutPreviewCanvas.dataset.armor=JSON.stringify(armorAppearance);
     loadoutPreviewCanvas.dataset.playerColor = playerColor;
     loadoutPreviewCanvas.setAttribute('aria-label', `Operator holding ${weapon.name} with ${equippedSkinName(selectedWeaponKey)} skin and Pistol with ${equippedSkinName('pistol')} skin`);
     loadoutPreviewCanvas.dispatchEvent(new CustomEvent('loadout-preview:update', {
-      detail: { weaponKey: selectedWeaponKey, skinKey, secondarySkinKey, playerColor },
+      detail: { weaponKey: selectedWeaponKey, skinKey, secondarySkinKey, playerColor, armorAppearance },
     }));
   }
   renderCareerStats();
+  if (renderEquipment) loadoutUI.render();
 }
 
 // --- Shop UI ---
@@ -1044,7 +1003,9 @@ async function purchaseSkin(skinKey) {
       currentUser = {
         ...(currentUser || {}),
         currencies: data.user.currencies,
+        skins: data.user.skins || currentUser?.skins,
       };
+      updateLoadoutSummary();
       setCoinsValue(data.user.currencies.Coins);
     }
     // Refresh shop state

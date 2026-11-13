@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import buffs from '../game/pveBuffs.js';
 import server from '../game/gameServer.js';
 
-test('room buffs roll at about five percent with all four choices represented',()=>{
+test('room buffs roll at about ten percent with all four choices represented',()=>{
   const counts=new Map();
   for(let seed=0;seed<100000;seed++) {
     const value=buffs.rollPveBuff(seed,7);
@@ -12,8 +12,8 @@ test('room buffs roll at about five percent with all four choices represented',(
     assert.equal(buffs.rollPveBuff(seed,7),value,'same room keeps its buff on retry');
   }
   const buffed=100000-(counts.get(null)||0);
-  assert.ok(buffed>4700&&buffed<5300,`expected approximately five percent, got ${buffed}`);
-  for(const kind of buffs.BUFFS)assert.ok((counts.get(kind)||0)>1000,`${kind} can appear`);
+  assert.ok(buffed>9700&&buffed<10300,`expected approximately ten percent, got ${buffed}`);
+  for(const kind of buffs.BUFFS)assert.ok((counts.get(kind)||0)>2000,`${kind} can appear`);
 });
 
 test('rapid fire halves cooldown and leaves ordinary cooldowns alone',()=>{
@@ -60,6 +60,7 @@ test('rapid fire and infinite grenades affect authoritative PvE actions',t=>{
 test('automatic pistol is available only during its PvE room buff',t=>{
   const {game,handlers,player}=runningFloor(t);
   try {
+    game.floorState.buff=null;
     player.weapon='pistol';
     handlers.automaticFireStart({angle:0,pitch:0});
     assert.equal(player.automaticFire,undefined);
