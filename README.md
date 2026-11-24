@@ -61,7 +61,7 @@ earlier whole-set purchases remain owned.
 | Design | Coins per piece | Finish | Stats per piece |
 | --- | --- | --- | --- |
 | Bastion | 4,000 | Porcelain and copper | Fixed +10 HP, +0.125 HP/s regeneration |
-| Lifeline | 3,000 | Jade and ivory | Fixed +3 HP, +0.625 HP/s regeneration |
+| Lifeline | 3,000 | Jade and ivory | Fixed +3 HP, +1 HP/s regeneration |
 | Vector | 3,750 | Satin cobalt alloy, cyan inserts, ice-blue visor | Fixed +5% movement, +2% firing rate |
 | Slipstream (exotic boots only) | 20,000 | Ceramic thrusters | +1.5–2.5% movement, +5–8% grenade charge speed, air dash |
 | Quartermaster (exotic helmet only) | 30,000 | Satin silver shell, charcoal hardware, muted amber accents and side canisters | Full grenade refill every 30 seconds in PvE |
@@ -69,12 +69,12 @@ earlier whole-set purchases remain owned.
 Bastion has fixed stats, including previously purchased pieces: the full set gives
 141 maximum health and 5.5 HP/s regeneration before room buffs. Lifeline is also
 fixed, including previously purchased pieces: its full set gives 113 maximum
-health and 7.5 HP/s regeneration. Vector gives fixed +5% movement and +2% firing
+health and 9 HP/s regeneration. Vector gives fixed +5% movement and +2% firing
 rate per piece (+20% movement and +8% firing rate for the full set), including
 older purchases. Its previous grenade-charge bonus is removed. The firing bonus
 shortens weapon cooldowns and shotgun reloads, and multiplies with rapid-fire rooms.
 Slipstream's stats roll once within their displayed ranges. Combined bonuses cap
-at +40 HP, +2.5 HP/s regeneration, +20% movement, +8% firing rate, and +30% grenade charge
+at +40 HP, +4 HP/s regeneration, +20% movement, +8% firing rate, and +30% grenade charge
 speed. Room double-health buffs double the armor-adjusted maximum; regeneration
 does not double. Armor does not change damage or hitboxes.
 
@@ -278,6 +278,8 @@ them in existing snapshots. Guns still have unlimited reserve ammunition.
 
 The shotgun is a selectable semi-automatic pump gun with a free Field Pump skin and a
 polished, minimal Silverline skin available in the shop.
+Each pellet deals 12 damage through 6 metres, then loses one damage every 1.25
+metres, reaching its 1-damage minimum at 19.75 metres.
 
 Grenades: tap Q for a short toss, or hold up to 1.2 seconds and release for a
 longer throw. The server simulates wall/ground bounces and a three-second fuse

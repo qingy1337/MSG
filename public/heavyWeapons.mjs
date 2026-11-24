@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {CLOUDBREAK, CLOUD_MUZZLE_DEPTH, CLOUD_MUZZLE_HEIGHT} from './cloudbreak.mjs';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 export const KINTSUGI_GLOW_DURATION = 1;
@@ -9,6 +10,7 @@ export function heavyWeaponViewYOffset(skinKey) {
 }
 
 export function heavyWeaponMuzzleYOffset(skinKey) {
+  if (skinKey === CLOUDBREAK) return CLOUD_MUZZLE_HEIGHT;
   if (skinKey === 'miniGun_crimson_guard') return 0.025;
   if (skinKey === 'sniper_calibrated') return 0.022;
   if (skinKey === 'sniper_kintsugi') return 0.01;
@@ -24,6 +26,7 @@ export function heavyWeaponViewZ(skinKey) {
 }
 
 export function heavyWeaponMuzzleDepth(skinKey) {
+  if (skinKey === CLOUDBREAK) return CLOUD_MUZZLE_DEPTH;
   if (skinKey === 'miniGun_midas') return 1.234;
   if (skinKey === 'miniGun_crimson_guard') return 1.17;
   if (skinKey === 'miniGun_default') return 1.15;

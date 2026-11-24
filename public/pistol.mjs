@@ -1,11 +1,13 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import {CLOUDBREAK, createCloudbreak} from './cloudbreak.mjs';
 import {attachKintsugiFlow} from './heavyWeapons.mjs';
 
 export const PISTOL_MODEL_SCALE = 0.85;
 
 // Compact details shared by the held pistol and other players' weapons.
 export function createPistol(skinKey, length) {
+  if (skinKey === CLOUDBREAK) return createCloudbreak(length * PISTOL_MODEL_SCALE);
   const group = new THREE.Group(); group.scale.setScalar(length * PISTOL_MODEL_SCALE);
   const blue = skinKey === 'pistol_basicBlue';
   const cyber = skinKey === 'pistol_cybernetic';

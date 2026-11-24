@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
+import {findCloudbreakParts,poseCloudbreak} from './cloudbreak.mjs';
 import {poseHeavyWeaponSkin} from './heavyWeapons.mjs';
 import {createLoadoutCharacter,disposeLoadoutModel,frameLoadoutCharacter} from './loadoutModels.mjs';
 
@@ -53,6 +54,7 @@ if (canvas) {
     let renderedArmor = '';
     let modelRequest = 0;
     let lastFrame = 0;
+    let cloudbreak = null;
 
     function fitCamera() {
       if (!model) return;
@@ -95,6 +97,7 @@ if (canvas) {
         disposeLoadoutModel(model);
       }
       model = nextModel;
+      cloudbreak = findCloudbreakParts(model.userData.pistol);
       model.updateMatrixWorld(true);
       // Anchor on the body, so changing gun length cannot shift the whole
       // character sideways or move the feet between equipment selections.
@@ -155,6 +158,7 @@ if (canvas) {
       turntable.rotation.y += (rotationTargetY - turntable.rotation.y) * 0.16;
       turntable.rotation.x += (rotationTargetX - turntable.rotation.x) * 0.16;
       if(model) {
+        if (cloudbreak) poseCloudbreak(cloudbreak,time/1000);
         poseHeavyWeaponSkin(model.userData.primary,time/1000);
         poseHeavyWeaponSkin(model.userData.pistol,time/1000);
       }

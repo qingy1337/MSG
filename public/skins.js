@@ -199,6 +199,23 @@ const WEAPON_SKINS = {
         {type:"circle",cx:0.94,cy:0,radius:0.075,color:"#e3ad42",outlineColor:"#18191c"},
       ],
     },
+    {
+      key: "pistol_cloudbreak",
+      weaponKey: "pistol",
+      name: "Cloudbreak",
+      description: "A captive storm turns under sapphire glass. Forked lightning follows each shot.",
+      price: 15000,
+      isDefault: false,
+      bulletColor: "#addfff",
+      shapes: [
+        {type:'polygon',points:[{x:.04,y:-.04},{x:.12,y:-.087},{x:.84,y:-.087},{x:.95,y:-.056},{x:.95,y:.067},{x:.54,y:.089},{x:.1,y:.081},{x:.04,y:.046}],fill:'#245799'},
+        {type:'polygon',points:[{x:.10,y:-.043},{x:.18,y:-.068},{x:.42,y:-.063},{x:.74,y:-.022},{x:.45,y:-.028},{x:.22,y:-.033}],fill:'#183e65',color:'#829fc9'},
+        {type:'circle',cx:.50,cy:-.023,radius:.032,color:'#e9b979'},
+        {type:'polygon',points:[{x:.37,y:-.042},{x:.45,y:-.060},{x:.51,y:-.057},{x:.58,y:-.047},{x:.63,y:-.050},{x:.58,y:-.040},{x:.47,y:-.050}],fill:'#829fc9'},
+        {type:'polygon',points:[{x:.08,y:.056},{x:.17,y:.028},{x:.20,y:-.006},{x:.24,y:.002},{x:.26,y:-.035},{x:.30,y:-.052},{x:.34,y:-.040},{x:.35,y:-.012},{x:.32,y:-.02},{x:.33,y:.003},{x:.37,y:.004},{x:.43,y:-.018},{x:.47,y:-.014},{x:.51,y:.005},{x:.57,y:-.002},{x:.60,y:.018},{x:.70,y:.013},{x:.86,y:-.026},{x:.65,y:.040},{x:.50,y:.064},{x:.27,y:.068}],fill:'#e1f1f6'},
+        {type:'polygon',points:[{x:.12,y:.062},{x:.31,y:.047},{x:.38,y:.026},{x:.42,y:.031},{x:.40,y:.045},{x:.45,y:.041},{x:.51,y:.018},{x:.55,y:.029},{x:.63,y:.034},{x:.84,y:-.002},{x:.65,y:.052},{x:.44,y:.067}],fill:'#829fc9'},
+      ],
+    },
   ],
   autoRifle: [
     {

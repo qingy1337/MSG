@@ -74,7 +74,7 @@ piece, Lifeline 3,000, and Vector 3,750. There is no free starter set or floor d
 Slipstream boots cost 20,000 Coins. Previously purchased pieces remain owned.
 Bastion has fixed bonuses totaling 141 max health and 5.5 HP/sec regeneration
 for the full set. Lifeline also has fixed bonuses, totaling 113 max health and
-7.5 HP/sec regeneration. Vector gives fixed +5% movement and +2% firing rate per
+9 HP/sec regeneration. Vector gives fixed +5% movement and +2% firing rate per
 piece; Slipstream rolls stats once on purchase. Strike-specific armor loot remains a
 future possibility. Loadouts stay fixed throughout each run, and one exotic
 can be equipped at a time.

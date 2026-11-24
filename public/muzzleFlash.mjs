@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import {CLOUDBREAK} from './cloudbreak.mjs';
+import {CloudbreakFlash} from './cloudbreakFlash.mjs';
 
 export function muzzleFlashScaleForWeapon(weapon) {
   if(weapon==='shotgun')return 1.65;
@@ -7,7 +9,8 @@ export function muzzleFlashScaleForWeapon(weapon) {
 }
 
 // Reused per gun: no per-round allocation, even at minigun fire rates.
-export function createMuzzleFlash(size) {
+export function createMuzzleFlash(size, skinKey) {
+  if (skinKey === CLOUDBREAK) return new CloudbreakFlash(size);
   const flash = new THREE.Group(); flash.visible = false;
   Object.assign(flash.userData, { time: 0, duration: 0.075, size });
   const material = new THREE.MeshBasicMaterial({ color: '#ffb348', transparent: true,
@@ -25,6 +28,7 @@ export function createMuzzleFlash(size) {
 
 export function triggerMuzzleFlash(flash, random = Math.random, color = null) {
   if (!flash) return;
+  if (flash instanceof CloudbreakFlash) return flash.ignite(random);
   const size = flash.userData.size;
   flash.userData.duration = 0.06 + random() * 0.03;
   flash.userData.time = flash.userData.duration; flash.visible = true;
@@ -51,6 +55,7 @@ export function triggerMuzzleFlash(flash, random = Math.random, color = null) {
 }
 
 export function updateMuzzleFlash(flash, dt) {
+  if (flash instanceof CloudbreakFlash) return flash.advance(dt);
   if(!flash.visible&&flash.userData.time<=0)return;
   flash.userData.time = Math.max(0, flash.userData.time - dt);
   flash.visible = flash.userData.time > 0;

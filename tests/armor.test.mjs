@@ -109,7 +109,7 @@ test('equipping requires an owned item in the right slot and stats are capped',(
   const recovery=armor.SLOTS.map(slot=>items.makeItem(`lifeline_${slot}`,{random:()=>1}));
   user.armor.items.push(...recovery);
   for(const item of recovery)items.equipArmor(user,armor.CATALOG[item.key].slot,item.id);
-  assert.equal(items.publicArmor(user).stats.regen,2.5,'full Lifeline reaches the regeneration cap');
+  assert.equal(items.publicArmor(user).stats.regen,4,'full Lifeline reaches the regeneration cap');
   assert.equal(armor.statsForItems([...recovery,...recovery]).health,12,'a slot cannot stack twice');
   const stats=items.publicArmor(user).stats;
   assert.deepEqual(armor.effects({...stats,speed:1000,airDash:true},'pvp'),{health:0,regen:0,speed:0,charge:0,fireRate:0,airDash:false});
@@ -281,7 +281,7 @@ test('Quartermaster appearance and countdown do not grant refills in PvP',t=>{
 });
 
 test('Bastion and Lifeline supply their fixed health and regeneration only in PvE',t=>{
-  for(const [set,health,regeneration] of [['bastion',141,5.5],['lifeline',113,7.5]])for(const pve of [true,false]) {
+  for(const [set,health,regeneration] of [['bastion',141,5.5],['lifeline',113,9]])for(const pve of [true,false]) {
     const f=match(t,{pve,set}),p=f.humans[0];
     assert.equal(p.maxHealth,pve?health*(f.game.floorState.buff==='doubleHealth'?2:1):101);
     p.health=90;f.advance(1000);f.game.runBotsTick();

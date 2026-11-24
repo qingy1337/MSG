@@ -8,7 +8,7 @@
   const SLOT_NAMES=Object.freeze({helmet:'Helmet',chest:'Chest',gauntlets:'Gauntlets',boots:'Boots'});
   const STATS=Object.freeze({
     health:{name:'Health',unit:' HP',cap:40},
-    regen:{name:'Regeneration',unit:' HP/s',cap:2.5},
+    regen:{name:'Regeneration',unit:' HP/s',cap:4},
     speed:{name:'Movement',unit:'%',cap:20},
     fireRate:{name:'Firing rate',unit:'%',cap:8},
     charge:{name:'Grenade charge',unit:'%',cap:30},
@@ -17,7 +17,7 @@
     bastion:{name:'Bastion',role:'Protection',pricePerPiece:4000,color:'#d8d7ca',accent:'#b15d36',dark:'#38464b',
       description:'Porcelain plates, copper fasteners, and a reinforced silhouette.',ranges:{health:[10,10],regen:[.125,.125]}},
     lifeline:{name:'Lifeline',role:'Recovery',pricePerPiece:3000,color:'#367c6c',accent:'#e4eee5',dark:'#203e3b',
-      description:'Jade field armor with ivory inserts and compact recovery packs.',ranges:{health:[3,3],regen:[.625,.625]}},
+      description:'Jade field armor with ivory inserts and compact recovery packs.',ranges:{health:[3,3],regen:[1,1]}},
     vector:{name:'Vector',role:'Mobility',pricePerPiece:3750,color:'#426796',accent:'#79d5df',dark:'#1d293e',visor:'#c4efff',
       metalness:.7,roughness:.3,trimMetalness:.2,trimRoughness:.34,darkMetalness:.75,darkRoughness:.4,
       description:'Satin cobalt alloy with clean beveled plates revealing a cyan inner layer.',ranges:{speed:[5,5],fireRate:[2,2]}},

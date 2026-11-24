@@ -3,6 +3,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createMarioPipe } from './marioPipe.mjs';
 import { createAutoRifle, poseAutoRifleSkin, triggerAutoRifleSkin } from './autoRifle.mjs';
+import {CLOUDBREAK, findCloudbreakParts, poseCloudbreak} from './cloudbreak.mjs';
 import { createPistol, PISTOL_MODEL_SCALE } from './pistol.mjs';
 import {createShotgun,poseShotgun,triggerShotgunChamber,shotgunMuzzleStyle,shotgunPelletColor} from './shotgun.mjs';
 import {poseGrenadeFuse} from './grenadeFuse.mjs';
@@ -1086,7 +1087,7 @@ export class Arena3D {
     }
     if(dread)mergeRigidMeshes(weapon);
     else if(player.weapon!=='shotgun')for(const child of [...weapon.children])if(child.isGroup)mergeRigidMeshes(child);
-    this.box(weapon, 0.13, 0.23, 0.16, 0.27, 1.18, -0.57, undersuit, 0.02);
+    if (skin?.key !== CLOUDBREAK) this.box(weapon, 0.13, 0.23, 0.16, 0.27, 1.18, -0.57, undersuit, 0.02);
     if (player.weapon === 'sniper' && !marioPipe && !['sniper_calibrated','sniper_flatpack','sniper_kintsugi'].includes(skin?.key)) this.box(weapon, 0.16, 0.15, 0.35, 0.27, 1.52, -0.85, visor, 0.05);
     mergeRigidMeshes(weapon);
     if (player.id === localId) {
@@ -1139,8 +1140,9 @@ export class Arena3D {
       weaponSkinKey:skin?.key,muzzleBaseX:0.27,muzzleBarrelOffset:length*0.062,
       health: player.health ?? player.maxHealth ?? 101, damageFlash: 0, flashMaterials: this.captureFlashMaterials(group),
       spawnArrival,spawnMaterials,spawnRevealAt:player.spawnRevealAt,spawnRestored:false,spawnShieldOutline };
-    record.muzzleFlash = createMuzzleFlash(0.1*muzzleFlashScaleForWeapon(player.weapon));
-    record.muzzleFlash.position.set(0.27, 1.34 + length * heavyWeaponMuzzleYOffset(skin?.key),
+    if (skin?.key === CLOUDBREAK) record.cloudbreak = findCloudbreakParts(weapon);
+    record.muzzleFlash = createMuzzleFlash(0.1*muzzleFlashScaleForWeapon(player.weapon), skin?.key);
+    record.muzzleFlash.position.set(0.27, 1.34 + muzzleLength * heavyWeaponMuzzleYOffset(skin?.key),
       -0.45 - muzzleLength * heavyWeaponMuzzleDepth(skin?.key));
     if(dread)record.muzzleFlash.position.set(.27,1.37,-1.72);
     if (player.weapon === 'miniGun'&&!['miniGun_midas','miniGun_crimson_guard'].includes(skin?.key)) record.muzzleFlash.position.x += length * 0.125;
@@ -1199,7 +1201,7 @@ export class Arena3D {
       this.box(this.viewWeapon, 0.12, 0.14, length, 0.23, -0.2, -0.32 - length / 2, metal, 0.025);
     }
     if(player.weapon!=='shotgun')for(const child of [...this.viewWeapon.children])if(child.isGroup)mergeRigidMeshes(child);
-    this.box(this.viewWeapon, 0.09, 0.22, 0.13, 0.23, -0.31, -0.43, grip, 0.025);
+    if (skin?.key !== CLOUDBREAK) this.box(this.viewWeapon, 0.09, 0.22, 0.13, 0.23, -0.31, -0.43, grip, 0.025);
     this.box(this.viewWeapon, 0.12, 0.14, 0.17, 0.23, -0.31, -0.37, glove, 0.035);
     this.box(this.viewWeapon, 0.14, 0.15, 0.38, 0.23, -0.36, -0.15, grip, 0.045);
     if (player.weapon !== 'pistol') {
@@ -1208,10 +1210,11 @@ export class Arena3D {
     }
     if (player.weapon === 'sniper' && !marioPipe && !['sniper_calibrated','sniper_flatpack','sniper_kintsugi'].includes(skin?.key)) this.box(this.viewWeapon, 0.08, 0.08, 0.28, 0.23, -0.09, -0.61, grip, 0.025);
     mergeRigidMeshes(this.viewWeapon);
+    this.viewCloudbreak = skin?.key === CLOUDBREAK ? findCloudbreakParts(this.viewWeapon) : null;
     this.viewFlashMaterials = this.captureFlashMaterials(this.viewWeapon);
-    this.viewMuzzleFlash = createMuzzleFlash(0.045*muzzleFlashScaleForWeapon(player.weapon));
+    this.viewMuzzleFlash = createMuzzleFlash(0.045*muzzleFlashScaleForWeapon(player.weapon), skin?.key);
     this.viewMuzzleFlash.position.set(0.23,
-      -0.2 + heavyWeaponViewYOffset(skin?.key) + length * heavyWeaponMuzzleYOffset(skin?.key),
+      -0.2 + heavyWeaponViewYOffset(skin?.key) + muzzleLength * heavyWeaponMuzzleYOffset(skin?.key),
       -0.32 - muzzleLength * heavyWeaponMuzzleDepth(skin?.key));
     if (player.weapon === 'miniGun'&&!['miniGun_midas','miniGun_crimson_guard'].includes(skin?.key)) this.viewMuzzleFlash.position.x += length * 0.125;
     this.viewMuzzleState={weaponSkinKey:skin?.key,muzzleBaseX:this.viewMuzzleFlash.position.x,
@@ -1633,6 +1636,7 @@ export class Arena3D {
       const materializing=poseStrikeSpawnArrival(c,performance.now());
       updateMuzzleFlash(c.muzzleFlash, dt);
       if(player.weapon==='shotgun')poseShotgun(c.weapon,this.renderTime-(c.shotAt??-10),this.renderTime);
+      if (c.cloudbreak) poseCloudbreak(c.cloudbreak, this.renderTime, this.renderTime - (c.shotAt ?? -10));
       poseHeavyWeaponSkin(c.weapon,this.renderTime);
       if(c.weaponSkinKey==='autoRifle_thunderbird')poseAutoRifleSkin(c.weapon,this.renderTime);
       if(c.weaponSkinKey==='miniGun_crimson_guard')poseMinigunRotor(c.weapon,dt,
@@ -1762,6 +1766,7 @@ export class Arena3D {
       this.viewDamageFlash=viewFlash;
       // Damage flashing restores every captured material to its base emissive
       // value, so animated skin lighting must be applied after that reset.
+      if (this.viewCloudbreak) poseCloudbreak(this.viewCloudbreak, this.renderTime, this.renderTime - (this.viewShotAt ?? -10));
       poseHeavyWeaponSkin(this.viewWeapon,this.renderTime);
       if(this.viewMuzzleState?.weaponSkinKey==='autoRifle_thunderbird')poseAutoRifleSkin(this.viewWeapon,this.renderTime);
       if(this.viewWeaponKey==='miniGun:miniGun_crimson_guard')poseMinigunRotor(this.viewWeapon,dt,

@@ -23,8 +23,10 @@ test('shotgun reticle ring projects the authoritative pellet cone at the camera 
 test('shotgun pellets spread, respect walls and friendly filtering, and lose damage at range',()=>{
   assert.equal(shotgun.shotgunPelletDamageAtDistance(100),12);
   assert.equal(shotgun.shotgunPelletDamageAtDistance(120),12);
-  assert.equal(shotgun.shotgunPelletDamageAtDistance(185),10.375);
-  assert.equal(shotgun.shotgunPelletDamageAtDistance(230),9.25);
+  assert.equal(shotgun.shotgunPelletDamageAtDistance(185),9.4);
+  assert.equal(shotgun.shotgunPelletDamageAtDistance(230),7.6);
+  assert.equal(shotgun.shotgunPelletDamageAtDistance(300),4.8);
+  assert.equal(shotgun.shotgunPelletDamageAtDistance(395),1);
   assert.equal(shotgun.shotgunPelletDamageAtDistance(560),1);
   const fire=(players,walls=[],allow=()=>true)=>shotgun.traceShotgun(shooter,0,0,walls,players,allow,map,()=>0);
   const close=fire([target]);assert.equal(close.pellets.length,8);assert.equal(close.damage.get('t'),96);

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { createAutoRifle } from './autoRifle.mjs';
+import {CLOUDBREAK} from './cloudbreak.mjs';
 import { createPistol } from './pistol.mjs';
 import { createShotgun } from './shotgun.mjs';
 import { createHeavyWeapon } from './heavyWeapons.mjs';
@@ -187,7 +188,7 @@ export function createLoadoutCharacter(weaponKey, skinKey, secondarySkinKey, pla
   // gameplay model's 0.6 base size (including its global 0.85 treatment).
   pistol.scale.multiplyScalar(2 / 3);
   pistolMount.add(pistol);
-  box(0.13, 0.23, 0.16, 0, -0.16, -0.12, undersuit, 'pistol-grip', 0.035, pistolMount);
+  if (secondarySkinKey !== CLOUDBREAK) box(0.13, 0.23, 0.16, 0, -0.16, -0.12, undersuit, 'pistol-grip', 0.035, pistolMount);
 
   const shadow = add(new THREE.CircleGeometry(0.68, 40), new THREE.MeshBasicMaterial({
     color: '#49625e', transparent: true, opacity: 0.14, depthWrite: false,
