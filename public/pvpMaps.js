@@ -12,7 +12,7 @@
   ];
   const wall=(x,y,width,height,top=3.1)=>({x,y,width,height,top});
   const terrain=(kind,x,y,width,height,top,extra={})=>({kind,x,y,width,height,top,...extra});
-  const candyPair=solid=>[solid,{...solid,x:1600-solid.x-solid.width,
+  const candyPair=solid=>[solid,{...solid,x:1080-solid.x-solid.width,
     ...(solid.kind==='candyConveyor'&&solid.width>=solid.height?
       {direction:-(solid.direction||1)}:{})}];
   // Tower is mirrored across its turbine axis, including stair direction.
@@ -26,7 +26,8 @@
     }
     return inside;
   };
-  const insideFootprint=(map,x,y)=>!map.floorPolygon||pointInPolygon(map.floorPolygon,x,y);
+  const insideFootprint=(map,x,y)=>(!map.floorPolygon||pointInPolygon(map.floorPolygon,x,y))&&
+    (!map.floorHasGaps||map.floorRects.some(r=>x>=r.x&&x<=r.x+r.width&&y>=r.y&&y<=r.y+r.height));
   const airportScanner=(x,y)=>[
     terrain('airportScanner',x,y,125,58,2.4,{nonSolid:true}),
     terrain('airportScannerCollider',x+7,y+8,11,42,2.4,{collisionOnly:true,scannerPart:'arch-left'}),
@@ -35,118 +36,100 @@
     terrain('airportScannerCollider',x+76,y+11,48,36,.68,{collisionOnly:true,scannerPart:'belt'}),
   ];
 
+  const dockPair=s=>[s,{...s,x:960-s.x-s.width,...(s.livery?{livery:'starboard'}:{})}];
+
+  // A continuous hull around horizontal floor sections. At a change in
+  // width the return sits on the wider floor, with no overlapping corners.
+  function steppedHull(rows,top) {
+    const floorRects=[],perimeter=[],left=[],right=[];
+    const edge=(x,y,w,d)=>perimeter.push(terrain('boundary',x,y,w,d,top));
+    for(const [i,[x,end,y,far]] of rows.entries()) {
+      const first=i===0,last=i===rows.length-1;
+      floorRects.push({x,y,width:end-x,height:far-y});
+      left.push({x,y},{x,y:far});right.push({x:end,y},{x:end,y:far});
+      if(first)edge(x,y,end-x,EDGE);
+      if(last)edge(x,far-EDGE,end-x,EDGE);
+      const from=first?y+EDGE:y,to=last?far-EDGE:far;
+      edge(x,from,EDGE,to-from);edge(end-EDGE,from,EDGE,to-from);
+      if(first)continue;
+      const [prevX,prevEnd]=rows[i-1];
+      if(x!==prevX)edge(Math.min(x,prevX)+EDGE,x<prevX?y:y-EDGE,Math.abs(x-prevX)-EDGE,EDGE);
+      if(end!==prevEnd)edge(Math.min(end,prevEnd),end>prevEnd?y:y-EDGE,Math.abs(end-prevEnd)-EDGE,EDGE);
+    }
+    return {floorRects,floorPolygon:[...left,...right.reverse()],perimeter};
+  }
+
+  // Both charging bays have the same distances to the forehearth and stairs.
+  const foundryWidth=1176;
+  const foundryPair=s=>[s,{...s,x:foundryWidth-s.x-s.width,y:860-s.y-s.height,
+    ...(s.axis?{reverse:!s.reverse}:{}),...(s.direction?{direction:-s.direction}:{}),...(s.hoodEnd?{hoodEnd:'east'}:{})}];
+  const pouringDeck=(x,y,w,d)=>terrain('catwalk',x,y,w,d,5.8,
+    {bottom:5.44,walkable:true,style:'foundry',pouringDeck:true});
+  const foundryGuard=(x,y,w,d)=>terrain('rail',x,y,w,d,6.82,{bottom:5.8,style:'foundry'});
   const definitions={
     foundry:{
-      id:'foundry',name:'Foundry',description:'A two-storey casting plant with service corridors around a central furnace bay.',
-      width:2200,height:1600,ceiling:18,scale:.72,style:'foundry',accent:'#d58b4c',
-      palette:{sky:'#c8d7c9',wall:'#84998d',panel:'#b9c9b7',cap:'#e1d8ba',glow:'#f2b470',
-        floorLow:'#788d81',floorHigh:'#a8b9a5',reflection:'#a0b4a5',reflectionGlow:'#edba78',
-        ambient:'#fff0d5',ground:'#b7c9b5',sun:'#fff0d0',rim:'#f2bd7c',
-        ambientIntensity:3.35,sunIntensity:3.45,rimIntensity:1.45},
-      // The service-bay returns grow out of the furnace room rather than
-      // floating in its aisles. Their ends leave generous outside flanks.
-      walls:[
-        wall(630,100,26,212,6.4),wall(1540,100,26,212,6.4),
-        wall(630,1088,26,262,6.4),wall(1540,1088,26,262,6.4),
-        wall(220,1000,26,250,6.4),wall(1954,1000,26,250,6.4),
-        wall(900,1300,400,26,6.4),
-      ],
+      id:'foundry',name:'Foundry',
+      description:'A twin-bridge casting house. Climb the charging galleries or cross the tapping floor beneath the cupola.',
+      width:foundryWidth,height:860,ceiling:14,style:'foundry',accent:'#c49664',
+      palette:{sky:'#d8dfd2',wall:'#77524a',panel:'#b38167',cap:'#d7bd96',glow:'#ffb161',
+        groundStyle:'foundry',floorLow:'#8c8073',floorHigh:'#b6ac97',reflection:'#9a9387',reflectionGlow:'#edb073',
+        ambient:'#fff0d8',ground:'#bdc9bc',sun:'#ffefd3',rim:'#bde4e1',
+        ambientIntensity:3.2,sunIntensity:3.3,rimIntensity:1.55},
+      ...steppedHull([[220,842,58,146],[136,970,146,290],[30,1146,290,570],
+        [206,1040,570,714],[334,956,714,802]],14),
+      walls:[],
       terrain:[
-        // One continuous upper floor, with a real room beneath it. The glass
-        // is framed by opaque lower and upper bands; the full wall footprint
-        // remains solid for movement and shots. Openings are actual gaps.
-        terrain('catwalk',440,320,1320,760,5.8,{bottom:5.55,walkable:true,style:'foundry'}),
-        terrain('foundryEnclosure',440,320,520,24,5.55),
-        terrain('foundryEnclosure',1100,320,660,24,5.55),
-        terrain('foundryEnclosure',440,1056,400,24,5.55),
-        terrain('foundryEnclosure',1000,1056,280,24,5.55),
-        terrain('foundryEnclosure',1440,1056,320,24,5.55),
-        terrain('foundryEnclosure',440,344,24,266,5.55),
-        terrain('foundryEnclosure',440,610,24,140,5.25),
-        terrain('foundryEnclosure',440,750,24,306,5.55),
-        terrain('foundryEnclosure',1736,344,24,306,5.55),
-        terrain('foundryEnclosure',1736,650,24,140,5.25),
-        terrain('foundryEnclosure',1736,790,24,266,5.55),
-        // Inner walls stop below the soffit, leaving a narrow continuous
-        // light slot above the hallways while still blocking ground sightlines.
-        terrain('foundryBulkhead',660,500,310,24,5.05),
-        terrain('foundryBulkhead',1110,500,430,24,5.05),
-        terrain('foundryBulkhead',660,524,24,176,5.05),
-        terrain('foundryBulkhead',660,820,24,80,5.05),
-        terrain('foundryBulkhead',1516,524,24,176,5.05),
-        terrain('foundryBulkhead',1516,820,24,80,5.05),
-        terrain('foundryBulkhead',684,900,116,24,5.05),
-        terrain('foundryBulkhead',980,900,536,24,5.05),
-        terrain('foundryPortal',970,500,140,24,5.05,{bottom:4.5}),
-        terrain('foundryPortal',660,700,24,120,5.05,{bottom:4.5}),
-        terrain('foundryPortal',1516,700,24,120,5.05,{bottom:4.5}),
-        terrain('foundryPortal',800,900,180,24,5.05,{bottom:4.5}),
-        // Longer exterior flights meet the upper floor above the sealed side
-        // walls. Those walls are slightly lower only at the landings so the
-        // player's feet clear them on the final tread.
-        terrain('ramp',80,610,360,140,5.8,{axis:'x',stairs:true,steps:36,style:'foundry'}),
-        terrain('ramp',1760,650,360,140,5.8,{axis:'x',reverse:true,stairs:true,steps:36,style:'foundry'}),
-        terrain('rail',80,602,360,8,1,{axis:'x',rise:5.8,style:'foundry'}),
-        terrain('rail',80,750,360,8,1,{axis:'x',rise:5.8,style:'foundry'}),
-        terrain('rail',1760,642,360,8,1,{axis:'x',rise:5.8,reverse:true,style:'foundry'}),
-        terrain('rail',1760,790,360,8,1,{axis:'x',rise:5.8,reverse:true,style:'foundry'}),
-        terrain('rail',440,312,1320,8,6.8,{bottom:5.8,style:'foundry'}),
-        terrain('rail',440,1080,1320,8,6.8,{bottom:5.8,style:'foundry'}),
-        terrain('rail',432,320,8,290,6.8,{bottom:5.8,style:'foundry'}),
-        terrain('rail',432,750,8,330,6.8,{bottom:5.8,style:'foundry'}),
-        terrain('rail',1760,320,8,330,6.8,{bottom:5.8,style:'foundry'}),
-        terrain('rail',1760,790,8,290,6.8,{bottom:5.8,style:'foundry'}),
-        // An opposed pair of short stairs contests a raised control dais.
-        // Its central turbine and workstations create an actual objective
-        // worth taking rather than an empty overlook.
-        terrain('catwalk',900,600,400,220,7.35,{bottom:7.1,walkable:true,style:'foundry'}),
-        terrain('ramp',990,430,120,170,7.35,{bottom:5.8,axis:'y',stairs:true,steps:12,style:'foundry'}),
-        terrain('ramp',1190,820,120,170,7.35,{bottom:5.8,axis:'y',reverse:true,stairs:true,steps:12,style:'foundry'}),
-        terrain('foundryTurbine',1035,655,130,110,9.35,{bottom:7.35,collisionShape:'circle',collisionRadius:41}),
-        terrain('foundryTurbine',610,675,115,115,8.1,{bottom:5.8,collisionShape:'circle',collisionRadius:43}),
-        terrain('foundryTurbine',1475,590,115,115,8.1,{bottom:5.8,collisionShape:'circle',collisionRadius:43}),
-        terrain('foundryConsole',650,420,105,55,7.1,{bottom:5.8}),
-        terrain('foundryConsole',1445,920,105,55,7.1,{bottom:5.8}),
-        terrain('foundryCastingLine',690,930,230,58,6.95,{bottom:5.8}),
-        terrain('foundryCastingLine',1280,420,230,58,6.95,{bottom:5.8}),
-        // Three slender structural columns support the floor above. They
-        // replace the bulky tanks so the furnaces remain the visual focus.
-        terrain('foundryPillar',780,790,38,38,5.55,{collisionShape:'circle',collisionRadius:19}),
-        terrain('foundryPillar',1380,790,38,38,5.55,{collisionShape:'circle',collisionRadius:19}),
-        terrain('foundryPillar',1080,590,38,38,5.55,{collisionShape:'circle',collisionRadius:19}),
-        terrain('furnace',835,570,140,140,2.65,{style:'foundry',collisionShape:'circle',collisionRadius:52,burnDamage:7}),
-        terrain('furnace',1225,570,140,140,2.65,{style:'foundry',collisionShape:'circle',collisionRadius:52,burnDamage:7}),
-        terrain('foundryPress',1045,690,110,95,3.1),
-        terrain('foundryCastingLine',980,830,340,58,1.25),
-        terrain('foundryLadle',970,550,150,150,5.25,{bottom:3,nonSolid:true}),
-        // Wall lanterns sit on the inside faces, below the glass band.
-        terrain('foundryLantern',600,344,34,14,3.8,{bottom:2.1,nonSolid:true}),
-        terrain('foundryLantern',1460,344,34,14,3.8,{bottom:2.1,nonSolid:true}),
-        terrain('foundryLantern',650,1042,34,14,3.8,{bottom:2.1,nonSolid:true}),
-        terrain('foundryLantern',1530,1042,34,14,3.8,{bottom:2.1,nonSolid:true,localLight:true}),
-        terrain('foundryLantern',760,486,34,14,3.8,{bottom:2.1,nonSolid:true,localLight:true}),
-        terrain('foundryLantern',1400,486,34,14,3.8,{bottom:2.1,nonSolid:true}),
-        terrain('foundryLantern',646,610,14,34,3.8,{bottom:2.1,nonSolid:true,localLight:true}),
-        terrain('foundryLantern',1540,610,14,34,3.8,{bottom:2.1,nonSolid:true,localLight:true}),
-        // Suspended service trunks follow the inspection and dispatch halls.
-        // Their shallow housings sit near the soffit, leaving clean sightlines.
-        terrain('foundryServiceTrunk',700,420,800,32,5.5,{bottom:5.05,nonSolid:true}),
-        terrain('foundryServiceTrunk',710,970,780,32,5.5,{bottom:5.05,nonSolid:true}),
-        terrain('foundryDuct',530,360,450,45,16.5,{bottom:13,nonSolid:true,hoodEnd:'east'}),
-        terrain('foundryDuct',1220,360,450,45,16.5,{bottom:13,nonSolid:true,hoodEnd:'west'}),
-        terrain('crane',700,130,800,35,14.8,{bottom:14.25}),
+        // The galleries turn around a full-height furnace well. Both bridges
+        // carry through traffic; the tapping floor is open underneath them.
+        ...foundryPair(pouringDeck(232,70,251,130)),
+        ...foundryPair(pouringDeck(398,200,85,107)),
+        ...foundryPair(pouringDeck(398,307,380,74)),
+        ...foundryPair(pouringDeck(398,381,85,98)),
+        ...foundryPair(terrain('ramp',268,200,94,252,5.8,
+          {axis:'y',reverse:true,stairs:true,steps:31,style:'foundry'})),
+        ...foundryPair(foundryGuard(232,193,34,7)),
+        ...foundryPair(foundryGuard(476,70,7,237)),
+        ...foundryPair(foundryGuard(483,307,295,7)),
+        ...foundryPair(foundryGuard(483,374,210,7)),
+        ...foundryPair(foundryGuard(476,381,7,98)),
+        // Two solid refractory shoulders give each receiving bay two doors.
+        // The higher tap-house masonry also masks fire into the stair foot.
+        ...foundryPair(terrain('foundryBrickwork',398,309,54,70,5.44)),
+        ...foundryPair(terrain('foundryExtraction',513,259,86,48,8.45)),
+        ...foundryPair(terrain('foundryStack',536,266,40,34,14,{bottom:8.45})),
+        // A short landing links each shed roof to its stair. The aisle below
+        // runs the full length of the shed, including under the landing.
+        ...foundryPair(terrain('catwalk',42,303,178,255,3.2,
+          {bottom:2.85,walkable:true,style:'foundry',pouringDeck:true})),
+        ...foundryPair(terrain('catwalk',220,303,48,40,3.2,
+          {bottom:2.85,walkable:true,style:'foundry',pouringDeck:true})),
+        ...foundryPair(terrain('foundryBrickwork',42,303,70,18,2.85)),
+        ...foundryPair(terrain('foundryBrickwork',202,331,18,65,2.85)),
+        ...foundryPair(terrain('foundryBrickwork',199,501,21,57,2.85)),
+        ...foundryPair(terrain('foundryBrickwork',42,540,68,18,2.85)),
+        ...foundryPair(terrain('rail',42,551,96,7,4.22,{style:'foundry',bottom:3.2})),
+        ...foundryPair(terrain('foundryBrickwork',232,92,115,24,5.44)),
+        ...foundryPair(terrain('foundryBrickwork',400,200,24,72,5.44)),
+        ...foundryPair(terrain('foundryBillets',148,237,81,48,2.15)),
+        // Each side bath feeds its mold carriage underneath an extraction hood.
+        ...foundryPair(terrain('furnace',632,154,108,108,2.65,
+          {style:'foundry',collisionShape:'circle',collisionRadius:42,burnDamage:7})),
+        ...foundryPair(terrain('foundryCastingLine',658,262,56,57,1.38,{direction:1})),
+        ...foundryPair(terrain('foundryDuct',662,190,281,34,14,
+          {bottom:10.5,hoodEnd:'west',nonSolid:true})),
+        // Three stacked circular colliders follow the visible hearth, barrel
+        // and uptake instead of boxing in the open corners around the bridges.
+        terrain('foundryCupola',525,367,126,126,3.1,{collisionShape:'circle',collisionRadius:63}),
+        terrain('foundryCupolaBody',541,383,94,94,10.5,{bottom:3.1,collisionShape:'circle',collisionRadius:47}),
+        terrain('foundryCupolaFlue',556,398,64,64,14,{bottom:10.5,collisionShape:'circle',collisionRadius:32}),
+        ...foundryPair(terrain('foundryRoofTruss',148,204,810,14,14,{bottom:11.8,nonSolid:true})),
+        terrain('foundryRoofTruss',42,423,1092,14,14,{bottom:11.8,nonSolid:true}),
+        ...foundryPair(terrain('foundryLantern',201,489,18,12,2.7,{bottom:1.35,localLight:true,nonSolid:true})),
+        ...foundryPair(terrain('foundryLantern',291,116,26,12,3.8,{bottom:2.15,localLight:true,nonSolid:true})),
       ],
-      variants:[
-        [terrain('foundryConsole',530,865,100,45,7.1,{bottom:5.8})],
-        [terrain('foundryConsole',1550,830,100,45,7.1,{bottom:5.8})],
-        [terrain('foundryConsole',770,525,100,45,7.1,{bottom:5.8})],
-      ],
-      spawns:[
-        [120,130],[1070,145],[2080,130],[115,800],[2085,850],
-        [120,1470],[680,1450],[1100,1450],[1520,1450],[2080,1470],
-        [550,470,5.8],[840,900,5.8],[1360,505,5.8],[1670,900,5.8],
-        [950,700,7.35],[1220,700,7.35],
-      ],
+      variants:[[]],pairedTeamStarts:true,
+      spawns:[[113,416],[153,472],[122,510],[148,364],[318,148,5.8],[439,165,5.8]]
+        .flatMap(([x,y,h=0])=>[[x,y,h],[foundryWidth-x,860-y,h]]),
     },
     courtyard:{
       id:'courtyard',name:'Courtyard',description:'A broad garden court between two raised galleries.',
@@ -216,137 +199,55 @@
     },
     candyFactory:{
       id:'candyFactory',name:'Candy Factory',
-      description:'Twin candy production lines face a broad shared cooking and packing hall.',
-      width:1600,height:1120,ceiling:17.5,scale:1,style:'candy',accent:'#d85146',
+      description:'Receive ingredients, temper a batch, then follow the working packing line to shipping.',
+      width:1080,height:800,ceiling:12,style:'candy',accent:'#d85146',
       palette:{sky:'#e7d4ba',wall:'#a95748',panel:'#ead5b5',cap:'#f3dfc3',glow:'#e75d4b',
         floorLow:'#b8795c',floorHigh:'#e3ae81',reflection:'#ae7656',reflectionGlow:'#df8066',groundStyle:'candy',
         ambient:'#ffe9cf',ground:'#b88467',sun:'#fff1d6',rim:'#79bcb6',
         ambientIntensity:3.55,sunIntensity:3.55,rimIntensity:1.5},
-      // A mirrored pair of production wings opens into one genuinely broad,
-      // double-height hall. The north/south setbacks make a cruciform shell.
-      floorRects:[
-        {x:500,y:100,width:600,height:920},
-        ...candyPair({x:80,y:180,width:420,height:760}),
-      ],
-      floorPolygon:[
-        {x:500,y:100},{x:1100,y:100},{x:1100,y:180},{x:1520,y:180},
-        {x:1520,y:940},{x:1100,y:940},{x:1100,y:1020},{x:500,y:1020},
-        {x:500,y:940},{x:80,y:940},{x:80,y:180},{x:500,y:180},
-      ],
-      perimeter:[
-        {...wall(500,100,600,14,17.5),kind:'boundary'},
-        {...wall(500,1006,600,14,17.5),kind:'boundary'},
-        ...candyPair({...wall(80,180,420,14,17.5),kind:'boundary'}),
-        ...candyPair({...wall(80,926,420,14,17.5),kind:'boundary'}),
-        ...candyPair({...wall(80,194,14,732,17.5),kind:'boundary'}),
-        ...candyPair({...wall(500,114,14,66,17.5),kind:'boundary'}),
-        ...candyPair({...wall(500,940,14,66,17.5),kind:'boundary'}),
-      ],
+      ...steppedHull([[422,658,10,95],[190,890,95,193],[35,1045,193,650],[190,890,650,775]],12),
       walls:[
-        // Each wing has the same two broad production doors. These walls
-        // belong to the rooms; no unattached cover blocks sit in the hall.
-        ...candyPair(wall(500,180,26,140,17.5)),
-        ...candyPair(wall(500,500,26,160,17.5)),
-        ...candyPair(wall(500,840,26,100,17.5)),
-        // The upper inspection opening has a real sill and lintel; the
-        // rest of the partition continues to the roof over each doorway.
-        ...candyPair({...wall(500,320,26,74,6.85),bottom:4.2}),
-        ...candyPair({...wall(500,320,26,74,17.5),bottom:10}),
-        ...candyPair({...wall(500,394,26,106,17.5),bottom:4.2}),
-        ...candyPair({...wall(500,660,26,180,17.5),bottom:4.2}),
+        // Door pairs serve the kettle, drum and belt from both receiving bays.
+        ...[[215,18],[314,58],[484,81],[645,5]].flatMap(([y,d])=>
+          candyPair(wall(235,y,18,d,12))),
+        ...[[233,81],[372,112],[565,80]].flatMap(([y,d])=>
+          candyPair({...wall(235,y,18,d,12),bottom:4.4})),
+        ...candyPair(wall(253,314,205,18,12)),
+        {...wall(458,314,164,18,12),bottom:6.7},
+        ...candyPair(wall(253,525,73,18,12)),
+        ...candyPair({...wall(326,525,106,18,12),bottom:4.4}),
+        wall(432,525,216,18,12),
       ],
       terrain:[
-        // Wall-backed inspection galleries have room to circulate around
-        // the vessels. The cooking hall keeps the full roof height.
-        ...candyPair(terrain('candyGallery',94,194,406,200,5.8,
-          {bottom:5.38,walkable:true,seamless:true})),
-        ...candyPair(terrain('ramp',290,394,120,240,5.8,
-          {axis:'y',reverse:true,stairs:true,steps:20,style:'candy'})),
-        ...candyPair(terrain('rail',94,387,196,7,6.85,{bottom:5.8,style:'candy'})),
-        ...candyPair(terrain('rail',410,387,90,7,6.85,{bottom:5.8,style:'candy'})),
-        ...candyPair(terrain('candyPier',94,370,16,24,5.38)),
-        ...candyPair(terrain('candyPier',484,370,16,24,5.38)),
-        // Ingredient preparation, inspection and control are identical on
-        // both sides so either team has the same raised and ground cover.
-        ...candyPair(terrain('candyIngredientBank',120,245,125,75,4.7)),
-        ...candyPair(terrain('candyVat',160,240,64,64,8.7,
-          {bottom:5.8,collisionShape:'circle',collisionRadius:26})),
-        ...candyPair(terrain('candyControlBooth',305,210,150,65,8.9,{bottom:5.8})),
-        ...candyPair(terrain('candyMouldRack',120,850,90,70,2.7)),
-        ...candyPair(terrain('candyDepositor',220,695,170,70,3.6)),
-        ...candyPair(terrain('candyDockFacade',94,575,6,150,4.7,{nonSolid:true})),
-        // Twin syrup cookers are the north-hall landmarks. Their circular
-        // bodies give cover while leaving routes around and between them.
-        ...candyPair(terrain('candyCooker',610,170,140,140,8.4,
-          {collisionShape:'circle',collisionRadius:58})),
-        ...candyPair(terrain('candyQualityBench',526,540,110,75,2.55)),
-        terrain('candyTemperingDrum',725,440,150,110,4.3,{factoryLine:true,nonSolid:true}),
-        terrain('candyDrumBase',725,440,150,110,.64,{collisionOnly:true}),
-        terrain('candyDrumBody',725,462,150,66,4.3,{bottom:.64,collisionOnly:true}),
-        // Two powered belts cross the lower doors and feed one enclosed
-        // cooler. Players can ride over the belts rather than snag on them.
-        ...candyPair(terrain('candyConveyor',390,705,325,50,1.18,
-          {speed:.50,direction:1,style:'candy'})),
-        terrain('candyCoolingHousing',715,682,170,138,3.3),
-        terrain('candyConveyor',770,820,60,140,1.18,
-          {speed:.44,direction:1,style:'candy'}),
-        terrain('candyWrapper',758,874,84,72,4.1,{nonSolid:true,axis:'y'}),
-        ...candyPair(terrain('candyWrapperPost',759,901,7,18,3.5,{collisionOnly:true})),
-        terrain('candyWrapperHead',758,901,84,18,4.1,{bottom:3.5,collisionOnly:true}),
-        terrain('candyDispatch',730,960,140,40,2.45),
-        // Visible feed pipes pass through the north production doors and
-        // terminate at actual vessels and depositors, not arbitrary walls.
-        ...candyPair(terrain('candyPipeRiser',184,264,16,16,5.85,
-          {bottom:4.65,nonSolid:true})),
-        ...candyPair(terrain('candyPipeRiser',184,264,16,16,10.25,
-          {bottom:8.65,nonSolid:true})),
-        ...candyPair(terrain('candyProcessPipe',184,264,16,139,10.25,
-          {bottom:9.75,nonSolid:true,axis:'y',line:'syrup'})),
-        ...candyPair(terrain('candyProcessPipe',184,390,504,16,10.25,
-          {bottom:9.75,nonSolid:true,axis:'x',line:'syrup'})),
-        ...candyPair(terrain('candyProcessPipe',672,232,16,174,10.25,
-          {bottom:9.75,nonSolid:true,axis:'y',line:'syrup'})),
-        ...candyPair(terrain('candyPipeRiser',672,232,16,16,10.25,
-          {bottom:8.35,nonSolid:true})),
-        ...candyPair(terrain('candyProcessPipe',672,232,16,263,6.5,
-          {bottom:6,nonSolid:true,axis:'y',line:'cooked'})),
-        ...candyPair(terrain('candyProcessPipe',672,482,77,16,6.5,
-          {bottom:6,nonSolid:true,axis:'x',line:'cooked'})),
-        ...candyPair(terrain('candyPipeRiser',733,482,16,16,6.5,
-          {bottom:4.1,nonSolid:true})),
-        ...candyPair(terrain('candyPipeRiser',743,508,16,16,8,
-          {bottom:3.55,nonSolid:true})),
-        ...candyPair(terrain('candyProcessPipe',340,508,419,16,8,
-          {bottom:7.5,nonSolid:true,axis:'x',line:'cooked'})),
-        ...candyPair(terrain('candyProcessPipe',340,508,16,250,8,
-          {bottom:7.5,nonSolid:true,axis:'y',line:'cooked'})),
-        ...candyPair(terrain('candyPipeRiser',340,742,16,16,8,
-          {bottom:3.45,nonSolid:true})),
-        // Structural detail and task lighting sit high above combat and have
-        // no phantom collision boxes or extra coplanar floor meshes.
-        ...candyPair(terrain('candyRoofTruss',94,550,406,24,17.15,
-          {bottom:15.6,nonSolid:true})),
-        terrain('candyRoofTruss',526,350,548,24,17.15,{bottom:15.6,nonSolid:true}),
-        terrain('candyRoofTruss',526,600,548,24,17.15,{bottom:15.6,nonSolid:true}),
-        terrain('candyRoofTruss',526,850,548,24,17.15,{bottom:15.6,nonSolid:true}),
-        ...candyPair(terrain('candyLight',130,520,320,28,17.49,
-          {bottom:16.88,nonSolid:true})),
-        terrain('candyLight',590,360,420,28,17.49,{bottom:16.88,nonSolid:true}),
-        terrain('candyLight',590,670,420,28,17.49,{bottom:16.88,nonSolid:true}),
-        ...candyPair(terrain('candyZoneSign',527,235,4,55,4.4,
-          {bottom:2.65,nonSolid:true,station:'cook'})),
-        ...candyPair(terrain('candyZoneSign',527,535,4,55,4.4,
-          {bottom:2.65,nonSolid:true,station:'mould'})),
+        terrain('candyCooker',477,215,126,90,7.4,{collisionShape:'circle',collisionRadius:38}),
+        terrain('candyGallery',421,132,238,82,3.8,{bottom:3.48,walkable:true,seamless:true}),
+        terrain('ramp',252,132,169,82,3.8,{axis:'x',stairs:true,steps:18,style:'candy'}),
+        terrain('ramp',659,132,169,82,3.8,{axis:'x',reverse:true,stairs:true,steps:18,style:'candy'}),
+        terrain('rail',421,207,238,7,4.76,{bottom:3.8,style:'candy'}),
+        terrain('candyTemperingDrum',451,373,178,112,4.05,{factoryLine:true,nonSolid:true}),
+        terrain('candyDrumBase',451,373,178,112,.64,{collisionOnly:true}),
+        terrain('candyDrumBody',451,395,178,68,4.05,{bottom:.64,collisionOnly:true}),
+        terrain('candyDepositor',224,702,110,60,2.9),
+        terrain('candyConveyor',334,707,370,50,1.05,{speed:.32,direction:1,style:'candy'}),
+        terrain('candyCoolingHousing',704,702,152,60,3),
+        ...candyPair(terrain('candyDockFacade',47,390,6,98,4.2,{nonSolid:true})),
+        ...candyPair(terrain('candyIngredientLoad',53,397,53,85,1.98)),
+        // The syrup pipe travels high over the inspection floor and terminates
+        // on the drum. The finished batch feeds the depositor at the south wall.
+        terrain('candyPipeRiser',532,252,16,16,8.55,{bottom:7.35,nonSolid:true}),
+        terrain('candyProcessPipe',532,252,16,184,8.55,{bottom:8.05,axis:'y',line:'syrup',nonSolid:true}),
+        terrain('candyPipeRiser',532,420,16,16,8.55,{bottom:4,nonSolid:true}),
+        terrain('candyPipeRiser',475,424,16,16,6.6,{bottom:3.95,nonSolid:true}),
+        terrain('candyProcessPipe',475,424,16,317,6.6,{bottom:6.1,axis:'y',nonSolid:true}),
+        terrain('candyProcessPipe',272,725,219,16,6.6,{bottom:6.1,axis:'x',nonSolid:true}),
+        terrain('candyPipeRiser',272,725,16,16,6.6,{bottom:2.86,nonSolid:true}),
+        ...[[87,419,120],[873,419,120],[345,259,120],[615,259,120],
+          [446,473,188],[446,612,188]].map(([x,y,w])=>
+          terrain('candyLight',x,y,w,18,11.98,{bottom:11.55,nonSolid:true})),
       ],
-      variants:[
-        candyPair(terrain('candyCrate',140,520,70,50,1.12)),
-        candyPair(terrain('candyCrate',155,540,70,50,1.12)),
-        candyPair(terrain('candyCrate',145,555,70,50,1.12)),
-      ],
-      spawns:[
-        ...[[140,460],[300,865],[430,255],[440,590],[310,660],[430,865],
-          [360,345,5.8]].flatMap(([x,y,height=0])=>[[x,y,height],[1600-x,y,height]]),
-      ],
+      variants:[[]],
+      pairedTeamStarts:true,
+      spawns:[[102,328],[102,526],[205,612],[357,268],[362,457],[376,638]].flatMap(([x,y])=>[[x,y],[1080-x,y]]),
     },
     tower:{
       id:'tower',name:'Tower',description:'Twin control halls around a towering turbine, with sheltered switchback stairs and a contested overhead crossing.',
@@ -577,71 +478,50 @@
     },
     orbital:{
       id:'orbital',name:'Orbital Station',
-      description:'A two-storey research station with enclosed transit tunnels and exposed bridges beneath the stars.',
-      width:1400,height:1000,ceiling:14,roof:false,boundaryTop:1.45,scale:0.76,style:'orbital',accent:'#65dff2',
+      description:'Cross the exposed boarding bridge or take the enclosed transfer concourse around the open berth.',
+      width:960,height:720,ceiling:14,roof:false,boundaryTop:1.4,style:'orbital',accent:'#65dff2',
       palette:{sky:'#02050d',wall:'#d7dde3',panel:'#7c8792',cap:'#f4f6f8',glow:'#62ddeb',
         floorLow:'#aeb7c0',floorHigh:'#edf1f4',reflection:'#d6dde2',reflectionGlow:'#8deaf3',
         ambient:'#f4f7ff',ground:'#5e6874',sun:'#ffffff',rim:'#76dcff',
         ambientIntensity:2.75,sunIntensity:4.25,rimIntensity:2.6},
+      floorRects:[{x:25,y:36,width:910,height:175},...dockPair({x:25,y:211,width:260,height:475})],
+      floorPolygon:[[25,36],[935,36],[935,686],[25,686]].map(([x,y])=>({x,y})),
+      floorHasGaps:true,
+      perimeter:[
+        terrain('boundary',25,36,910,14,4.65),
+        ...dockPair(terrain('boundary',25,50,14,624,4.65)),
+        ...dockPair(terrain('boundary',25,674,260,12,1.4)),
+      ],
       walls:[
-        // Each upper wing sits over a real lower-floor transit tunnel.
-        wall(90,50,500,24,3.25),wall(90,206,500,24,3.25),
-        wall(700,770,500,24,3.25),wall(700,926,500,24,3.25),
-        // Offset pressure partitions keep the exposed deck close-range without
-        // reducing the station to another rectangular maze.
-        wall(120,520,280,24,3.5),wall(1050,400,240,24,3.5),
-        wall(160,700,250,24,3.5),wall(1120,270,24,120,3.8),
+        // The concourse wraps around the berth. A viewing band is set into
+        // its inner hull. The two collar throats shield the bridge landings.
+        ...dockPair(wall(160,50,27,76,4.65)),
+        ...dockPair(wall(265,211,20,309,4.65)),
+        ...dockPair(wall(265,520,20,154,4.16)),
+        ...dockPair({...wall(159,520,24,47,7.65),bottom:4.5}),
       ],
       terrain:[
-        terrain('orbitalTunnelRoof',90,74,500,132,3,{bottom:2.7}),
-        terrain('orbitalTunnelRoof',700,794,500,132,3,{bottom:2.7}),
-
-        // The second floor is a real architectural layer, 4.5 metres above
-        // the lower station. Three narrow, unrailed bridges tie its wings to
-        // the large central research floor.
-        terrain('orbitalDeck',180,50,250,180,4.5,{bottom:4.22,walkable:true,wing:'astronomy'}),
-        terrain('orbitalDeck',500,240,400,520,4.5,{bottom:4.22,walkable:true,wing:'operations'}),
-        terrain('orbitalDeck',950,770,250,180,4.5,{bottom:4.22,walkable:true,wing:'habitation'}),
-        terrain('orbitalDeck',1040,100,220,160,4.5,{bottom:4.22,walkable:true,wing:'communications'}),
-        terrain('orbitalDeck',430,120,70,170,4.5,{bottom:4.22,walkable:true,bridge:true}),
-        terrain('orbitalDeck',900,700,50,170,4.5,{bottom:4.22,walkable:true,bridge:true}),
-        terrain('orbitalDeck',900,190,140,80,4.5,{bottom:4.22,walkable:true,bridge:true}),
-
-        // One stair descends south from the astronomy wing; the opposite-side
-        // stair descends east from habitation, producing a true circulation loop.
-        terrain('ramp',260,230,100,250,4.5,{axis:'y',reverse:true,stairs:true,steps:24,style:'orbital'}),
-        terrain('ramp',1040,520,100,250,4.5,{axis:'y',stairs:true,steps:24,style:'orbital'}),
-
-        // Supports make the upper storey feel engineered rather than floated.
-        terrain('orbitalSupport',500,240,30,30,4.22),terrain('orbitalSupport',870,240,30,30,4.22),
-        terrain('orbitalSupport',500,730,30,30,4.22),terrain('orbitalSupport',870,730,30,30,4.22),
-        terrain('orbitalSupport',1040,100,28,28,4.22),terrain('orbitalSupport',1232,232,28,28,4.22),
-
-        // Every part of both floors gets a distinct landmark and callout.
-        terrain('orbitalAntenna',235,75,120,120,9.2,{bottom:4.5,collisionShape:'circle',collisionRadius:42}),
-        terrain('orbitalCore',640,380,110,100,8,{bottom:4.5,collisionShape:'circle',collisionRadius:43}),
-        terrain('orbitalPod',700,600,150,90,6.7,{bottom:4.5}),
-        terrain('orbitalPod',980,815,150,90,6.7,{bottom:4.5}),
-        terrain('orbitalCore',1100,135,85,85,7.2,{bottom:4.5,collisionShape:'circle',collisionRadius:32}),
-        terrain('orbitalPod',80,350,160,100,2.25),
-        terrain('orbitalPod',1200,500,165,100,2.25),
-        // These are deliberately waist-high jump-up cover. The old 1.2 m
-        // shells sat almost exactly at the player's 1.25 m jump apex, making
-        // a successful landing depend on hitting the box at one precise frame.
-        terrain('orbitalCrate',470,835,95,58,.82,{jumpable:true}),
-        terrain('orbitalCrate',900,520,105,62,.88,{jumpable:true}),
+        ...dockPair(terrain('stationCollar',39,520,144,47,7.95,{bottom:7.65,livery:'port'})),
+        ...dockPair(terrain('stationPier',39,520,14,47,7.65,{bottom:4.5,livery:'port'})),
+        terrain('stationWindow',285,194,390,17,4.65),
+        terrain('stationCeiling',39,50,882,161,4.93,{bottom:4.65}),
+        ...dockPair(terrain('stationCeiling',39,211,226,55,4.93,{bottom:4.65})),
+        ...dockPair(terrain('ramp',39,276,115,244,4.5,{axis:'y',stairs:true,steps:23,style:'orbital'})),
+        ...dockPair(terrain('orbitalDeck',39,520,246,71,4.5,{bottom:4.22,walkable:true,livery:'port'})),
+        ...dockPair(terrain('orbitalDeck',139,591,146,83,4.5,{bottom:4.22,walkable:true,livery:'port'})),
+        terrain('lift',39,591,100,83,0,{id:'port-loader',maxTop:4.5,style:'orbital'}),
+        terrain('lift',821,591,100,83,0,{id:'starboard-loader',maxTop:4.5,style:'orbital',phaseOffset:3000}),
+        terrain('stationManifold',435,124,90,70,4.65),
+        terrain('orbitalDeck',285,565,390,95,4.5,{bottom:4.22,walkable:true,bridge:true}),
+        // The visible keel carries the mooring clamps below the port lip.
+        ...dockPair(terrain('stationKeel',265,211,20,475,-.44,{bottom:-5.5,nonSolid:true,livery:'port'})),
+        terrain('stationKeel',285,194,390,17,-.44,{bottom:-5.5,nonSolid:true}),
+        ...dockPair(terrain('stationJaw',285,465,61,83,-2.7,{bottom:-5.4,nonSolid:true,livery:'port'})),
+        ...dockPair(terrain('stationJaw',285,633,61,40,-2.7,{bottom:-5.4,nonSolid:true,livery:'port'})),
       ],
-      variants:[
-        [terrain('orbitalCrate',400,400,105,58,.86,{jumpable:true}),terrain('orbitalCrate',1160,630,95,58,.8,{jumpable:true})],
-        [terrain('orbitalPod',390,575,135,88,2.05),terrain('orbitalCrate',970,320,105,58,.84,{jumpable:true})],
-        [terrain('orbitalAntenna',340,800,105,105,3.7,{collisionShape:'circle',collisionRadius:38}),
-          terrain('orbitalCrate',970,300,100,60,.86,{jumpable:true})],
-      ],
-      spawns:[
-        [50,60],[700,70],[1350,60],[60,470],[1340,470],[60,940],[600,940],[1350,960],
-        [260,140],[850,860],[560,600],[900,350],
-        [390,100,4.5],[560,300,4.5],[820,720,4.5],[1180,790,4.5],[1220,220,4.5],[465,200,4.5],
-      ],
+      variants:[[]],
+      pairedTeamStarts:true,
+      spawns:[[207,570],[204,408],[78,564],[216,329],[105,219],[243,88],[93,550,4.5]].flatMap(([x,y,h=0])=>[[x,y,h],[960-x,y,h]]),
     },
     airport:{
       id:'airport',name:'Terminal 7',
@@ -959,7 +839,7 @@
   function derivePvpSpawns(map,walls,count=12) {
     const solids=[...walls,...map.terrain],candidates=[];
     for(let y=50;y<=map.height-50;y+=50)for(let x=50;x<=map.width-50;x+=50)
-      if(!solids.some(s=>collides(x,y,s,20)))candidates.push({x,y,height:0});
+      if(insideFootprint(map,x,y)&&!solids.some(s=>collides(x,y,s,20)))candidates.push({x,y,height:0});
     // Farthest-point sampling spreads fallback spawns across an irregular
     // procedural footprint instead of clustering them in the first open area.
     const selected=[];
@@ -993,6 +873,8 @@
       palette:{...source.palette},spawns:source.spawns.map(([x,y,height=0])=>({x:x*scale,y:y*scale,height})),
       terrain:[...source.terrain,...source.variants[variant]].map(s=>resize({...s,accent:s.accent||accent})),
     };
+    if(source.pairedTeamStarts)map.pairedTeamStarts=true;
+    if(source.floorHasGaps)map.floorHasGaps=true;
     if(source.floorRects)map.floorRects=source.floorRects.map(resize);
     if(source.floorPolygon)map.floorPolygon=source.floorPolygon.map(point=>({x:point.x*scale,y:point.y*scale}));
     if(source.worldBounds)map.worldBounds={minX:source.worldBounds.minX*scale,minY:source.worldBounds.minY*scale,

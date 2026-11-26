@@ -71,6 +71,7 @@ function createLobbyServer(io) {
       id: lobby.id,
       mode: lobby.mode,
       pvpMode:lobby.mode==='pvp'?lobby.pvpMode:undefined,
+      pvpPerks:lobby.mode==='pvp'?lobby.pvpPerks:undefined,
       modeName: MODES[lobby.mode].name,
       name: `${lobby.ownerName}'s fireteam`,
       ownerId: lobby.ownerId,
@@ -244,6 +245,7 @@ function createLobbyServer(io) {
       roomName,
       mode,
       pvpMode:mode==='pvp'&&payload?.pvpMode==='teams'?'teams':'ffa',
+      pvpPerks:mode==='pvp'&&payload?.pvpPerks===true,
       teamByPlayer:new Map(),
       ownerId: socket.id,
       ownerName: socket.user.username,
@@ -290,6 +292,7 @@ function createLobbyServer(io) {
       pvpMap: payload?.pvpMap,
       debugDouble: qingDebug,
       pvpMode:lobby.pvpMode,
+      pvpPerks:lobby.pvpPerks,
       pvpTeamAssignments:lobby.teamByPlayer,
     };
     lobby.engine.handleStartGame(socket, options);
@@ -340,6 +343,14 @@ function createLobbyServer(io) {
       const count=[...lobby.teamByPlayer.entries()].filter(([id,value])=>id!==socket.id&&value===team).length;
       if(count>=4)return reply?.({ok:false,error:'That team is full.'});
       lobby.teamByPlayer.set(socket.id,team);
+      publishLobbyState(lobby);publishLobbyList();reply?.({ok:true});
+    });
+    socket.on('lobby:pvpPerks',(payload,reply)=>{
+      const lobby=currentLobby(socket);
+      if(!lobby||lobby.mode!=='pvp'||lobby.status!=='open'||lobby.ownerId!==socket.id)
+        return reply?.({ok:false,error:'Only the leader can change loadout perks before launch.'});
+      if(typeof payload?.pvpPerks!=='boolean')return reply?.({ok:false,error:'Invalid loadout perks setting.'});
+      lobby.pvpPerks=payload.pvpPerks;
       publishLobbyState(lobby);publishLobbyList();reply?.({ok:true});
     });
     socket.on('lobby:start', (payload, reply) => startLobby(socket, payload, reply));

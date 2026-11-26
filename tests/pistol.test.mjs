@@ -124,3 +124,32 @@ test('Cloudbreak changes its lightning fork per shot and the wind trails outlast
     assert.equal(flash.visible, false);
   }
 });
+
+test('Cloudbreak forks connect successive hit positions and release their pooled tracers',async()=>{
+  const {Arena3D}=await import('../public/arena3d.js');
+  const arena=Object.assign(Object.create(Arena3D.prototype),{
+    effects:[],stage:new THREE.Group(),characters:new Map(),tracerPool:[],freeTracers:[]
+  });
+  const shot={playerId:'test',bulletId:11,x:280,y:300,height:1.84,endX:320,endY:312,endHeight:1.84,
+    cloudbreakChain:[{x:380,y:330,height:1.1},{x:390,y:300,height:3.1}]};
+  arena.shot(shot);
+  assert.equal(arena.effects.length,3);
+  let start=arena.effects[0].tracer.spark.position;
+  for(const {tracer} of arena.effects.slice(1)) {
+    const bolt=tracer.bolt;
+    assert.ok(bolt.visible&&!tracer.line.visible);
+    assert.ok(bolt.position.distanceTo(start)<1e-6);
+    const pos=bolt.geometry.attributes.position;
+    let tip=0;
+    for(let i=1;i<pos.count;i++)if(pos.getZ(i)<pos.getZ(tip))tip=i;
+    const point=bolt.localToWorld(new THREE.Vector3().fromBufferAttribute(pos,tip));
+    assert.ok(point.distanceTo(tracer.spark.position)<1e-5,'the lightning ends on the enemy');
+    start=tracer.spark.position;
+  }
+  for(const {tracer} of arena.effects)arena.releaseTracer(tracer);
+  arena.effects.length=0;
+  arena.shot({...shot,cloudbreakChain:undefined});
+  const reused=arena.effects[0].tracer;
+  assert.ok(reused.line.visible&&!reused.bolt.visible);
+  arena.clearObject(arena.stage);
+});

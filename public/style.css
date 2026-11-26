@@ -1220,10 +1220,27 @@ body.in-shop .app-main {
 .pvp-mode-pills button[aria-pressed="true"] { background: #fff; color: #233b3d; border-color: #dce5e3; }
 .pvp-mode-pills button:not(:disabled):hover { color: #152b2e; }
 .pvp-mode-pills button:disabled { cursor: default; }
-.pvp-mode-pills button:focus-visible, .team-join:focus-visible, .team-player-card:focus-visible {
+.pvp-mode-pills button:focus-visible, .pvp-perks-toggle:focus-visible, .team-join:focus-visible, .team-player-card:focus-visible {
     outline: 2px solid #168c78; outline-offset: 3px;
 }
 .pvp-mode-row p { margin: 0; color: #708487; font-size: 12px; text-align: center; }
+.pvp-perks-toggle {
+    display: inline-flex; align-items: center; gap: 8px; padding: 5px 8px;
+    border: 0; border-radius: 6px; background: transparent; color: #425b5e;
+    font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.pvp-perks-toggle:not(:disabled):hover { background: #edf2f1; }
+.pvp-perks-toggle:disabled { cursor: default; }
+.pvp-perks-toggle span {
+    position: relative; width: 28px; height: 16px; border-radius: 999px; background: #c1cfce;
+    transition: background .16s;
+}
+.pvp-perks-toggle span::after {
+    content: ''; position: absolute; top: 3px; left: 3px; width: 10px; height: 10px;
+    border-radius: 50%; background: #fff; transition: transform .16s;
+}
+.pvp-perks-toggle[aria-checked="true"] span { background: #16806f; }
+.pvp-perks-toggle[aria-checked="true"] span::after { transform: translateX(12px); }
 .team-columns { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; }
 .team-column {
     --team-ink: #296dc0; --team-border: #d4e3f4; --team-tint: #f3f7fc;

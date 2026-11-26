@@ -6,12 +6,12 @@ export function planAreaLighting(map,walls=[]) {
     const lanterns=map.terrain.filter(s=>s.kind==='foundryLantern'&&s.localLight);
     return [
       ...lanterns.map((s,index)=>({kind:`foundry-lantern-${index}`,
-        x:s.x+s.width/2,y:s.y+s.height/2,height:0,sourceHeight:3.5,
+        x:s.x+s.width/2,y:s.y+s.height/2,height:0,sourceHeight:(s.top+s.bottom)/2,
         color:'#ffe0ae',intensity:88,radius:10,castsShadow:false,fixture:'lantern'})),
-      {kind:'foundry-upper-west',x:map.width*.34,y:map.height*.45,height:5.8,
-        sourceHeight:map.ceiling-.7,color:'#fff0cd',intensity:114,radius:13,castsShadow:false},
-      {kind:'foundry-upper-east',x:map.width*.66,y:map.height*.55,height:5.8,
-        sourceHeight:map.ceiling-.7,color:'#eaffdf',intensity:108,radius:13,castsShadow:false},
+      {kind:'foundry-upper-west',x:map.width/2-120,y:211,height:5.8,
+        sourceHeight:11.78,color:'#ffe2bc',intensity:114,radius:13,castsShadow:false},
+      {kind:'foundry-upper-east',x:map.width/2+120,y:649,height:5.8,
+        sourceHeight:11.78,color:'#dbf0ec',intensity:108,radius:13,castsShadow:false},
     ];
   }
   if(map.id==='candyFactory') {
@@ -22,10 +22,14 @@ export function planAreaLighting(map,walls=[]) {
         kind:`candy-overhead-${i}`,x:s.x+s.width/2,y:s.y+s.height/2,height:0,
         sourceHeight:(s.bottom||0)+.01,color:'#fff0d5',intensity:108,radius:15,
         castsShadow:false,fixture:'integrated'})),
-      ...[170,1430].map(x=>({kind:`candy-preparation-${x}`,x,y:350,height:0,
-        sourceHeight:5.15,color:'#e7fff0',intensity:68,radius:8.5,
-        castsShadow:false,fixture:'integrated'})),
     ];
+  }
+  if(map.id==='orbital') {
+    const roof=map.terrain.find(s=>s.kind==='stationCeiling');
+    if(!roof)return [];
+    return [.28,.72].map((t,i)=>({kind:`concourse-${i}`,x:roof.x+roof.width*t,
+      y:roof.y+roof.height*.41,height:0,sourceHeight:roof.bottom-.12,
+      color:i?'#ffebd1':'#d1f4ff',intensity:62,radius:9,castsShadow:false,fixture:'integrated'}));
   }
   if(map.style==='tower') {
     // Four fixtures actually sit below the control-room slabs. The two

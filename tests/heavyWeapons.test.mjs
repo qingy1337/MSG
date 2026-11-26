@@ -1,3 +1,4 @@
+import {ASHES_AND_DUST,ASH_MUZZLE_DEPTH,poseAshesAndDust} from '../public/ashesAndDust.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {createMinigunSpoolHud,READY_FLASH_MS} from '../public/minigunSpoolHud.mjs';
@@ -215,6 +216,14 @@ test('minigun skins retain their themes while Midas is an original streamlined S
         'the diagonal grip sits distinctly ahead of the firing hand');
       assert.ok(forwardGripBounds.max.y>receiverBounds.min.y,
         'the diagonal grip is visibly integrated into the receiver underside');
+    } else if(skin.key===ASHES_AND_DUST) {
+      model.updateMatrixWorld(true);
+      const mouths=model.getObjectByName('tempered mouths');
+      const rim=new THREE.Box3().setFromObject(mouths);
+      assert.ok(Math.abs(rim.min.z+length*ASH_MUZZLE_DEPTH)<1e-6);
+      assert.equal(heavyWeaponMuzzleDepth(skin.key),ASH_MUZZLE_DEPTH);
+      assert.ok(model.getObjectByName('lower basalt shelf'));
+      assert.ok(model.getObjectByName('upper basalt shelf'));
     } else if(skin.key==='miniGun_crimson_guard') {
       const receiver=model.getObjectByName('guard-receiver');
       const socket=model.getObjectByName('guard-front-socket');
@@ -300,6 +309,91 @@ test('minigun skins retain their themes while Midas is an original streamlined S
     }
     dispose(model);
   }
+});
+
+test('Ashes & Dust has an open split between uneven shelves and clearance for the hot wheel', () => {
+  const model=createHeavyWeapon('miniGun',ASHES_AND_DUST,1);
+  const shelves=['lower basalt shelf','upper basalt shelf'].map(n=>model.getObjectByName(n));
+  const wheel=model.getObjectByName('ember wheel'), ray=new THREE.Raycaster();
+  model.updateMatrixWorld(true);
+  function roofHit(x){
+    ray.set(shelves[0].parent.localToWorld(new THREE.Vector3(x,.5,-.56)),new THREE.Vector3(0,-1,0));
+    return ray.intersectObjects(shelves,false)[0];
+  }
+  assert.equal(roofHit(0),undefined);
+  assert.ok(roofHit(.08).point.y-roofHit(-.15).point.y>.05);
+  const origin=new THREE.Vector3(),point=new THREE.Vector3();
+  for(let frame=0;frame<32;frame++){
+    poseAshesAndDust(model,1/60,true);
+    model.updateMatrixWorld(true);
+    for(let i=0;i<wheel.geometry.attributes.position.count;i++){
+      wheel.getVertexPosition(i,point);
+      wheel.localToWorld(origin.set(0,0,point.z));
+      wheel.localToWorld(point);
+      ray.ray.origin.copy(origin);
+      ray.ray.direction.subVectors(point,origin).normalize();
+      ray.far=point.distanceTo(origin);
+      assert.equal(ray.intersectObjects(shelves,false).length,0,'a rotating scoop struck a shelf');
+    }
+  }
+  dispose(model);
+});
+
+test('Ashes & Dust vent plates clear the housing from rest through full lift', () => {
+  const model=createHeavyWeapon('miniGun',ASHES_AND_DUST,1);
+  const housing=['basalt chassis','lower basalt shelf','upper basalt shelf','front bearing'].map(name=>model.getObjectByName(name));
+  const up=new THREE.Raycaster(),down=new THREE.Raycaster();
+  up.ray.direction.set(0,1,0);
+  down.ray.direction.set(0,-1,0);
+  for(const dt of [0,.04,.4]) {
+    poseAshesAndDust(model,dt,true);
+    model.updateMatrixWorld(true);
+    let previous;
+    for(let i=1;i<=3;i++) {
+      const plate=model.getObjectByName('basalt plate '+i);
+      const box=new THREE.Box3().setFromObject(plate,true);
+      if(previous)assert.ok(box.max.z<previous.min.z,'adjacent edges have clearance');
+      previous=box;
+      let closest=Infinity;
+      for(let row=1;row<12;row++)for(let col=1;col<8;col++) {
+        const x=THREE.MathUtils.lerp(box.min.x,box.max.x,col/8);
+        const z=THREE.MathUtils.lerp(box.min.z,box.max.z,row/12);
+        up.ray.origin.set(x,-1,z);
+        down.ray.origin.set(x,1,z);
+        const sole=up.intersectObject(plate,false)[0],roof=down.intersectObjects(housing,false)[0];
+        if(sole && roof)closest=Math.min(closest,sole.point.y-roof.point.y);
+      }
+      assert.ok(Number.isFinite(closest) && closest>.0005,'the plate clears the housing');
+      if(dt===0)assert.ok(closest<.01,'closed plate stays seated at the hinge');
+    }
+  }
+  dispose(model);
+});
+
+test('Ashes & Dust opens in sequence, coasts and sheds ash after sustained fire', () => {
+  const model=createHeavyWeapon('miniGun',ASHES_AND_DUST,1);
+  const plates=[1,2,3].map(i=>model.getObjectByName('basalt plate '+i).parent);
+  const wheel=model.getObjectByName('ember wheel'), rotor=model.getObjectByName('ash-rotating-barrels');
+  const flake=model.getObjectByName('ash flake 0');
+  poseAshesAndDust(model,.03,true);
+  assert.ok(plates[0].rotation.x>0 && plates[2].rotation.x===0);
+  poseAshesAndDust(model,.05,false);
+  assert.equal(flake.visible,false);
+  for(let i=0;i<60;i++)poseAshesAndDust(model,1/60,true);
+  const lifts=plates.map(plate=>THREE.MathUtils.radToDeg(plate.rotation.x));
+  assert.ok(lifts[0]>4&&lifts[0]<lifts[1]&&lifts[1]<lifts[2]&&lifts[2]<7.1,
+    'the plates open progressively and stay close to the housing at full spin');
+  assert.equal(wheel.morphTargetInfluences[0],1);
+  assert.equal(wheel.rotation.z,-rotor.rotation.z);
+  const angle=rotor.rotation.z;
+  poseAshesAndDust(model,.07,false);
+  assert.notEqual(rotor.rotation.z,angle);
+  assert.ok(flake.visible && wheel.morphTargetInfluences[0]<1);
+  for(let i=0;i<150;i++)poseAshesAndDust(model,1/60,false);
+  assert.equal(flake.visible,false);
+  assert.ok(plates.every(plate=>plate.rotation.x===0));
+  assert.equal(wheel.morphTargetInfluences[0],0);
+  dispose(model);
 });
 
 test('Crimson Guard barrels accelerate under fire and coast to a stop',()=>{
@@ -407,4 +501,59 @@ test('minigun spool HUD fills beneath the crosshair, flashes ready, then clears'
   assert.equal(fill.style.width,'100%');assert.equal(track.classes.has('ready'),true);
   update(200+READY_FLASH_MS+1,200);
   assert.equal(track.hidden,true);
+});
+
+test('Afterburn lights the original copper ridge from grip to muzzle and drains during discharge',()=>{
+  const model=createHeavyWeapon('miniGun',ASHES_AND_DUST,1);
+  const cheek=model.getObjectByName('obsidian cheek');
+  const mask=cheek.material.emissiveMap;
+  const {uv,position}=cheek.geometry.attributes;
+  assert.equal(model.getObjectByName('afterburn gauge'),undefined);
+  for(const [charge,remaining,level] of [[undefined,0,0],[0,0,0],[.3,0,.3],[1,0,1],[0,.65,.65],[0,0,0]]) {
+    poseAshesAndDust(model,.016,false,charge,remaining);
+    mask.updateMatrix();
+    for(let i=0;i<uv.count;i++) {
+      const along=2*uv.getX(i);
+      assert.ok(Math.abs(along-(.143-position.getZ(i))/.787)<1e-5);
+      const sample=new THREE.Vector2().fromBufferAttribute(uv,i);
+      mask.transformUv(sample);
+      const texel=(Math.min(1,Math.floor(sample.y*2))*2+Math.min(1,Math.floor(sample.x*2)))*4;
+      assert.equal(mask.image.data[texel]>0,uv.getY(i)>.5&&level>0&&(level===1||along<level));
+    }
+  }
+  dispose(model);
+});
+
+test('the copper charge ridge is visible past the hands during first-person recoil',async t=>{
+  const {Arena3D}=await import('../public/arena3d.js');
+  const previous=Object.getOwnPropertyDescriptor(globalThis,'WEAPON_SKINS');
+  globalThis.WEAPON_SKINS=skins.WEAPON_SKINS;
+  t.after(()=>{if(previous)Object.defineProperty(globalThis,'WEAPON_SKINS',previous);else delete globalThis.WEAPON_SKINS;});
+  const arena=Object.create(Arena3D.prototype);
+  arena.viewWeapon=new THREE.Group();
+  arena.buildViewWeapon({weapon:'miniGun',weaponSkinKey:ASHES_AND_DUST});
+  t.after(()=>arena.clearObject(arena.viewWeapon));
+  const surface=arena.viewWeapon.getObjectByName('obsidian cheek');
+  const {position,uv}=surface.geometry.attributes;
+  for(const recoil of [0,.1]) {
+    arena.viewWeapon.position.z=recoil*.6;arena.viewWeapon.rotation.x=recoil*.4;
+    arena.viewWeapon.updateMatrixWorld(true);
+    const meshes=[];
+    arena.viewWeapon.traverseVisible(o=>{if(o.isMesh)meshes.push(o);});
+    const visible=[];
+    for(let i=0;i<position.count;i+=3) {
+      if(uv.getY(i)<.5)continue;
+      const center=new THREE.Vector3();
+      for(let j=i;j<i+3;j++)center.add(new THREE.Vector3().fromBufferAttribute(position,j));
+      const point=surface.localToWorld(center.divideScalar(3));
+      const ray=new THREE.Raycaster(new THREE.Vector3(),point.clone().normalize());
+      if(ray.intersectObjects(meshes,false)[0]?.object!==surface)continue;
+      const inFrame=[4/3,16/9].every(aspect=>{
+        const ndc=point.clone().project(new THREE.PerspectiveCamera(65,aspect,.01,10));
+        return Math.abs(ndc.x)<1&&Math.abs(ndc.y)<1;
+      });
+      if(inFrame)visible.push(2*(uv.getX(i)+uv.getX(i+1)+uv.getX(i+2))/3);
+    }
+    assert.ok(visible.some(t=>t<.35)&&visible.some(t=>t>.75),'both ends of the ridge can be read in first person');
+  }
 });

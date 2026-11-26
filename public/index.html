@@ -88,7 +88,7 @@
                             </div>
                             <aside id="gear-popover" class="gear-popover" role="dialog" aria-label="Item details" hidden></aside>
                         </section>
-                        <div id="loadout-statline" class="equipment-stats" aria-label="Armor bonuses in PvE"></div>
+                        <div id="loadout-statline" class="equipment-stats" aria-label="Armor bonuses"></div>
                         <div class="play-dock">
                             <div class="mode-picker" role="group" aria-label="Game mode">
                                 <button class="mode-choice active" data-mode="pvp">
@@ -152,6 +152,10 @@
                                 <button type="button" data-pvp-mode="teams" aria-pressed="false">Teams</button>
                             </div>
                             <p id="pvp-team-note"></p>
+                            <button id="pvp-perks-toggle" class="pvp-perks-toggle" type="button" role="switch" aria-checked="false"
+                                    title="Enable equipped armor bonuses and exotic weapon perks for everyone">
+                                <span aria-hidden="true"></span>Loadout perks
+                            </button>
                         </div>
                         <h2 id="roster-title" class="roster-title">Roster</h2>
                         <ul id="waiting-players"></ul>

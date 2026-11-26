@@ -4,9 +4,9 @@ export function createDashHud(document) {
   const hud=document.getElementById('dash-hud'),label=document.getElementById('dash-hud-label'),fill=document.getElementById('dash-hud-fill');
   const key=document.getElementById('armor-hud-key');
   let previousText='',previousPercent=-1,previousActive=false;
-  return (player,mode,now)=>{
+  return (player,rules,now)=>{
     const dash=player?.armorStats?.airDash,refill=player?.armorStats?.grenadeRefill;
-    const available=player?.alive&&mode==='pve'&&(dash||refill);
+    const available=player?.alive&&globalThis.ARMOR.perksEnabled(rules)&&(dash||refill);
     hud.hidden=!available;if(!available)return;
     if(key)key.textContent=dash?'SHIFT':'↻';
     const active=dash&&(player.dashRemaining||0)>0;

@@ -28,7 +28,7 @@ export function createSpaceEnvironment() {
   const planet=new THREE.Mesh(new THREE.SphereGeometry(13.5,40,28),new THREE.MeshStandardMaterial({
     color:'#7188b5',roughness:.94,metalness:0,emissive:'#111c35',emissiveIntensity:.18,
   }));
-  planet.name='orbital-planet';planet.position.set(-47,18,-72);group.add(planet);
+  planet.name='orbital-planet';planet.position.set(-14,9,80);group.add(planet);
   const atmosphere=new THREE.Mesh(new THREE.SphereGeometry(14.15,40,28),new THREE.MeshBasicMaterial({
     color:'#8edcff',transparent:true,opacity:.13,side:THREE.BackSide,depthWrite:false,
   }));

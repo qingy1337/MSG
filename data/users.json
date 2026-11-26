@@ -4,7 +4,7 @@
     "username": "qing",
     "passwordHash": "120000:527376a4c7facb358546550205746662:8803cf5b1c16b4a2f9a8f8be0478fa4bec09c8104df42842cc397818c661e2ff",
     "currencies": {
-      "Coins": 10076
+      "Coins": 11330
     },
     "skins": {
       "owned": [
@@ -34,11 +34,11 @@
         "shotgun_imperial_dragon"
       ],
       "equippedByWeapon": {
-        "pistol": "pistol_default",
-        "autoRifle": "autoRifle_poisonivy",
+        "pistol": "pistol_kintsugi",
+        "autoRifle": "autoRifle_cybernetic",
         "miniGun": "miniGun_midas",
         "sniper": "sniper_kintsugi",
-        "shotgun": "shotgun_silverline"
+        "shotgun": "shotgun_bubble_trouble"
       }
     },
     "loadout": {
@@ -46,15 +46,15 @@
       "playerColor": "#ffffff"
     },
     "stats": {
-      "pveKills": 8075,
-      "pvpKills": 2109,
-      "grenadesThrown": 7866,
+      "pveKills": 8241,
+      "pvpKills": 2178,
+      "grenadesThrown": 8120,
       "weaponKills": {
-        "autoRifle": 150,
-        "shotgun": 618,
-        "sniper": 5492,
-        "miniGun": 972,
-        "pistol": 1771
+        "autoRifle": 155,
+        "shotgun": 620,
+        "sniper": 5619,
+        "miniGun": 976,
+        "pistol": 1828
       }
     },
     "armor": {
@@ -118,7 +118,7 @@
     "username": "ggg",
     "passwordHash": "120000:6e213f5bc9566e97880dca1ac766b17a:ee762808405c3234c19bd55b0fa3283dac8b6398d850c4223254b980bd8ba576",
     "currencies": {
-      "Coins": 3339
+      "Coins": 2574
     },
     "skins": {
       "owned": [
@@ -148,27 +148,27 @@
         "shotgun_imperial_dragon"
       ],
       "equippedByWeapon": {
-        "pistol": "pistol_kintsugi",
-        "autoRifle": "autoRifle_thunderbird",
+        "pistol": "pistol_default",
+        "autoRifle": "autoRifle_christmas",
         "miniGun": "miniGun_crimson_guard",
         "sniper": "sniper_kintsugi",
-        "shotgun": "shotgun_imperial_dragon"
+        "shotgun": "shotgun_bubble_trouble"
       }
     },
     "loadout": {
-      "primaryWeapon": "shotgun",
+      "primaryWeapon": "sniper",
       "playerColor": "#0d628e"
     },
     "stats": {
-      "pveKills": 10162,
-      "pvpKills": 1496,
-      "grenadesThrown": 7995,
+      "pveKills": 10558,
+      "pvpKills": 1540,
+      "grenadesThrown": 8622,
       "weaponKills": {
-        "autoRifle": 2118,
-        "shotgun": 995,
-        "sniper": 1946,
-        "miniGun": 4182,
-        "pistol": 1177
+        "autoRifle": 2135,
+        "shotgun": 1137,
+        "sniper": 2125,
+        "miniGun": 4190,
+        "pistol": 1226
       }
     },
     "armor": {
@@ -244,6 +244,15 @@
             "regen": 0.125
           },
           "acquiredAt": 1795071015043
+        },
+        {
+          "id": "8dab4b66-0f74-48e9-81be-72f2ced44c8f",
+          "key": "lifeline_chest",
+          "stats": {
+            "health": 3,
+            "regen": 1
+          },
+          "acquiredAt": 1795551736809
         }
       ],
       "equipped": {
@@ -335,7 +344,7 @@
     "username": "ruo",
     "passwordHash": "120000:9de7999fc787ef76db2c60df93c88dab:c054a9e1c534b36bf85cf050a4892d55008d415533ffef40d3a89c35efd74572",
     "currencies": {
-      "Coins": 4175
+      "Coins": 5541
     },
     "skins": {
       "owned": [
@@ -366,15 +375,15 @@
       "playerColor": "#c71a4e"
     },
     "stats": {
-      "pveKills": 8040,
+      "pveKills": 8336,
       "pvpKills": 462,
-      "grenadesThrown": 1711,
+      "grenadesThrown": 2349,
       "weaponKills": {
         "autoRifle": 559,
         "shotgun": 200,
-        "sniper": 6506,
+        "sniper": 6766,
         "miniGun": 297,
-        "pistol": 633
+        "pistol": 654
       }
     },
     "armor": {

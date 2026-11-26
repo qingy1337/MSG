@@ -14,7 +14,6 @@ export function createCandyEnvironment(map,walls) {
     charcoal=material('#354746',.35,.6);
   const opal=new THREE.MeshStandardMaterial({color:'#b9ded3',emissive:'#bdd7c7',
     emissiveIntensity:.24,roughness:.4,metalness:.08});
-  const lamp=new THREE.MeshBasicMaterial({color:'#fff1d3'});
   const add=(parent,geometry,mat,x,y,z,name)=>{
     const mesh=new THREE.Mesh(geometry,mat);mesh.position.set(x,y,z);
     mesh.castShadow=true;mesh.receiveShadow=true;if(name)mesh.name=name;
@@ -44,9 +43,9 @@ export function createCandyEnvironment(map,walls) {
         // calm plaster fields above keep the ceiling height legible.
         face(sign,length-.08,2.04,.035,0,1.13,.034,enamel,'candy-tile-dado');
         face(sign,length-.05,.20,.065,0,.10,.045,teal,'candy-wall-plinth');
-        for(let y=.42;y<2.12;y+=.43)
+        for(let y=.68;y<2.12;y+=.78)
           face(sign,length-.10,.012,.006,0,y,.055,grout);
-        for(let x=-length/2+.75;x<length/2-.2;x+=1.4)
+        for(let x=-length/2+1.05;x<length/2-.2;x+=2.1)
           face(sign,.012,2.0,.006,x,1.13,.055,grout);
         face(sign,length-.06,.11,.09,0,2.205,.06,terra,'candy-dado-border');
         face(sign,length-.06,.035,.10,0,2.282,.065,ivory);
@@ -64,31 +63,24 @@ export function createCandyEnvironment(map,walls) {
           face(sign,.34,.20,.14,x,height-.53,.08,terra);
         }
       }
-      if(wall.kind==='boundary'&&height>14&&length>5) {
+      if(wall.kind==='boundary'&&height>10&&length>5) {
         const bays=Math.max(1,Math.floor(length/5.8)),pitch=(length-.9)/bays;
         for(let i=0;i<bays;i++) {
           const x=-length/2+.45+pitch*(i+.5),span=pitch-.40;
-          face(sign,span,2.8,.045,x,13.6,.055,teal,'candy-clerestory-frame');
-          face(sign,span-.16,2.56,.022,x,13.6,.095,opal,'candy-clerestory-glass');
-          face(sign,span-.17,.055,.022,x,13.6,.118,ivory);
+          face(sign,span,2.8,.045,x,height-2.15,.055,teal,'candy-clerestory-frame');
+          face(sign,span-.16,2.56,.022,x,height-2.15,.095,opal,'candy-clerestory-glass');
+          face(sign,span-.17,.055,.022,x,height-2.15,.118,ivory);
           for(const offset of [-.24,.24])
-            face(sign,.055,2.56,.022,x+span*offset,13.6,.118,ivory);
+            face(sign,.055,2.56,.022,x+span*offset,height-2.15,.118,ivory);
         }
       }
     }
   }
 
-  // Pipe penetrations have real flanges at both partition faces.
-  for(const x of [500,526,1074,1100])for(const [y,height] of [[398,10.01],[516,7.76]]) {
-    const p=world(x,y,height),ring=add(root,new THREE.TorusGeometry(.18,.04,6,16),
-      teal,p.x+(x===500||x===1074?-.02:.02),p.y,p.z,'candy-pipe-wall-flange');
-    ring.rotation.y=Math.PI/2;
-  }
-
   // A large mechanical batch dial gives the cooking end an identifiable
-  // silhouette. It is attached to the wall, above the twin vessels.
+  // silhouette. It is attached to the wall, above the cooker.
   const dial=new THREE.Group();dial.name='candy-batch-clock';
-  dial.position.copy(world(800,114,10.4));root.add(dial);
+  dial.position.copy(world(540,22,9.55));root.add(dial);
   const disk=add(dial,new THREE.CylinderGeometry(1.8,1.8,.16,48),ivory,0,0,.18);
   disk.rotation.x=Math.PI/2;
   add(dial,new THREE.TorusGeometry(1.84,.09,8,48),teal,0,0,.22);
@@ -103,27 +95,18 @@ export function createCandyEnvironment(map,walls) {
       Math.cos(angle)*length/2,.34,mat);hand.rotation.z=-angle;
   }
   add(dial,new THREE.SphereGeometry(.12,12,8),terra,0,0,.36);
-  const badge=box(root,5.1,1.25,.20,17.5,7.6,-9.13,teal,'candy-house-emblem',.12);
-  // A wrapped sweet, embossed into the factory plaque, carries the theme
-  // without introducing giant candy props into the fighting routes.
-  box(root,1.55,.65,.12,badge.position.x,badge.position.y,-8.97,ivory,null,.16);
+  const emblem=new THREE.Group();
+  emblem.position.copy(world(540,763,6.2));emblem.rotation.y=Math.PI;root.add(emblem);
+  box(emblem,5.1,1.25,.20,0,0,.15,teal,'candy-house-emblem',.12);
+  box(emblem,1.55,.65,.12,0,0,.28,ivory,null,.16);
   for(const side of [-1,1]) {
-    const wrap=add(root,new THREE.ConeGeometry(.43,.55,3),terra,
-      badge.position.x+side*1.03,badge.position.y,-8.97);
+    const wrap=add(emblem,new THREE.ConeGeometry(.43,.55,3),terra,side*1.03,0,.28);
     wrap.rotation.z=side*Math.PI/2;wrap.scale.z=.18;
-  }
-
-  // Recessed lighting under both galleries connects the lower preparation
-  // areas to the overhead architecture without adding light sources.
-  for(const x of [170,1430]) {
-    const p=world(x,350,5.25);
-    box(root,3.4,.12,.54,p.x,p.y,p.z,teal,'candy-gallery-light');
-    box(root,3.12,.035,.36,p.x,p.y-.08,p.z,lamp);
   }
   // Closed inspection glazing at the shipping wall echoes the upper windows
   // and has its wall collider directly behind it.
-  for(const x of [620,980]) {
-    const p=world(x,1006,3.35);
+  for(const x of [347,733]) {
+    const p=world(x,763,4.3);
     box(root,5.6,2.0,.06,p.x,p.y,p.z-.06,teal,'candy-shipping-window');
     box(root,5.36,1.78,.035,p.x,p.y,p.z-.112,opal);
     for(const dx of [-1.75,0,1.75])box(root,.055,1.8,.04,p.x+dx,p.y,p.z-.15,ivory);

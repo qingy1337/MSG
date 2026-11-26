@@ -103,6 +103,22 @@ test('six overlaid slots open appropriate inventories and hover previews without
   e.open('sidearm');assert.ok(e.tiles().every(button=>button.dataset.itemId.startsWith('pistol')));
 });
 
+test('primary rows follow weapon families and exotic finishes carry through preview and equip',async()=>{
+  const e=setup();e.open('primary');
+  const keys=['autoRifle','miniGun','sniper','shotgun'];
+  const groups=e.get('gear-grid').querySelectorAll('.gear-family');
+  assert.deepEqual(groups.map(g=>g.querySelector('h4').textContent),keys.map(k=>WEAPONS[k].name));
+  groups.forEach((g,i)=>assert.deepEqual(g.querySelectorAll('.gear-tile').map(b=>b.dataset.itemId),WEAPON_SKINS[keys[i]].map(s=>s.key)));
+  const ashes=e.tile('miniGun_ashes_and_dust');
+  assert.ok(ashes.classList.contains('is-exotic'));e.hover(ashes);
+  assert.match(e.get('gear-popover').textContent,/Exotic · Mini-Gun/);
+  await ashes.click();assert.ok(e.slot('primary').classList.contains('is-exotic'));
+  e.user.skins.owned=e.user.skins.owned.filter(s=>s!=='pistol_cloudbreak');e.open('sidearm');
+  const cloud=e.tile('pistol_cloudbreak');
+  assert.ok(cloud.classList.contains('is-locked')&&cloud.classList.contains('is-exotic'));
+  assert.equal(e.get('gear-grid').querySelectorAll('.gear-family').length,0);
+});
+
 test('owned armor compares stats, animates only into the equipped slot, and retains saved gear on failure',async()=>{
   const e=setup(),vector=e.user.armor.items.find(item=>item.key==='vector_helmet');
   e.open('helmet');e.hover(e.tile(vector.id));
@@ -172,8 +188,9 @@ test('touch previews before equipping and keyboard arrows navigate the squares',
   const e=setup();e.open('sidearm');const dragon=e.tile('pistol_pocket_dragon');
   dragon.fire('pointerdown',{pointerType:'touch'});await dragon.click();assert.equal(e.calls(),0);
   await e.get('gear-popover').querySelector('.gear-item-action').click();assert.equal(e.user.skins.equippedByWeapon.pistol,'pistol_pocket_dragon');
-  e.open('primary');e.tiles()[0].fire('keydown',{key:'ArrowDown'});assert.equal(e.document.activeElement,e.tiles()[4]);
-  e.tiles()[4].fire('keydown',{key:'Enter'});await e.tiles()[4].click();assert.equal(e.calls(),2);
+  e.open('primary');e.tiles()[0].fire('keydown',{key:'ArrowDown'});
+  const minigun=e.tile('miniGun_default');assert.equal(e.document.activeElement,minigun);
+  minigun.fire('keydown',{key:'Enter'});await minigun.click();assert.equal(e.calls(),2);
 });
 
 test('details are clamped inside a narrow viewport and reduced motion skips the flight',async()=>{

@@ -33,7 +33,7 @@
     description:'Press Shift in the air to dash in your movement direction. Four-second cooldown. One dash per jump.',
     ranges:{speed:[1.5,2.5],charge:[5,8]},ability:'airDash',price:20000};
   CATALOG.quartermaster_helmet={key:'quartermaster_helmet',set:'bastion',slot:'helmet',name:'Quartermaster',rarity:'exotic',
-    description:'Fully refills your grenades every 30 seconds in PvE. One exotic at a time.',
+    description:'Fully refills your grenades every 30 seconds. One exotic armor piece at a time.',
     appearance:{color:'#b8bdc4',accent:'#b9975e',dark:'#282c33',visor:'#23313d',metalness:.7,roughness:.3},
     ranges:{},ability:'grenadeRefill',price:30000};
   for(const value of Object.values(CATALOG))Object.freeze(value);
@@ -65,16 +65,20 @@
   function appearance(items=[]) {
     return Object.fromEntries(items.filter(item=>CATALOG[item?.key]).map(item=>[CATALOG[item.key].slot,item.key]));
   }
-  function effects(stats,mode) {
-    if(mode!=='pve')return {health:0,regen:0,speed:0,charge:0,fireRate:0,airDash:false};
+  function perksEnabled(rules) {
+    const mode=rules?.mode??rules;
+    return mode==='pve'||(mode==='pvp'&&rules?.pvpPerks===true);
+  }
+  function effects(stats,rules) {
+    if(!perksEnabled(rules))return {health:0,regen:0,speed:0,charge:0,fireRate:0,airDash:false};
     const result={airDash:stats?.airDash===true};
     if(stats?.grenadeRefill===true)result.grenadeRefill=true;
     for(const [key,info] of Object.entries(STATS))result[key]=Number.isFinite(stats?.[key])?Math.max(0,Math.min(info.cap,stats[key])):0;
     return result;
   }
   const formatStat=(key,value)=>`${Number(value.toFixed(3))}${STATS[key].unit}`;
-  function weaponInterval(base,stats,mode,rapidFire=false) {
-    return base/(1+effects(stats,mode).fireRate/100)/(mode==='pve'&&rapidFire?2:1);
+  function weaponInterval(base,stats,rules,rapidFire=false) {
+    return base/(1+effects(stats,rules).fireRate/100)/((rules?.mode??rules)==='pve'&&rapidFire?2:1);
   }
-  return {SLOTS,SLOT_NAMES,STATS,SETS,CATALOG,DASH,GRENADE_REFILL_MS,statsForItems,equippedItems,appearance,effects,formatStat,weaponInterval};
+  return {SLOTS,SLOT_NAMES,STATS,SETS,CATALOG,DASH,GRENADE_REFILL_MS,statsForItems,equippedItems,appearance,perksEnabled,effects,formatStat,weaponInterval};
 });

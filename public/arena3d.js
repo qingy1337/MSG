@@ -3,6 +3,8 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createMarioPipe } from './marioPipe.mjs';
 import { createAutoRifle, poseAutoRifleSkin, triggerAutoRifleSkin } from './autoRifle.mjs';
+import {ASHES_AND_DUST,ASH_BARREL_COUNT,ASH_BARREL_RADIUS,poseAshesAndDust} from './ashesAndDust.mjs';
+import {createCloudbreakBolt,CLOUDBREAK_BOLT_LENGTH} from './cloudbreakFlash.mjs';
 import {CLOUDBREAK, findCloudbreakParts, poseCloudbreak} from './cloudbreak.mjs';
 import { createPistol, PISTOL_MODEL_SCALE } from './pistol.mjs';
 import {createShotgun,poseShotgun,triggerShotgunChamber,shotgunMuzzleStyle,shotgunPelletColor} from './shotgun.mjs';
@@ -477,7 +479,7 @@ function floorMaterial(walls, areas = [], pve = false, zoneUniforms, palette = {
       reflectionBase:{value:new THREE.Color(palette.reflection||'#526b73')},
       reflectionGlow:{value:new THREE.Color(palette.reflectionGlow||'#2ed9e3')},
       groundStyle:{value:palette.groundStyle==='grass'?1:palette.groundStyle==='airport'?2:
-        palette.groundStyle==='candy'?3:0},
+        palette.groundStyle==='candy'?3:palette.groundStyle==='foundry'?4:0},
     },
     vertexShader: `varying vec3 point;
       void main() { vec4 p = modelMatrix * vec4(position, 1.0); point = p.xyz;
@@ -505,7 +507,16 @@ function floorMaterial(walls, areas = [], pve = false, zoneUniforms, palette = {
         vec2 grid = abs(fract(point.xz / 2.5 - 0.5) - 0.5) / max(fwidth(point.xz / 2.5), vec2(0.001));
         float seam = 1.0 - min(min(grid.x,grid.y),1.0);
         vec3 base = mix(floorLow,floorHigh,seam*0.48);
-        if(groundStyle>2.5) {
+        if(groundStyle>3.5) {
+          // Fireclay pavers in running bond. Filter the mortar at grazing angles.
+          vec2 brick=point.xz/vec2(1.24,.63);
+          brick.x+=mod(floor(brick.y),2.)*.5;
+          vec2 edge=min(fract(brick),1.-fract(brick));
+          vec2 aa=max(fwidth(point.xz/vec2(1.24,.63)),vec2(.003));
+          vec2 face=smoothstep(vec2(.012)-aa,vec2(.012)+aa,edge);
+          float fired=fract(sin(dot(floor(brick),vec2(19.43,26.17)))*1245.3);
+          base=mix(floorLow,floorHigh,.22+face.x*face.y*(.42+.20*fired));
+        } else if(groundStyle>2.5) {
           // Broad glazed floor panels give the candy works color and scale
           // without adding a second coplanar floor mesh.
           vec2 tile=abs(fract(point.xz/2.75)-.5);
@@ -515,9 +526,9 @@ function floorMaterial(walls, areas = [], pve = false, zoneUniforms, palette = {
           // The same washable tile changes its glaze with the work area:
           // pale receiving, warm cooking, cool moulding, then the service
           // floor. This stays in the ground shader, with no coplanar decals.
-          float wing=smoothstep(11.5,14.0,abs(point.x-17.5));
+          float wing=smoothstep(14.0,15.4,abs(point.x-4.5));
           vec3 station=mix(vec3(1.04,.99,.95),vec3(1.07,1.04,1.00),wing);
-          station=mix(station,vec3(.93,1.03,1.04),smoothstep(26.0,28.5,point.z));
+          station=mix(station,vec3(.93,1.03,1.04),smoothstep(10.75,12.15,point.z));
           base*=station;
         } else if(groundStyle>1.5) {
           // Large polished terrazzo tiles with fine aggregate and restrained
@@ -778,35 +789,44 @@ export class Arena3D {
       const exposedTop=map.roof===false||!map.ceiling||wallTop<map.ceiling-.01;
       const bodyHeight=wallHeight-(exposedTop?Math.min(.08,wallHeight*.1):0);
       wallGeometry.body.push(roundedGeometry(w,bodyHeight,d,wallCenter.x,wallBottom+bodyHeight/2,wallCenter.z,0.15));
+      if(orbital) {
+        // Dock curbs have a chamfered ceramic nose and one navigation lamp
+        // per bay. Pressure walls carry a dark service band on either face.
+        const alongX=w>=d,length=alongX?w:d,thickness=alongX?d:w;
+        wallGeometry.cap.push(roundedGeometry(w,.08,d,wallCenter.x,wallTop-.04,wallCenter.z,.025));
+        const bays=Math.max(1,Math.ceil(length/6));
+        for(const side of [-1,1])for(let i=0;i<bays;i++) {
+          const at=(i+.5)*length/bays-length/2;
+          const face=side*(thickness/2+.025);
+          wallGeometry.panel.push(roundedGeometry(alongX?length/bays-.12:.05,
+            wall.kind==='boundary'?.22:.63,alongX?.05:length/bays-.12,
+            wallCenter.x+(alongX?at:face),wallTop-.44,wallCenter.z+(alongX?face:at),.015));
+          const lamp=side*(thickness/2+.066);
+          wallGeometry.glow.push(roundedGeometry(alongX?.34:.025,.065,alongX?.025:.34,
+            wallCenter.x+(alongX?at:lamp),wallTop-.44,wallCenter.z+(alongX?lamp:at),.01));
+        }
+        continue;
+      }
       if(foundry) {
-        const horizontal=w>d,length=horizontal?w:d,thickness=horizontal?d:w;
-        const bays=Math.max(1,Math.min(8,Math.ceil(length/3.3))),pitch=length/bays;
-        // Broad framed steel bays repeat across both internal and boundary
-        // walls. Their visible layers sit clear of the solid face, avoiding
-        // coplanar panels and the generic arena's glowing wall stripes.
-        wallGeometry.cap.push(roundedGeometry(w-.025,.26,d-.025,wallCenter.x,wallBottom+.13,wallCenter.z,.03));
-        if(exposedTop)wallGeometry.cap.push(roundedGeometry(w-.025,.2,d-.025,wallCenter.x,wallTop-.1,wallCenter.z,.025));
+        // Clerestory bays run above a brick plinth. Tall mullions reach the
+        // roof trusses while the walls at player height stay quiet and flush.
+        const alongX=w>=d,length=alongX?w:d,thickness=alongX?d:w;
+        const bays=Math.max(1,Math.round(length/4.3)),pitch=length/bays;
         for(const sign of [-1,1]) {
-          const plateFace=sign*(thickness/2+.055),ribFace=sign*(thickness/2+.12),
-            copperFace=sign*(thickness/2+.19);
+          const face=(batch,at,y,span,height,depth,offset)=>{
+            const out=sign*(thickness/2+offset);
+            batch.push(roundedGeometry(alongX?span:depth,height,alongX?depth:span,
+              wallCenter.x+(alongX?at:out),y,wallCenter.z+(alongX?out:at),.012));
+          };
           for(let i=0;i<bays;i++) {
-            const along=(i+.5)*pitch-length/2;
-            wallGeometry.foundryPlate.push(roundedGeometry(horizontal?pitch-.22:.075,
-              Math.max(.4,wallHeight-1.25),horizontal?.075:pitch-.22,
-              wallCenter.x+(horizontal?along:plateFace),wallBottom+wallHeight/2,
-              wallCenter.z+(horizontal?plateFace:along),.025));
+            const at=(i+.5)*pitch-length/2;
+            face(wallGeometry.foundryPlate,at,wallTop-2.3,pitch-.12,3.5,.035,.024);
+            face(wallGeometry.foundryRib,at,wallTop-2.3,.055,3.52,.05,.074);
+            face(wallGeometry.foundryRib,at,wallTop-2.45,pitch-.10,.08,.035,.044);
+            face(wallGeometry.foundryRib,at-pitch/2+.05,wallTop/2,.12,wallTop-.14,.13,.075);
           }
-          for(let i=0;i<=bays;i++) {
-            const along=i*pitch-length/2;
-            wallGeometry.foundryRib.push(roundedGeometry(horizontal?.14:.09,
-              Math.max(.45,wallHeight-.48),horizontal?.09:.14,
-              wallCenter.x+(horizontal?along:ribFace),wallBottom+wallHeight/2,
-              wallCenter.z+(horizontal?ribFace:along),.02));
-          }
-          wallGeometry.foundryCopper.push(roundedGeometry(horizontal?Math.max(.1,length-.22):.035,
-            .045,horizontal?.035:Math.max(.1,length-.22),
-            wallCenter.x+(horizontal?0:copperFace),wallTop-.43,
-            wallCenter.z+(horizontal?copperFace:0),.008));
+          face(wallGeometry.foundryCopper,0,wallTop-4.12,length-.03,.17,.12,.069);
+          face(wallGeometry.panel,0,1.08,length-.02,2.12,.045,.029);
         }
         continue;
       }
@@ -850,9 +870,9 @@ export class Arena3D {
     const wallCaps=mergedMesh(wallGeometry.cap,cap);
     const wallPanels=mergedMesh(wallGeometry.panel,panel);
     const wallGlow=mergedMesh(wallGeometry.glow,glow,{receiveShadow:false});
-    const foundryPlate=mergedMesh(wallGeometry.foundryPlate,foundry?this.material('#bccbb8',.48,.48):null);
-    const foundryRib=mergedMesh(wallGeometry.foundryRib,foundry?this.material('#81988d',.58,.4):null);
-    const foundryCopper=mergedMesh(wallGeometry.foundryCopper,foundry?this.material('#e4b77e',.52,.42):null);
+    const foundryPlate=mergedMesh(wallGeometry.foundryPlate,foundry?new THREE.MeshStandardMaterial({color:'#c8e4db',emissive:'#8ab4a8',emissiveIntensity:.48,roughness:.42}):null);
+    const foundryRib=mergedMesh(wallGeometry.foundryRib,foundry?this.material('#45605b',.55,.48):null);
+    const foundryCopper=mergedMesh(wallGeometry.foundryCopper,foundry?this.material('#bb946e',.5,.48):null);
     for(const mesh of [wallBody,wallCaps,wallPanels,wallGlow,
       foundryPlate,foundryRib,foundryCopper])
       if(mesh)this.stage.add(mesh);
@@ -926,7 +946,7 @@ export class Arena3D {
       if(mesh)this.stage.add(mesh);
     }
     if(map.ceiling&&map.roof!==false&&!strike) {
-      const ceilingMat=this.material(candy?'#ead5b2':foundry?'#bacbb8':tower?'#858d96':'#b5c7c6',
+      const ceilingMat=this.material(candy?'#ead5b2':foundry?'#cfccb6':tower?'#858d96':'#b5c7c6',
         candy?.28:foundry ? .42 : tower ? .48 : .12,
         candy?.35:foundry ? .62 : tower ? .6 : .8);
       for(const rectangle of floorRectangles) {
@@ -935,12 +955,10 @@ export class Arena3D {
       }
       // Broad emissive luminaires and inset beams; no costly per-fixture lights.
       const whiteLamp=new THREE.MeshBasicMaterial({color:'#f6ffed'});
-      const foundryLamp=new THREE.MeshBasicMaterial({color:'#fff0ca'});
-      for(let x=240;!pve&&!candy&&x<map.width;x+=300) for(let y=180;y<map.height;y+=300) {
+      for(let x=240;!pve&&!candy&&!foundry&&x<map.width;x+=300) for(let y=180;y<map.height;y+=300) {
         if(map.floorRects&&!map.floorRects.some(rect=>x>=rect.x&&x<=rect.x+rect.width&&y>=rect.y&&y<=rect.y+rect.height))continue;
         const p=world(x,y,map.ceiling-0.08);
-        const lamp=foundry?foundryLamp:whiteLamp;
-        this.box(this.stage,foundry?2.8:4,foundry?.055:.07,foundry?.5:.7,p.x,p.y,p.z,lamp);
+        this.box(this.stage,4,.07,.7,p.x,p.y,p.z,whiteLamp);
       }
       for(let y=120;!map.floorRects&&y<map.height;y+=360) {
         const p=world(map.width/2,y,map.ceiling-0.15);
@@ -1087,7 +1105,7 @@ export class Arena3D {
     }
     if(dread)mergeRigidMeshes(weapon);
     else if(player.weapon!=='shotgun')for(const child of [...weapon.children])if(child.isGroup)mergeRigidMeshes(child);
-    if (skin?.key !== CLOUDBREAK) this.box(weapon, 0.13, 0.23, 0.16, 0.27, 1.18, -0.57, undersuit, 0.02);
+    if (skin?.key !== CLOUDBREAK && skin?.key !== ASHES_AND_DUST) this.box(weapon, 0.13, 0.23, 0.16, 0.27, 1.18, -0.57, undersuit, 0.02);
     if (player.weapon === 'sniper' && !marioPipe && !['sniper_calibrated','sniper_flatpack','sniper_kintsugi'].includes(skin?.key)) this.box(weapon, 0.16, 0.15, 0.35, 0.27, 1.52, -0.85, visor, 0.05);
     mergeRigidMeshes(weapon);
     if (player.id === localId) {
@@ -1145,9 +1163,13 @@ export class Arena3D {
     record.muzzleFlash.position.set(0.27, 1.34 + muzzleLength * heavyWeaponMuzzleYOffset(skin?.key),
       -0.45 - muzzleLength * heavyWeaponMuzzleDepth(skin?.key));
     if(dread)record.muzzleFlash.position.set(.27,1.37,-1.72);
-    if (player.weapon === 'miniGun'&&!['miniGun_midas','miniGun_crimson_guard'].includes(skin?.key)) record.muzzleFlash.position.x += length * 0.125;
+    if (player.weapon === 'miniGun'&&!['miniGun_midas','miniGun_crimson_guard',ASHES_AND_DUST].includes(skin?.key)) record.muzzleFlash.position.x += length * 0.125;
     record.muzzleBaseX=record.muzzleFlash.position.x;
     record.muzzleBaseY=record.muzzleFlash.position.y;
+    if(skin?.key===ASHES_AND_DUST){
+      record.ashModel=weapon.getObjectByName('Ashes & Dust');
+      record.muzzleBarrelOffset=length*ASH_BARREL_RADIUS;
+    }
     if(skin?.key==='miniGun_crimson_guard')record.muzzleBarrelOffset=length*0.069;
     (ogreModel||guardianModel?group:weapon).add(record.muzzleFlash);
     this.characters.set(player.id, record); return record;
@@ -1201,7 +1223,7 @@ export class Arena3D {
       this.box(this.viewWeapon, 0.12, 0.14, length, 0.23, -0.2, -0.32 - length / 2, metal, 0.025);
     }
     if(player.weapon!=='shotgun')for(const child of [...this.viewWeapon.children])if(child.isGroup)mergeRigidMeshes(child);
-    if (skin?.key !== CLOUDBREAK) this.box(this.viewWeapon, 0.09, 0.22, 0.13, 0.23, -0.31, -0.43, grip, 0.025);
+    if (skin?.key !== CLOUDBREAK && skin?.key !== ASHES_AND_DUST) this.box(this.viewWeapon, 0.09, 0.22, 0.13, 0.23, -0.31, -0.43, grip, 0.025);
     this.box(this.viewWeapon, 0.12, 0.14, 0.17, 0.23, -0.31, -0.37, glove, 0.035);
     this.box(this.viewWeapon, 0.14, 0.15, 0.38, 0.23, -0.36, -0.15, grip, 0.045);
     if (player.weapon !== 'pistol') {
@@ -1216,10 +1238,14 @@ export class Arena3D {
     this.viewMuzzleFlash.position.set(0.23,
       -0.2 + heavyWeaponViewYOffset(skin?.key) + muzzleLength * heavyWeaponMuzzleYOffset(skin?.key),
       -0.32 - muzzleLength * heavyWeaponMuzzleDepth(skin?.key));
-    if (player.weapon === 'miniGun'&&!['miniGun_midas','miniGun_crimson_guard'].includes(skin?.key)) this.viewMuzzleFlash.position.x += length * 0.125;
+    if (player.weapon === 'miniGun'&&!['miniGun_midas','miniGun_crimson_guard',ASHES_AND_DUST].includes(skin?.key)) this.viewMuzzleFlash.position.x += length * 0.125;
     this.viewMuzzleState={weaponSkinKey:skin?.key,muzzleBaseX:this.viewMuzzleFlash.position.x,
       muzzleBaseY:this.viewMuzzleFlash.position.y,
       muzzleBarrelOffset:length*(skin?.key==='miniGun_crimson_guard'?0.069:0.062)};
+    if(skin?.key===ASHES_AND_DUST){
+      this.viewMuzzleState.ashModel=this.viewWeapon.getObjectByName('Ashes & Dust');
+      this.viewMuzzleState.muzzleBarrelOffset=length*ASH_BARREL_RADIUS;
+    }
     this.viewWeapon.add(this.viewMuzzleFlash);
   }
 
@@ -1227,11 +1253,13 @@ export class Arena3D {
     this.minigunTriggerHeld=!!held;
   }
 
-  positionCrimsonMuzzle(flash,state,weapon) {
-    if(state?.weaponSkinKey!=='miniGun_crimson_guard')return;
-    const rotor=weapon.getObjectByName('guard-rotating-barrels');
-    const barrel=(state.crimsonShotIndex=(state.crimsonShotIndex??-1)+1)%5;
-    const angle=barrel*Math.PI*2/5+(rotor?.rotation.z||0);
+  positionRotaryMuzzle(flash,state,weapon) {
+    const ash=state?.ashModel;
+    if(!ash && state?.weaponSkinKey!=='miniGun_crimson_guard')return;
+    const rotor=ash?ash.getObjectByName('ash-rotating-barrels'):weapon.getObjectByName('guard-rotating-barrels');
+    const count=ash?ASH_BARREL_COUNT:5;
+    const barrel=(state.rotaryShotIndex=(state.rotaryShotIndex??-1)+1)%count;
+    const angle=barrel*Math.PI*2/count+(rotor?.rotation.z||0);
     flash.position.x=state.muzzleBaseX+Math.cos(angle)*state.muzzleBarrelOffset;
     flash.position.y=state.muzzleBaseY+Math.sin(angle)*state.muzzleBarrelOffset;
   }
@@ -1239,10 +1267,11 @@ export class Arena3D {
   triggerWeaponFlash(flash,state,shot) {
     const style=shotgunMuzzleStyle(state?.weaponSkinKey,shot.shotgunBarrel);
     flash.position.x=(state?.muzzleBaseX??flash.position.x)+(style?.barrel||0)*(state?.muzzleBarrelOffset||0);
-    const skinColor=state?.weaponSkinKey==='pistol_pocket_dragon'?'#ff8426':
+    const skinColor=shot.ashEmpowered?'#fff1bd':state?.ashModel?'#ffac48':state?.weaponSkinKey==='pistol_pocket_dragon'?'#ff8426':
       state?.weaponSkinKey==='autoRifle_thunderbird'?'#ffe26d':
       ['sniper_kintsugi','pistol_kintsugi'].includes(state?.weaponSkinKey)?'#ffc857':null;
     triggerMuzzleFlash(flash,Math.random,state?.dread?'#ff263f':style?.color||skinColor);
+    if(shot.ashEmpowered && state?.ashModel)flash.children[0].scale.multiplyScalar(1.65);
   }
 
   weaponSwitched(playerId) {
@@ -1382,8 +1411,55 @@ export class Arena3D {
     item={group,line,spark};this.tracerPool.push(item);return item;
   }
 
+  poseAfterburnTracer(tracer,start,end) {
+    if(!tracer.ember) {
+      const geometry=new THREE.CylinderGeometry(.024,.048,1,6,1,true);
+      geometry.rotateX(Math.PI/2);
+      tracer.ember=new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({
+        color:0xff842b,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false
+      }));
+      tracer.group.add(tracer.ember);
+    }
+    const ember=tracer.ember;
+    ember.position.copy(start).lerp(end,.5);
+    ember.visible=start.distanceToSquared(end)>1e-8;
+    if(ember.visible) {
+      ember.lookAt(end);ember.scale.z=start.distanceTo(end);
+      ember.material.opacity=.9;
+    }
+  }
+
+  showCloudbreakChain(shot) {
+    let start=world(shot.endX,shot.endY,shot.endHeight);
+    for(const target of shot.cloudbreakChain) {
+      const end=world(target.x,target.y,target.height),delta=end.clone().sub(start);
+      const length=delta.length();
+      if(length>.001) {
+        const tracer=this.acquireTracer();
+        if(!tracer.bolt) {
+          tracer.bolt=createCloudbreakBolt(true);
+          tracer.group.add(tracer.bolt);
+        }
+        const bolt=tracer.bolt;
+        bolt.position.copy(start);
+        bolt.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,-1),delta.divideScalar(length));
+        bolt.rotateZ(shot.bulletId*2.4+target.x);
+        bolt.scale.set(length*.065,length*.065,length/CLOUDBREAK_BOLT_LENGTH);
+        bolt.morphTargetInfluences[0]=(shot.bulletId%7)/7;
+        bolt.visible=true;bolt.material.opacity=1;tracer.line.visible=false;
+        if(tracer.ember)tracer.ember.visible=false;
+        tracer.spark.position.copy(end);tracer.spark.scale.setScalar(.8);
+        tracer.spark.material.color.setHex(0xbcf1ff);tracer.spark.material.opacity=1;
+        tracer.group.visible=true;
+        this.effects.push({group:tracer.group,time:.16,duration:.16,tracer});
+      }
+      start=end;
+    }
+  }
+
   releaseTracer(item) {
-    item.group.visible=false;
+    item.group.visible=false;item.line.visible=true;
+    if(item.bolt)item.bolt.visible=false;
     if(!this.freeTracers.includes(item))this.freeTracers.push(item);
   }
 
@@ -1394,19 +1470,6 @@ export class Arena3D {
     const skinKey=shot.weaponSkinKey||character?.weaponSkinKey||
       (shot.playerId===viewId?this.viewMuzzleState?.weaponSkinKey:null);
     const barrelStyle=shotgunMuzzleStyle(skinKey,shot.shotgunBarrel);
-    for(const pellet of shot.pellets||[shot]) {
-    const start = world(pellet.x, pellet.y, pellet.height ?? 1.84), end = world(pellet.endX, pellet.endY, pellet.endHeight ?? 1.84);
-    const pelletColor=dread?0xff253d:skinKey==='autoRifle_thunderbird'?0xffd84d:
-      ['sniper_kintsugi','pistol_kintsugi'].includes(skinKey)?0xf2b94f:
-      shotgunPelletColor(skinKey,shot.shotgunBarrel,pellet.hit==='player');
-    const tracer=this.acquireTracer(),positions=tracer.line.geometry.attributes.position;
-    positions.setXYZ(0,start.x,start.y,start.z);positions.setXYZ(1,end.x,end.y,end.z);positions.needsUpdate=true;
-    tracer.line.material.color.setHex(pelletColor);tracer.line.material.opacity=.9;
-    tracer.spark.material.color.set(dread?0xff4053:skinKey==='autoRifle_thunderbird'?0xffe26d:
-      (barrelStyle?.color||0xffdfaa));tracer.spark.material.opacity=1;
-    tracer.spark.position.copy(end);tracer.group.visible=true;
-    this.effects.push({group:tracer.group,time:.11,duration:.11,tracer});
-    }
     const pistolShot=character?.weaponKey==='pistol'||
       (shot.playerId===viewId&&this.viewWeaponKey?.startsWith('pistol:'));
     if (character) { character.recoil = shot.pellets?Math.min(0.4,(character.recoil||0)+0.22):pistolShot?0.18:0.13;character.shotAt=this.renderTime;
@@ -1414,13 +1477,39 @@ export class Arena3D {
       triggerHeavyWeaponSkin(character.weapon,this.renderTime);
       if(character.weaponSkinKey==='autoRifle_thunderbird')triggerAutoRifleSkin(character.weapon,this.renderTime);
       this.triggerWeaponFlash(character.muzzleFlash,character,shot);
-      this.positionCrimsonMuzzle(character.muzzleFlash,character,character.weapon); }
+      this.positionRotaryMuzzle(character.muzzleFlash,character,character.weapon); }
     if (shot.playerId === viewId&&this.viewMuzzleFlash) { this.weaponRecoil = shot.pellets?Math.min(0.36,(this.weaponRecoil||0)+0.2):pistolShot?0.16:0.1;this.viewShotAt=this.renderTime;
       if(shot.pellets)triggerShotgunChamber(this.viewWeapon,shot.shotgunBarrel,this.renderTime);
       triggerHeavyWeaponSkin(this.viewWeapon,this.renderTime);
       if(this.viewMuzzleState?.weaponSkinKey==='autoRifle_thunderbird')triggerAutoRifleSkin(this.viewWeapon,this.renderTime);
       this.triggerWeaponFlash(this.viewMuzzleFlash,this.viewMuzzleState,shot);
-      this.positionCrimsonMuzzle(this.viewMuzzleFlash,this.viewMuzzleState,this.viewWeapon); }
+      this.positionRotaryMuzzle(this.viewMuzzleFlash,this.viewMuzzleState,this.viewWeapon); }
+    for(const pellet of shot.pellets||[shot]) {
+      const start = world(pellet.x, pellet.y, pellet.height ?? 1.84), end = world(pellet.endX, pellet.endY, pellet.endHeight ?? 1.84);
+      if(shot.ashEmpowered) {
+        if(shot.playerId===viewId && this.viewMuzzleState?.ashModel) {
+          this.viewMuzzleFlash.getWorldPosition(start);
+          // Match the projected muzzle across the separate weapon and world cameras.
+          const scale=this.viewCamera.projectionMatrix.elements[5]/this.camera.projectionMatrix.elements[5];
+          start.x*=scale;start.y*=scale;
+          this.camera.localToWorld(start);
+        } else if(character?.ashModel)character.muzzleFlash.getWorldPosition(start);
+      }
+      const pelletColor=shot.ashEmpowered?0xfff4cd:dread?0xff253d:skinKey===ASHES_AND_DUST?0xffa14b:skinKey==='autoRifle_thunderbird'?0xffd84d:
+        ['sniper_kintsugi','pistol_kintsugi'].includes(skinKey)?0xf2b94f:
+        shotgunPelletColor(skinKey,shot.shotgunBarrel,pellet.hit==='player');
+      const tracer=this.acquireTracer(),positions=tracer.line.geometry.attributes.position;
+      positions.setXYZ(0,start.x,start.y,start.z);positions.setXYZ(1,end.x,end.y,end.z);positions.needsUpdate=true;
+      tracer.line.material.color.setHex(pelletColor);tracer.line.material.opacity=.9;
+      if(shot.ashEmpowered)this.poseAfterburnTracer(tracer,start,end);
+      else if(tracer.ember)tracer.ember.visible=false;
+      tracer.spark.scale.setScalar(shot.ashEmpowered?1.8:1);
+      tracer.spark.material.color.set(shot.ashEmpowered?0xffaa42:dread?0xff4053:skinKey==='autoRifle_thunderbird'?0xffe26d:
+        (barrelStyle?.color||0xffdfaa));tracer.spark.material.opacity=1;
+      tracer.spark.position.copy(end);tracer.group.visible=true;
+      this.effects.push({group:tracer.group,time:.11,duration:.11,tracer});
+    }
+    if(shot.cloudbreakChain?.length)this.showCloudbreakChain(shot);
   }
 
   setMissionState(state) {
@@ -1539,7 +1628,7 @@ export class Arena3D {
     }
   }
 
-  render(players, localId, dt, pitch = 0) {
+  render(players, localId, dt, pitch = 0, serverNow = Date.now()) {
     this.renderTime+=dt;this.shadowElapsed+=dt;
     // Ten shadow updates per second remain visually smooth while halving the
     // most expensive multi-pass work.
@@ -1639,6 +1728,9 @@ export class Arena3D {
       if (c.cloudbreak) poseCloudbreak(c.cloudbreak, this.renderTime, this.renderTime - (c.shotAt ?? -10));
       poseHeavyWeaponSkin(c.weapon,this.renderTime);
       if(c.weaponSkinKey==='autoRifle_thunderbird')poseAutoRifleSkin(c.weapon,this.renderTime);
+      if(c.ashModel)poseAshesAndDust(c.ashModel,dt,player.alive&&
+        (player.id===localId?this.minigunTriggerHeld:this.renderTime-(c.shotAt??-10)<0.22),
+        player.ashCharge,player.ashUntil?(player.ashUntil-serverNow)/AFTERBURN_DURATION_MS:0);
       if(c.weaponSkinKey==='miniGun_crimson_guard')poseMinigunRotor(c.weapon,dt,
         player.id===localId?this.minigunTriggerHeld:this.renderTime-(c.shotAt??-10)<0.22);
       c.group.visible = !!player.alive && player.id !== viewed?.id;
@@ -1654,7 +1746,7 @@ export class Arena3D {
       c.group.position.copy(characterPosition);c.group.rotation.y=characterRotation;
       c.group.rotation.z=motion.sway;
       if(c.dashWake) {
-        c.dashWake.visible=this.mapConfig.mode==='pve'&&(player.dashRemaining||0)>0;
+        c.dashWake.visible=(player.dashRemaining||0)>0;
         if(c.dashWake.visible) {
           c.dashWake.rotation.y=-Math.atan2(player.dashY||0,player.dashX||0)-Math.PI/2-characterRotation;
           c.dashWake.scale.z=.65+.35*Math.min(1,player.dashRemaining/.06);
@@ -1769,6 +1861,9 @@ export class Arena3D {
       if (this.viewCloudbreak) poseCloudbreak(this.viewCloudbreak, this.renderTime, this.renderTime - (this.viewShotAt ?? -10));
       poseHeavyWeaponSkin(this.viewWeapon,this.renderTime);
       if(this.viewMuzzleState?.weaponSkinKey==='autoRifle_thunderbird')poseAutoRifleSkin(this.viewWeapon,this.renderTime);
+      if(this.viewMuzzleState?.ashModel)poseAshesAndDust(this.viewMuzzleState.ashModel,dt,
+        viewed.id===localId?this.minigunTriggerHeld:this.renderTime-(this.viewShotAt??-10)<0.22,
+        viewed.ashCharge,viewed.ashUntil?(viewed.ashUntil-serverNow)/AFTERBURN_DURATION_MS:0);
       if(this.viewWeaponKey==='miniGun:miniGun_crimson_guard')poseMinigunRotor(this.viewWeapon,dt,
         viewed.id===localId?this.minigunTriggerHeld:this.renderTime-(this.viewShotAt??-10)<0.22);
       this.weaponRecoil = Math.max(0, this.weaponRecoil - dt);

@@ -598,17 +598,11 @@ test('Candy Factory renders colorful machinery, accurate solids, and live belts'
   const fixtures=map.terrain.filter(s=>s.kind.startsWith('candy')||
     s.kind==='ramp'||s.kind==='rail'||s.kind==='candyConveyor');
   const models=fixtures.map(createTerrainModel);
-  assert.equal(models.filter(model=>model.name==='candy-packing-gallery').length,2);
+  assert.equal(models.filter(model=>model.name==='candy-packing-gallery').length,1);
   assert.equal(models.filter(model=>model.name==='candy-enclosed-stair').length,2);
-  assert.equal(models.filter(model=>model.name==='candy-gallery-guard').length,4);
-  for(const name of ['candy-ingredient-bank','candy-syrup-cooker','candy-mould-depositor',
-    'candy-cooling-enclosure','candy-line-control-booth','candy-mould-rack','candy-receiving-shutter',
-    'candy-roof-truss','candy-process-wayfinding'])
+  assert.equal(models.filter(model=>model.name==='candy-gallery-guard').length,1);
+  for(const name of ['candy-syrup-cooker','candy-mould-depositor','candy-cooling-enclosure','candy-receiving-shutter'])
     assert.ok(models.some(model=>model.name===name),`${name} has a dedicated model`);
-  const mixer=models.find(model=>model.name==='candy-syrup-mixer');
-  assert.ok(mixer&&typeof mixer.userData.update==='function');
-  const paddle=mixer.children.find(child=>child.isGroup),initialPaddleYaw=paddle.rotation.y;
-  mixer.userData.update(2);assert.notEqual(paddle.rotation.y,initialPaddleYaw);
   const cooker=models.find(model=>model.name==='candy-syrup-cooker');
   const stirrer=cooker.children.find(child=>child.isGroup),stirrerYaw=stirrer.rotation.y;
   cooker.userData.update(2);assert.notEqual(stirrer.rotation.y,stirrerYaw);
@@ -623,7 +617,7 @@ test('Candy Factory renders colorful machinery, accurate solids, and live belts'
     const materials=Array.isArray(object.material)?object.material:[object.material];
     for(const value of materials)if(value?.color)colors.add(`#${value.color.getHexString()}`);
   });
-  assert.ok(colors.has('#d59768')&&colors.has('#f0d7b0')&&colors.has('#7bc6b5'),
+  assert.ok(colors.has('#d59768')&&colors.has('#f0d7b0')&&colors.has('#427574'),
     'terracotta, ivory, and teal are actual architecture materials');
   for(const [index,solid] of fixtures.entries()) {
     if(solid.collisionOnly)continue;
@@ -645,7 +639,7 @@ test('Candy Factory renders colorful machinery, accurate solids, and live belts'
     }
   }
   const conveyors=models.filter(model=>model.name==='candy-moving-belt');
-  assert.equal(conveyors.length,3);
+  assert.equal(conveyors.length,1);
   for(const conveyor of conveyors) {
     const markers=conveyor.getObjectByName('candy-conveyor-markers');
     assert.ok(markers?.isInstancedMesh&&markers.count===10);
@@ -668,11 +662,11 @@ test('Candy Factory architecture preserves physical openings and wall bounds',()
       [b.max.z,(wall.y+wall.height-300)*.05],[b.min.y,wall.bottom||0],[b.max.y,wall.top]])
       assert.ok(Math.abs(actual-expected)<1e-5,'visible masonry agrees with collision');
   }
-  const rayAt=(y,height)=>new THREE.Raycaster(new THREE.Vector3(0,height,(y-300)*.05),
-    new THREE.Vector3(1,0,0),0,20).intersectObject(model,true);
+  const rayAt=(y,height)=>new THREE.Raycaster(new THREE.Vector3((210-450)*.05,height,(y-300)*.05),
+    new THREE.Vector3(1,0,0),0,3).intersectObject(model,true);
   assert.equal(rayAt(410,1.84).length,0,'lower production doorway stays visually open');
-  assert.equal(rayAt(350,7.64).length,0,'observation opening stays visually open');
-  assert.ok(rayAt(440,7.64).length,'the adjacent upper wall is visually solid');
+  assert.equal(rayAt(410,3.9).length,0,'receiving doorway has clearance below its lintel');
+  assert.ok(rayAt(410,7.64).length,'the adjacent upper wall is visually solid');
   assert.ok(model.getObjectByName('candy-batch-clock'));
   model.traverse(o=>{
     if(o.geometry)assert.ok(Array.from(o.geometry.attributes.position.array).every(Number.isFinite));

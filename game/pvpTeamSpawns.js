@@ -6,6 +6,15 @@ const {MOVEMENT}=require('../public/movement');
 // position keeps its authored elevation and enough clearance for a player.
 function pvpTeamSpawns(map,walls,players,teams) {
   const solids=[...walls,...(map.terrain||[])];
+  const roster=['blue','red'].map(team=>players.filter(p=>teams.get(p.id)===team));
+  // The authored pairs start at corresponding doors on the same floor. Picking
+  // the farthest diagonal instead can put just one team on a raised bridge.
+  if(map.pairedTeamStarts&&roster.every(list=>2*list.length<=map.spawns.length)) {
+    const plan=new Map();
+    roster.forEach((list,side)=>list.forEach((player,index)=>
+      plan.set(player.id,{...map.spawns[2*index+side]})));
+    return plan;
+  }
   let candidates=[...(map.spawns||[])];
   if(candidates.length<players.length)
     candidates.push(...derivePvpSpawns(map,walls,24));
@@ -17,7 +26,6 @@ function pvpTeamSpawns(map,walls,players,teams) {
   }
   if(!anchors)return null;
   const result=new Map(),placed=[];
-  const roster=['blue','red'].map(team=>players.filter(p=>teams.get(p.id)===team));
   for(let index=0;index<Math.max(...roster.map(list=>list.length));index++) {
     for(const list of roster) {
       const player=list[index];if(!player)continue;

@@ -303,9 +303,16 @@ function withinPlayableFootprint(map,x,y,radius=0) {
   return polygonClearance(map.floorPolygon,x,y)<=-Math.max(0,radius-.1);
 }
 
+// A dock supports a capsule while any of its footprint still rests on a floor slab.
+function hasGroundFloor(map,x,y,radius=0) {
+  if(!map.floorHasGaps)return true;
+  return map.floorRects.some(r=>Math.hypot(Math.max(r.x-x,0,x-r.x-r.width),
+    Math.max(r.y-y,0,y-r.y-r.height))<=radius);
+}
+
 // Landing support uses the same footprint as side collision. A character whose
 // feet overlap a ledge must not fall through it just because its centre is outside.
-function supportHeight(x, y, footHeight, solids, allowance = 0.001) {
+function supportHeight(x, y, footHeight, solids, allowance = 0.001, baseFloor = 0) {
   // An authored floor/ramp is the intended support for an interior layer.
   // While stepping along it, the climb allowance can also make the broad
   // landscape above the room look reachable. Prefer the explicit layer so a
@@ -327,7 +334,7 @@ function supportHeight(x, y, footHeight, solids, allowance = 0.001) {
         centeredRamp=Math.max(centeredRamp,height);
     }
   }
-  let floor=0;
+  let floor=baseFloor;
   for(const s of solids) {
     if(s.kind==='ceilingPanel'||s.nonSolid)continue;
     if(horizontalClearance(s,x,y)>=15.9)continue;
@@ -395,7 +402,9 @@ function moveOnTerrain(player, x, y, map, solids, now) {
       if(projected){nx=projected.x;ny=projected.y;}
     }
     if(!withinPlayableFootprint(map,nx,ny,radius))return false;
-    const floor = supportHeight(nx,ny,foot,nearby,allowance);
+    const onGroundSlab=hasGroundFloor(map,nx,ny,radius);
+    if(map.floorHasGaps&&onGroundSlab&&foot<-.1)return false;
+    const floor=supportHeight(nx,ny,foot,nearby,allowance,onGroundSlab?0:-30);
     if ((player.botType==='ogre'||player.botType==='guardian') && Math.max(collisionFoot,floor+(player.hoverOffset||0))+player.bodyHeight>(map.ceiling||Infinity)) return false;
     const testFoot=(grounded&&onRamp?Math.max(foot,floor):foot)+(player.hoverOffset||0);
     if (!canOccupy(nx, ny, testFoot, nearby,radius,allowance,player.bodyHeight||2.2)) {
@@ -520,11 +529,15 @@ function createPvpMap(seed, mapId, excludeId) {
   return layout;
 }
 
-function regeneratePlayers(players, seconds, mode='pve') {
+function regeneratePlayers(players, seconds, rules='pve') {
   const armor=typeof module!=='undefined'&&module.exports?require('./armor'):ARMOR;
-  for (const p of players) if (p.alive && !p.isBot)
-    p.health = Math.min(p.maxHealth ?? 101, p.health + (5+armor.effects(p.armorStats,mode).regen) * seconds);
+  const mode=rules?.mode??rules;
+  const baseline=mode==='pve'||mode==='strike'||rules?.activity==='strike'?5:0;
+  for (const p of players) if (p.alive && !p.isBot) {
+    const rate=baseline+armor.effects(p.armorStats,rules).regen;
+    if(rate>0)p.health=Math.min(p.maxHealth??101,p.health+rate*seconds);
+  }
 }
 
 if (typeof module !== 'undefined' && module.exports)
-  module.exports = { DEFAULT_MAP, IMPACT_MOTION, CARGO_LIFT_TIMING, sampleHeightfield, surfaceHeight, walkingHeight, bottomHeight, rampStepAllowance, horizontalClearance, cargoLiftSample, updateCargoLifts, conveyorVelocityAt, advanceConveyor, groundHeight, ceilingHeightAt, authoredSupportAt, supportHeight, canOccupy, movementBoundsAt, withinPlayableFootprint, moveOnTerrain, addKnockbackImpulse, advanceKnockback, createPveMap, createPvpMap, regeneratePlayers };
+  module.exports = { DEFAULT_MAP, IMPACT_MOTION, CARGO_LIFT_TIMING, sampleHeightfield, surfaceHeight, walkingHeight, bottomHeight, rampStepAllowance, horizontalClearance, cargoLiftSample, updateCargoLifts, conveyorVelocityAt, advanceConveyor, groundHeight, ceilingHeightAt, authoredSupportAt, supportHeight, canOccupy, movementBoundsAt, withinPlayableFootprint, hasGroundFloor, moveOnTerrain, addKnockbackImpulse, advanceKnockback, createPveMap, createPvpMap, regeneratePlayers };

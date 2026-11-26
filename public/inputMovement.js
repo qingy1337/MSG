@@ -4,7 +4,7 @@ function applyMovementInput(player,input,map,solids,now,cabin=null) {
   const terrain=typeof module!=='undefined'&&module.exports?require('./arenaMap'):{moveOnTerrain,canOccupy,advanceConveyor};
   const armor=typeof module!=='undefined'&&module.exports?require('./armor'):ARMOR;
   if(!player.alive)return;
-  const bonuses=armor.effects(player.armorStats,map.mode);
+  const bonuses=armor.effects(player.armorStats,map);
   const speed=movement.MOVEMENT.speed*(1+bonuses.speed/100);
   const startX=player.x,startY=player.y;
   if(cabin) {

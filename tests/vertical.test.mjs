@@ -77,7 +77,7 @@ test('PvE lighting follows architecture with a fixed budget and clear ceiling fi
     'ordinary PvP maps retain their ambient lighting');
 });
 
-test('Foundry lanterns light the room beneath the wide upper floor',()=>{
+test('Foundry lanterns light the charging bays and overhead fixtures serve the galleries',()=>{
   const {map,walls}=maps.createPvpMap(0,'foundry'),plan=planAreaLighting(map,walls);
   assert.equal(plan.length,6);
   assert.equal(plan.filter(p=>p.kind.startsWith('foundry-lantern')).length,4);

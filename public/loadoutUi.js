@@ -14,7 +14,8 @@
       return keys.flatMap(weaponKey => (skins[weaponKey] || []).map(skin => ({
         id:skin.key,key:skin.key,kind:'weapon',slot,weaponKey,
         name:skin.name === 'Default' ? weapons[weaponKey].name : skin.name,
-        type:weapons[weaponKey].name,description:skin.isDefault ? weapons[weaponKey].description : skin.description,
+        type:skin.rarity === 'exotic' ? `Exotic · ${weapons[weaponKey].name}` : weapons[weaponKey].name,
+        rarity:skin.rarity,description:skin.isDefault ? weapons[weaponKey].description : skin.description,
         owned:!!skin.isDefault || !!user?.skins?.owned?.includes(skin.key),price:skin.price || 0,
       })));
     }
@@ -131,10 +132,10 @@
         button.classList.toggle('is-empty',item?.kind==='none');
         button.classList.toggle('is-exotic',item?.rarity==='exotic');
         button.dataset.itemId = item?.id || '';
-        button.setAttribute('aria-label',`${SLOT_LABELS[slot]}: ${item?.name || 'Unequipped'}. Choose equipment.`);
+        button.setAttribute('aria-label',`${SLOT_LABELS[slot]}: ${item?.name || 'Unequipped'}${item?.rarity==='exotic'?', exotic':''}. Choose equipment.`);
       }
       const stats = armor.statsForItems(armor.equippedItems(getUser()?.armor));
-      statline.replaceChildren(el('strong','','PvE bonuses'));
+      statline.replaceChildren(el('strong','','Armor bonuses'));
       let count=0;
       for (const key of Object.keys(armor.STATS)) if (stats[key]) {
         const entry=el('span'); entry.append(el('b','',`+${armor.formatStat(key,stats[key])}`),el('span','',armor.STATS[key].name));
@@ -142,8 +143,7 @@
       }
       if (stats.airDash) { statline.append(el('span','','Shift · Air dash')); count++; }
       if (stats.grenadeRefill) { statline.append(el('span','',`Grenades refill every ${armor.GRENADE_REFILL_MS/1000}s`)); count++; }
-      if (!count) statline.append(el('span','','Equip armor to add bonuses. Appearance carries into PvP.'));
-      else statline.append(el('span','','Appearance only in PvP'));
+      if (!count) statline.append(el('span','','Equip armor for bonuses in PvE and perk-enabled PvP.'));
       thumbnails(root);
     }
     function renderGrid() {
@@ -151,7 +151,28 @@
       const focusId = doc.activeElement?.dataset?.itemId;
       grid.replaceChildren(); tileButtons.clear();
       const current = equipped(activeSlot);
+      const grouped = activeSlot === 'primary';
+      const columns = grouped ? 6 : 4;
+      const rows = [];
+      let list = grid, weaponKey, row;
+      picker.classList.toggle('has-weapon-groups',grouped);
+      grid.setAttribute('role',grouped ? 'group' : 'list');
+      grid.style.setProperty('--gear-columns', String(columns));
       for (const item of choices(activeSlot)) {
+        if (grouped && item.weaponKey !== weaponKey) {
+          weaponKey = item.weaponKey;
+          const section = el('div','gear-family');
+          const heading = el('h4','gear-family-title',weapons[weaponKey].name);
+          heading.id = `gear-family-${weaponKey}`;
+          list = el('div','gear-family-tiles');
+          list.setAttribute('role','list');
+          list.setAttribute('aria-labelledby',heading.id);
+          section.append(heading,list);
+          grid.append(section);
+          row = null;
+        }
+        if (!row || row.length === columns) { row = []; rows.push(row); }
+        const rowIndex = rows.length - 1, columnIndex = row.length;
         const cell=el('div'); cell.setAttribute('role','listitem');
         const button=el('button','gear-tile'); button.type='button'; button.dataset.itemId=item.id;
         button.classList.toggle('is-locked',!item.owned); button.classList.toggle('is-exotic',item.rarity==='exotic');
@@ -178,11 +199,18 @@
           return equip(item);
         });
         button.addEventListener('keydown',event=>{
-          const step={ArrowLeft:-1,ArrowRight:1,ArrowUp:-4,ArrowDown:4}[event.key];
-          if(step){event.preventDefault();keyboard=true;const nodes=[...tileButtons.values()];nodes[Math.max(0,Math.min(nodes.length-1,nodes.indexOf(button)+step))]?.focus();}
+          if (event.key==='ArrowUp' || event.key==='ArrowDown') {
+            event.preventDefault(); keyboard=true;
+            const next=rows[rowIndex + (event.key==='ArrowUp'?-1:1)];
+            next?.[Math.min(columnIndex,next.length-1)].focus();
+          } else if (event.key==='ArrowLeft' || event.key==='ArrowRight') {
+            event.preventDefault(); keyboard=true;
+            const nodes=[...tileButtons.values()];
+            nodes[nodes.indexOf(button) + (event.key==='ArrowLeft'?-1:1)]?.focus();
+          }
           if(event.key==='Enter'||event.key===' '){lastPointerType='keyboard';keyboard=true;}
         });
-        tileButtons.set(item.id,button);cell.append(button);grid.append(cell);
+        row.push(button);tileButtons.set(item.id,button);cell.append(button);list.append(cell);
       }
       if(focusId && tileButtons.has(focusId))tileButtons.get(focusId).focus();
       thumbnails(grid);
@@ -200,6 +228,7 @@
     function showDetails(item) {
       if(!activeSlot || item.slot!==activeSlot)return;
       inspected=item;popup.replaceChildren();popup.hidden=false;
+      popup.classList.toggle('is-exotic',item.rarity==='exotic');
       for(const [id,button] of tileButtons)button.classList.toggle('is-previewed',id===item.id);
       const dismiss=el('button','gear-popover-close','×');dismiss.type='button';dismiss.setAttribute('aria-label','Close item details');
       dismiss.addEventListener('click',()=>{const tile=tileButtons.get(inspected?.id);hideDetails();ignoreFocus=true;tile?.focus();ignoreFocus=false;});
@@ -221,7 +250,7 @@
           row.append(el('small',delta>0?'better':delta<0?'worse':'',delta?`${delta>0?'+':''}${delta}`:''));statRows.append(row);
         }
         const rollsStats=Object.values(item.ranges||{}).some(([low,high])=>low!==high);
-        copy.append(statRows,el('p','gear-item-note',item.owned?'Bonuses apply in PvE only. Changes apply next match.':item.rarity==='exotic'?'One exotic at a time. Bonuses apply in PvE only.':`Unlocks this piece. ${rollsStats?'Stats roll once when purchased.':'Fixed stat bonuses.'} PvE bonuses only.`));
+        copy.append(statRows,el('p','gear-item-note',item.owned?'Bonuses apply in PvE and perk-enabled PvP. Changes apply next match.':item.rarity==='exotic'?'One exotic armor piece at a time. Bonuses apply in PvE and perk-enabled PvP.':`Unlocks this piece. ${rollsStats?'Stats roll once when purchased.':'Fixed stat bonuses.'} Bonuses apply in PvE and perk-enabled PvP.`));
       }
       const isCurrent=equipped(activeSlot)?.id===item.id;
       const afford=(getUser()?.currencies?.Coins||0)>=item.price;

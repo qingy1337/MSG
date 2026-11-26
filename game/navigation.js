@@ -1,5 +1,5 @@
 const {groundHeight,canOccupy,moveOnTerrain,rampStepAllowance,walkingHeight,
-  horizontalClearance,ceilingHeightAt,withinPlayableFootprint}=require('../public/arenaMap');
+  horizontalClearance,ceilingHeightAt,withinPlayableFootprint,hasGroundFloor}=require('../public/arenaMap');
 const DIRECTIONS=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]];
 
 class Heap {
@@ -106,6 +106,7 @@ class NavigationGraph {
       this.open[id]=point.x>=this.radius&&point.y>=this.radius&&
         point.x<=this.map.width-this.radius&&point.y<=this.map.height-this.radius&&
         withinPlayableFootprint(this.map,point.x,point.y,this.radius)&&
+        (height>0||hasGroundFloor(this.map,point.x,point.y))&&
         height+this.bodyHeight<=this.map.ceiling&&
         canOccupy(point.x,point.y,height,this.near(point,point),this.radius,allowance,this.bodyHeight)?1:0;
     }

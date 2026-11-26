@@ -6,6 +6,7 @@ import maps from '../public/arenaMap.js';
 import pvpMaps from '../public/pvpMaps.js';
 import movement from '../public/movement.js';
 import combat from '../game/hitscan.js';
+import grenades from '../game/grenades.js';
 import server from '../game/gameServer.js';
 import navigation from '../game/navigation.js';
 import validation from '../game/terrainValidation.js';
@@ -36,185 +37,53 @@ test('authored PvP maps, variants, spawns and raised routes pass validation',()=
   }
 });
 
-test('Foundry has a large enclosed lower hall and a contested upper floor',()=>{
-  const {map,walls}=maps.createPvpMap(0,'foundry'),terrain=map.terrain;
-  assert.ok(map.width>=1580&&map.height>=1150&&map.ceiling>=18,'large hall with generous upper headroom');
-  const decks=terrain.filter(s=>s.kind==='catwalk'&&s.walkable);
-  assert.equal(decks.length,2,'one continuous floor and one raised control dais');
-  assert.ok(decks[0].width*decks[0].height>map.width*map.height*.25,
-    'the main upper floor occupies a substantial part of the map');
-  assert.equal(decks[0].top,5.8);
-  const stairs=terrain.filter(s=>s.kind==='ramp'&&s.stairs);
-  assert.equal(stairs.length,4,'two exterior and two opposed control-dais stairs');
-  assert.ok(stairs.filter(s=>s.axis==='x').some(s=>s.reverse)&&
-    stairs.filter(s=>s.axis==='x').some(s=>!s.reverse),'both sides climb to the upper floor');
-  assert.ok(stairs.filter(s=>s.axis==='x').every(s=>s.width>=360*.72&&s.steps===36),
-    'both exterior stairs have longer, shallower flights');
-  assert.ok(terrain.filter(s=>s.kind==='rail'&&s.style==='foundry').length>=10,
-    'guards protect the upper perimeter and exterior stairs');
-  assert.equal(terrain.filter(s=>s.kind==='foundryEnclosure').length,11,
-    'the lower room has a continuous glazed perimeter with deliberate openings');
-  assert.equal(terrain.filter(s=>s.kind==='foundryLantern').length,8,
-    'lanterns line both the outer and inner hallway walls');
-  assert.equal(terrain.filter(s=>s.kind==='foundryBulkhead').length,8,
-    'solid partitions form the four service corridors');
-  assert.equal(terrain.filter(s=>s.kind==='foundryPortal').length,4,
-    'four overhead headers mark real passages into the open furnace bay');
-  assert.equal(terrain.filter(s=>s.kind==='foundryPillar').length,3,
-    'slim structural pillars replace the bulky central tanks');
-  assert.equal(terrain.filter(s=>s.kind==='foundryValveStation').length,0,
-    'wall controls no longer protrude into the service halls');
-  assert.equal(terrain.filter(s=>s.kind==='foundryToolRack'||s.kind==='tank').length,0,
-    'the lower floor no longer has projecting cabinets or bulky tanks');
-  assert.equal(terrain.filter(s=>s.kind==='foundryServiceTrunk').length,2,
-    'overhead service runs leave the inspection and dispatch hall floors clear');
-  assert.ok(terrain.filter(s=>s.kind==='foundryServiceTrunk').every(s=>s.bottom>=5),
-    'service runs sit close to the soffit instead of hanging into the halls');
-  for(const kind of ['furnace','foundryCastingLine','crane','foundryPress','foundryLadle',
-    'foundryDuct','foundryConsole','foundryTurbine'])
-    assert.ok(terrain.some(s=>s.kind===kind),`Foundry includes ${kind} machinery`);
-  assert.ok(terrain.filter(s=>s.kind==='foundryDuct').every(s=>s.nonSolid&&s.bottom>=7),
-    'ceiling extraction stays clear of movement and collision');
-  const solids=[...walls,...terrain];
-  for(const [x,y] of [[1030,375],[920,1010],[1360,1010]])
-    assert.ok(maps.canOccupy(x*.72,y*.72,0,solids),
-      `lower entrance or stair approach at ${x},${y} remains open`);
-  for(const [x,y] of [[450,920],[1750,520],[450,680],[1750,720]])
-    assert.equal(maps.canOccupy(x*.72,y*.72,0,solids),false,
-      `side wall at ${x},${y} closes the former lower entrance`);
-  assert.ok(Math.abs(maps.ceilingHeightAt(1100*.72,450*.72,0,solids)-5.55)<.01,
-    'the visible upper floor is also the lower room ceiling');
-  assert.equal(terrain.filter(s=>s.kind==='foundryPress').length,1,
-    'the floor press is in the furnace room rather than a stair lane');
-  assert.ok(pvpMaps.pvpSightlineMetrics({map,walls}).visibleRatio<.25,
-    'the larger hall retains genuinely sheltered ground routes');
-  assert.ok(map.spawns.filter(s=>s.height===5.8).length>=4,'upper floor can host firefights immediately');
-  const graph=new navigation.NavigationGraph(map,walls),upper=map.spawns.filter(s=>s.height>0);
-  for(const spawn of upper)assert.ok(graph.find(map.spawns[0],spawn).length,'each raised spawn has a ground route');
-});
-
-test('Foundry entrances and all four stair flights remain physically traversable',()=>{
-  const {map,walls}=maps.createPvpMap(0,'foundry'),solids=[...walls,...map.terrain];
-  const walk=(axis,start,end,other,height=0)=>{
-    const player={alive:true,x:(axis==='x'?start:other)*.72,
-      y:(axis==='y'?start:other)*.72,height,groundHeight:height,
-      jumpStartedAt:null,bodyHeight:2.2};
-    const step=Math.sign(end-start)*3;
-    for(let at=start+step;step*(end-at)>=0;at+=step)
-      assert.ok(maps.moveOnTerrain(player,(axis==='x'?at:other)*.72,
-        (axis==='y'?at:other)*.72,map,solids,1000),
-      `movement stays clear at ${axis}=${at}`);
-    return player;
-  };
-  for(const [axis,start,end,other] of [
-    ['y',270,400,1030],['y',1130,970,920],['y',1130,970,1360],
-  ]) {
-    const player=walk(axis,start,end,other);
-    assert.equal(player.height,0,'the lower entrance is a ground route, not a stair collision');
-    assert.ok(Math.abs((axis==='x'?player.x:player.y)/.72-end)<4);
+function followRoute(layout,points,height=0) {
+  const {map,walls}=layout,solids=[...walls,...map.terrain];
+  const player={x:points[0][0],y:points[0][1],height,groundHeight:height,alive:true};
+  for(const [x,y] of points.slice(1)) {
+    assert.ok(maps.moveOnTerrain(player,x,y,map,solids,1000),`${map.name}: blocked on approach to ${x},${y}`);
+    assert.ok(Math.hypot(x-player.x,y-player.y)<.2,`${map.name}: route displaced at ${x},${y}`);
   }
-  for(const [axis,start,end,other,base,target] of [
-    ['x',60,460,680,0,5.8],['x',2140,1740,720,0,5.8],
-    ['y',410,620,1050,5.8,7.35],['y',1010,800,1250,5.8,7.35],
-  ])assert.ok(Math.abs(walk(axis,start,end,other,base).height-target)<.01,
-    'each exterior or opposing control stair reaches its actual floor');
-});
+  return player;
+}
 
-test('Foundry service hallways lead around a protected open furnace bay',()=>{
-  const {map,walls}=maps.createPvpMap(0,'foundry'),solids=[...walls,...map.terrain];
-  const follow=points=>{
-    const player={alive:true,x:points[0][0]*.72,y:points[0][1]*.72,
-      height:0,groundHeight:0,jumpStartedAt:null,bodyHeight:2.2};
-    for(let i=1;i<points.length;i++) {
-      const [sx,sy]=points[i-1],[ex,ey]=points[i],distance=Math.hypot(ex-sx,ey-sy);
-      for(let at=3;at<=distance+1;at+=3) {
-        const t=Math.min(1,at/distance);
-        assert.ok(maps.moveOnTerrain(player,(sx+(ex-sx)*t)*.72,
-          (sy+(ey-sy)*t)*.72,map,solids,1000),'hall and portal route stays clear');
-      }
+test('Foundry connects both receiving bays to the tapping floor, eaves and twin pouring bridges',()=>{
+  const layout=maps.createPvpMap(0,'foundry'),{map,walls}=layout;
+  for(const turn of [false,true]) {
+    const path=points=>points.map(([x,y])=>turn?[map.width-x,map.height-y]:[x,y]);
+    const route=(points,h=0)=>followRoute(layout,path(points),h).height;
+    const stairs=[[155,435],[170,478],[313,478],[313,151],[439,151],[439,344]];
+    assert.equal(route(stairs),5.8);
+    assert.equal(route([...stairs].reverse(),5.8),0);
+    assert.equal(route([[313,465],[313,313],[160,313]]),3.2,'half landing opens onto shed roof');
+    assert.equal(route([[244,530],[244,315],[248,285]]),0,'ground aisle passes between the shed and stair and beneath the landing');
+    assert.equal(route([[160,313],[313,313],[313,478]],3.2),0,'roof flank reconnects to the descending stairs');
+    assert.equal(route([[439,344],[738,344],[738,515],[439,515],[439,344]],5.8),5.8);
+    assert.equal(route([[135,435],[175,478],[383,478],[383,415],[475,415],[475,335],[493,335],
+      [588,335],[716,335],[716,425],[788,425]]),0,'protected floor route continues under both galleries');
+  }
+  const shot=(a,b)=>combat.traceShot({id:'a',...a},Math.atan2(b.y-a.y,b.x-a.x),walls,[],()=>true,0,map);
+  for(const blue of map.spawns.slice(0,8).filter((_,i)=>i%2===0))
+    for(const red of map.spawns.slice(0,8).filter((_,i)=>i%2===1)) {
+      const hit=shot(blue,red);
+      assert.ok(Math.hypot(hit.endX-blue.x,hit.endY-blue.y)<Math.hypot(red.x-blue.x,red.y-blue.y),'opposing starting bays have cover');
     }
-    const last=points.at(-1);
-    assert.ok(Math.hypot(player.x/.72-last[0],player.y/.72-last[1])<4,
-      'player reaches the furnace bay instead of sliding against a hidden collider');
-  };
-  follow([[1030,270],[1030,400],[550,400],[550,760],[750,760]]);
-  follow([[1030,270],[1030,400],[1650,400],[1650,760],[1460,760]]);
-  follow([[1030,270],[1030,600]]);
-  follow([[940,1130],[940,780]]);
-  const shot=(x,y,angle)=>combat.traceShot({id:'a',x:x*.72,y:y*.72,height:0},
-    angle,walls,[],()=>true,0,map);
-  assert.ok(shot(600,600,0).endX<685*.72,
-    'the west hallway has an opaque sight break away from its doorway');
-  assert.ok(shot(600,760,0).endX>685*.72,
-    'the west portal gives a deliberate angle into the open middle');
-  assert.ok(shot(1200,980,-Math.PI/2).endY>900*.72,
-    'the dispatch hallway is sheltered by its inner bulkhead');
-  assert.ok(shot(940,980,-Math.PI/2).endY<900*.72,
-    'the dispatch portal is an actual line into the central bay');
+  assert.ok(pvpMaps.pvpSightlineMetrics(layout).p90<510);
 });
 
-test('Foundry glazed walls and lanterns match their collision geometry',()=>{
-  const {map,walls}=maps.createPvpMap(0,'foundry'),solids=[...walls,...map.terrain];
-  const enclosure=map.terrain.find(s=>s.kind==='foundryEnclosure');
-  const model=createTerrainModel(enclosure),bounds=new THREE.Box3().setFromObject(model);
-  assert.equal(model.name,'foundry-glazed-furnace-wall');
-  assert.ok(model.children.some(child=>child.material?.transparent&&child.material.opacity<.6),
-    'a translucent glass band is visible between solid wall sections');
-  assert.ok(bounds.min.x>=-.02&&bounds.max.x<=enclosure.width*.05+.02&&
-    bounds.min.z>=-.02&&bounds.max.z<=enclosure.height*.05+.02,
-  'the visible wall remains inside its authoritative footprint');
-  const blocked=combat.traceShot({id:'a',x:800*.72,y:270*.72,height:0},Math.PI/2,walls,[],
-    ()=>true,0,map);
-  assert.equal(blocked.hit,'wall','the glazed wall stops shots');
-  const opening=combat.traceShot({id:'a',x:1030*.72,y:270*.72,height:0},Math.PI/2,walls,[],
-    ()=>true,0,map);
-  assert.ok(opening.endY>344*.72,'the real doorway admits shots into the lower room');
-  for(const lantern of map.terrain.filter(s=>s.kind==='foundryLantern')) {
-    assert.ok(lantern.nonSolid,'wall fixtures do not snag movement');
-    assert.equal(createTerrainModel(lantern).name,'foundry-wall-lantern');
-  }
-  for(const [kind,name] of [
-    ['foundryBulkhead','foundry-service-bulkhead'],
-    ['foundryPortal','foundry-lit-door-header'],
-    ['foundryPillar','foundry-structural-pillar'],
-    ['foundryServiceTrunk','foundry-overhead-service-trunk'],
-  ]) {
-    const solid=map.terrain.find(s=>s.kind===kind),model=createTerrainModel(solid);
-    const size=new THREE.Box3().setFromObject(model);
-    assert.equal(model.name,name);
-    assert.ok(size.min.x>=-.02&&size.max.x<=solid.width*.05+.02&&
-      size.min.z>=-.02&&size.max.z<=solid.height*.05+.02,
-    `${kind} art stays inside its collision or decorative footprint`);
-  }
-});
-
-test('Foundry casting and presses move without moving their collision solids',()=>{
+test('Foundry casting machinery and pouring decks match their collision footprints',()=>{
   const {map}=maps.createPvpMap(0,'foundry');
-  for(const kind of ['foundryCastingLine','foundryPress']) {
-    const solid=map.terrain.find(s=>s.kind===kind),before={...solid};
-    const model=createTerrainModel(solid);
-    assert.equal(typeof model.userData.update,'function',`${kind} has a local animation`);
-    const moving=model.children.find(child=>child.name===
-      (kind==='foundryPress'?'foundry-press-ram':'foundry-hot-ingot'));
-    assert.ok(moving,`${kind} has visible moving hardware`);
-    const old=moving.position.clone();model.userData.update(3.7);
-    assert.ok(moving.position.distanceTo(old)>0,`${kind} moves independently of its collider`);
-    assert.deepEqual(solid,before,`${kind} does not mutate server collision`);
+  for(const solid of map.terrain.filter(s=>s.pouringDeck || s.kind.startsWith('foundryCupola') ||
+    ['foundryBrickwork','foundryExtraction','foundryStack','rail','ramp'].includes(s.kind))) {
+    const model=createTerrainModel(solid),b=new THREE.Box3().setFromObject(model);
+    assert.ok(b.min.x>=-.035&&b.max.x<=solid.width*.05+.035&&
+      b.min.z>=-.035&&b.max.z<=solid.height*.05+.035,solid.kind);
+    if(solid.pouringDeck)assert.ok(Math.abs(b.max.y-(solid.top-solid.bottom))<.001);
   }
-});
-
-test('Foundry guards follow stairs and stay inside their collision footprints',()=>{
-  const {map}=maps.createPvpMap(0,'foundry');
-  const rails=map.terrain.filter(s=>s.kind==='rail'&&s.style==='foundry');
-  assert.ok(rails.some(s=>s.axis==='x'),'both exterior stair guards are included');
-  for(const rail of rails) {
-    const model=createTerrainModel(rail),bounds=new THREE.Box3().setFromObject(model);
-    assert.equal(model.name,rail.axis?'foundry-stair-guard':'foundry-platform-guard');
-    assert.ok(model.children.length>=6,'the guard has posts, braces, and continuous members');
-    assert.ok(bounds.min.x>=-.02&&bounds.max.x<=rail.width*.05+.02&&
-      bounds.min.z>=-.02&&bounds.max.z<=rail.height*.05+.02,
-      'visible railing stays inside its authored collision footprint');
-  }
+  const casting=map.terrain.find(s=>s.kind==='foundryCastingLine'),before={...casting};
+  const model=createTerrainModel(casting),ingot=model.getObjectByName('foundry-hot-ingot');
+  const old=ingot.position.z;model.userData.update(1);
+  assert.notEqual(ingot.position.z,old);assert.deepEqual(casting,before);
 });
 
 test('Foundry furnaces visibly burn and damage only players standing on their tops',t=>{
@@ -272,109 +141,20 @@ test('Foundry elevated spawns place players on the catwalk instead of beneath it
   } finally {game.close();}
 });
 
-test('Candy Factory uses spacious mirrored production wings with reachable routes',()=>{
-  for(let variant=0;variant<3;variant++) {
-    const {map,walls}=maps.createPvpMap(variant,'candyFactory'),terrain=map.terrain;
-    const solids=[...walls,...terrain],graph=new navigation.NavigationGraph(map,walls);
-    assert.equal(map.style,'candy');
-    assert.equal(map.palette.groundStyle,'candy');
-    assert.equal(map.width,1600);assert.equal(map.height,1120);
-    assert.equal(map.ceiling,17.5);
-    assert.equal(map.floorRects.length,3);
-    assert.equal(map.floorPolygon.length,12);
-    for(const [x,y] of [[120,200],[400,700],[800,300],[1200,700],[1480,200]])
-      assert.equal(maps.withinPlayableFootprint(map,x,y,16),true);
-    for(const [x,y] of [[100,100],[1500,100],[100,1000],[1500,1000]])
-      assert.equal(maps.withinPlayableFootprint(map,x,y,16),false);
-    const counterpart=s=>solids.find(other=>other!==s&&other.kind===s.kind&&
-      other.y===s.y&&other.width===s.width&&other.height===s.height&&
-      other.top===s.top&&(other.bottom||0)===(s.bottom||0)&&
-      Math.abs(other.x-(1600-s.x-s.width))<1e-8);
-    for(const solid of solids)if(Math.abs(solid.x+solid.width/2-800)>1e-8)
-      assert.ok(counterpart(solid),`mirrored ${solid.kind} at ${solid.x},${solid.y}`);
-    for(const spawn of map.spawns)
-      assert.ok(map.spawns.some(other=>other.y===spawn.y&&other.height===spawn.height&&
-        other.x===1600-spawn.x),'spawns are mirrored');
-    const deck=terrain.filter(s=>s.walkable);
-    assert.equal(deck.length,2);
-    assert.ok(deck.every(s=>s.top===5.8&&s.bottom===5.38));
-    const deckArea=deck.reduce((area,s)=>area+s.width*s.height,0);
-    const footprintArea=map.floorRects.reduce((area,s)=>area+s.width*s.height,0);
-    assert.ok(deckArea/footprintArea<.15,'galleries occupy only the production wings');
-    for(const [x,y] of [[670,570],[800,350],[930,570],[800,640]]) {
-      assert.ok(maps.canOccupy(x,y,0,solids),`broad central route at ${x},${y}`);
-      assert.ok(maps.ceilingHeightAt(x,y,0,solids)>10,
-        `central hall at ${x},${y} stays double height`);
-    }
-    assert.equal(terrain.filter(s=>s.kind==='candyTunnelRoof').length,0);
-    for(const kind of ['candyIngredientBank','candyCooker','candyDepositor',
-      'candyCoolingHousing','candyControlBooth','candyMouldRack','candyDockFacade'])
-      assert.ok(terrain.some(s=>s.kind===kind),`${kind} belongs to the production line`);
-    for(const kind of ['candyIngredientBank','candyCooker','candyDepositor',
-      'candyControlBooth','candyMouldRack','candyDockFacade'])
-      assert.equal(terrain.filter(s=>s.kind===kind).length,2,`${kind} is paired`);
-    assert.equal(terrain.filter(s=>s.kind==='candyConveyor').length,3);
-    assert.equal(terrain.filter(s=>s.kind==='candyRoofTruss').length,5);
-    assert.equal(terrain.filter(s=>s.kind==='candyZoneSign').length,4);
-    for(const x of [513,1087])for(const y of [410,800]) {
-      assert.ok(maps.canOccupy(x,y,0,solids),`wide wing doorway at ${x},${y}`);
-      assert.equal(maps.ceilingHeightAt(x,y,0,solids),4.2);
-    }
-    for(const x of [513,1087])
-      assert.equal(maps.canOccupy(x,570,0,solids),false,'partition is a real wall');
-    const westWall=walls.find(s=>s.x===500&&s.y===500);
-    assert.equal(combat.rayBox(450,410,1,0,westWall,1.84,0),Infinity);
-    assert.equal(combat.rayBox(450,570,1,0,westWall,1.84,0),50);
-    const partitions=walls.filter(s=>s.x===500);
-    assert.ok(partitions.every(s=>combat.rayBox(450,350,1,0,s,7.64,0)===Infinity),
-      'gallery inspection opening allows a real shot into the hall');
-    assert.ok(partitions.some(s=>Number.isFinite(combat.rayBox(450,440,1,0,s,7.64,0))),
-      'adjacent wall limits the raised firing angle');
-    for(const bench of terrain.filter(s=>s.kind==='candyQualityBench'))
-      assert.ok(walls.some(w=>w.y<=bench.y&&w.y+w.height>=bench.y+bench.height&&
-        (w.x+w.width===bench.x||bench.x+bench.width===w.x)),
-        'inspection counters grow out of the partition');
-    assert.equal(maps.groundHeight(800,444,solids),.64,'drum plinth has its actual low support height');
-    assert.ok(maps.canOccupy(800,444,.64,solids),'plinth edge has no phantom full-height wall');
-    assert.equal(maps.canOccupy(800,495,.64,solids),false,'the drum body remains solid');
-    assert.ok(maps.canOccupy(800,910,1.18,solids),'belt riders fit under the wrapper');
-    assert.equal(maps.canOccupy(800,910,1.4,solids),false,'wrapper head stops a jumping rider');
-    assert.equal(maps.canOccupy(763,910,0,solids),false,'wrapper posts are solid');
-    const rider={alive:true,x:800,y:850,height:1.18,groundHeight:1.18,
-      jumpStartedAt:null,bodyHeight:2.2};
-    for(let y=853;y<=940;y+=3)
-      assert.ok(maps.moveOnTerrain(rider,800,y,map,solids,1000),'wrapper has continuous rider clearance');
-    const stairs=terrain.filter(s=>s.kind==='ramp'&&s.style==='candy');
-    assert.equal(stairs.length,2);
-    assert.ok(stairs.every(s=>s.stairs&&s.width===120&&s.height===240&&s.steps===20));
-    for(const stair of stairs) {
-      const player={alive:true,x:stair.x+stair.width/2,y:stair.y+stair.height+15,
-        height:0,groundHeight:0,jumpStartedAt:null,bodyHeight:2.2};
-      for(let y=player.y-3;y>=stair.y-3;y-=3)
-        assert.ok(maps.moveOnTerrain(player,player.x,y,map,solids,1000),
-          'stair accepts movement without snagging');
-      assert.ok(Math.abs(player.height-5.8)<.01,'stair reaches upper floor');
-    }
-    const ground=map.spawns.find(s=>s.height===0);
-    for(const upper of map.spawns.filter(s=>s.height===5.8))
-      assert.ok(graph.find(ground,upper).length,'both mezzanines remain accessible');
-    const step=20,visited=new Set(),queue=[[300,865]],key=(x,y)=>`${x},${y}`;
-    visited.add(key(...queue[0]));
-    for(let i=0;i<queue.length;i++) {
-      const [x,y]=queue[i];
-      for(const [dx,dy] of [[step,0],[-step,0],[0,step],[0,-step]]) {
-        const nx=x+dx,ny=y+dy,k=key(nx,ny);
-        if(visited.has(k)||!maps.withinPlayableFootprint(map,nx,ny,16)||
-          !maps.canOccupy(nx,ny,0,solids))continue;
-        visited.add(k);queue.push([nx,ny]);
-      }
-    }
-    for(const [x,y] of [[140,425],[1460,425],[800,645],[300,865],[1300,865]])
-      assert.ok(visited.has(key(x,y)),`ground route reaches ${x},${y}`);
-    const sight=pvpMaps.pvpSightlineMetrics({map,walls});
-    assert.ok(sight.visibleRatio<.5&&sight.p90<820,
-      'production rooms and central machines break long sightlines');
+test('Candy receiving has three distinct entrances and both stairs serve the kettle gallery',()=>{
+  const layout=maps.createPvpMap(0,'candyFactory'),{map,walls}=layout;
+  for(const reflect of [x=>x,x=>map.width-x]) {
+    const route=(points,h=0)=>followRoute(layout,points.map(([x,y])=>[reflect(x),y]),h);
+    for(const y of [273,425,600])assert.equal(route([[130,y],[350,y]]).height,0);
+    assert.equal(route([[225,168],[465,168]]).height,3.8);
+    assert.equal(route([[465,168],[225,168]],3.8).height,0);
+    assert.equal(route([[350,425],[375,500],[375,635],[540,635]]).height,0);
   }
+  const shot=combat.traceShot({id:'a',x:144,y:427},0,walls,[],()=>true,0,map);
+  assert.ok(shot.endX>=451&&shot.endX<460,'drum breaks the central receiving sightline');
+  const equipment=map.terrain.filter(s=>['candyDepositor','candyConveyor','candyCoolingHousing'].includes(s.kind));
+  assert.equal(equipment.length,3);
+  for(let i=1;i<equipment.length;i++)assert.equal(equipment[i-1].x+equipment[i-1].width,equipment[i].x);
 });
 
 test('Overgrown Temple is a grassy two-layer sanctuary with reachable decks and tunnels',()=>{
@@ -438,55 +218,46 @@ test('Overgrown Temple is a grassy two-layer sanctuary with reachable decks and 
   assert.equal(player.ceilingHeight,map.ceiling,'route emerges from the undercroft into the open court');
 });
 
-test('Orbital Station is open to space with two distinct floors, opposite stairs and unrailed bridges',()=>{
-  const {map,walls}=maps.createPvpMap(0,'orbital'),terrain=map.terrain;
-  assert.equal(map.style,'orbital');assert.equal(map.roof,false);
-  assert.equal(map.palette.wall,'#d7dde3');assert.equal(map.palette.floorHigh,'#edf1f4');
-  assert.ok(map.ceiling>=14,'the open station keeps a tall unrestricted sky volume');
-  assert.ok(walls.filter(w=>w.kind==='boundary').every(w=>w.top<1.5),
-    'low perimeter structure leaves the starfield visible instead of forming an outdoor box');
-  const tunnels=terrain.filter(s=>s.kind==='orbitalTunnelRoof');
-  assert.equal(tunnels.length,2);
-  assert.ok(tunnels.every(s=>!s.walkable&&s.bottom>=2.7&&s.top===3),
-    'both tunnels have genuine low ceilings without introducing an accidental third floor');
-  const decks=terrain.filter(s=>s.kind==='orbitalDeck'&&s.walkable);
-  assert.equal(decks.length,7);assert.ok(decks.every(s=>s.top===4.5&&s.bottom===4.22));
-  assert.equal(decks.filter(s=>s.bridge).length,3,'three narrow bridges join distinct upper-floor wings');
-  const stairs=terrain.filter(s=>s.kind==='ramp'&&s.style==='orbital');
-  assert.equal(stairs.length,2);assert.ok(stairs.every(s=>s.axis==='y'&&s.top===4.5));
-  assert.deepEqual(stairs.map(s=>!!s.reverse).sort(),[false,true],
-    'west and east stairs descend in opposing north/south directions');
-  assert.equal(terrain.filter(s=>s.kind==='rail').length,0,'the exposed bridges deliberately have no railings');
-  assert.ok(terrain.filter(s=>s.kind==='orbitalSupport').length>=6,'upper floors have visible structural supports');
-  for(const kind of ['orbitalCore','orbitalAntenna','orbitalPod','orbitalCrate','orbitalSupport'])
-    assert.ok(terrain.some(s=>s.kind===kind),`station includes ${kind}`);
-  const crates=terrain.filter(s=>s.kind==='orbitalCrate'),jumpApex=movement.MOVEMENT.jumpSpeed**2/(2*movement.MOVEMENT.gravity);
-  assert.ok(crates.length>=3&&crates.every(s=>s.jumpable&&s.top<=jumpApex-.3),
-    'every orbital crate leaves a forgiving portion of the jump arc for climbing onto it');
-  const crate=crates[0],jumper={x:crate.x-18,y:crate.y+crate.height/2,height:crate.top+.12,
-    groundHeight:0,jumpStartedAt:1,bodyHeight:2.2};
-  assert.ok(maps.moveOnTerrain(jumper,crate.x+crate.width/2,jumper.y,map,[...walls,...terrain],100),
-    'an ordinary airborne player can cross the crate edge');
-  assert.equal(jumper.groundHeight,crate.top,'the crate top becomes the landing surface');
+test('Orbital has a sheltered ground connection and a traversable bridge over open space',()=>{
+  const layout=maps.createPvpMap(0,'orbital'),{map,walls}=layout;
+  assert.equal(map.roof,false);
+  const concourse=[[206,557],[206,155],[345,155],[345,90],[615,90],[615,155],[754,155],[754,557]];
+  assert.equal(followRoute(layout,concourse).height,0);
+  const bridge=[[95,246],[95,543],[95,576],[149,580],[151,630],[809,630],
+    [811,580],[865,576],[865,543],[865,246]];
+  assert.equal(followRoute(layout,bridge).height,0);
+  const fall=followRoute(layout,[[480,615],[480,530]],4.5);
+  assert.ok(fall.jumpStartedAt!=null&&fall.groundHeight<0);
+  movement.advanceJump(fall,2100);assert.ok(fall.height<-2.2);
+  const shot=(x,y,height,angle,pitch)=>combat.traceShot({id:'p',x,y,height},angle,walls,[],()=>true,pitch,map);
+  assert.equal(shot(400,145,0,Math.PI/2,0).hit,'wall','observation glass blocks shots');
+  assert.equal(shot(480,550,4.5,-Math.PI/2,-1.3).hit,'boundary','no phantom floor in the berth');
+  assert.equal(shot(480,615,4.55,0,-1.3).hit,'wall','bridge catches a downward shot');
+});
 
-  // Walk deep into the first tunnel. Collision/headroom must recognize the
-  // overhead shell rather than treating it as decorative rooftop geometry.
-  const tunnel=tunnels[0],solids=[...walls,...terrain];
-  const player={x:tunnel.x+30,y:tunnel.y+tunnel.height/2,height:0,bodyHeight:2.2};
-  assert.ok(maps.canOccupy(player.x,player.y,0,solids));
-  assert.ok(maps.moveOnTerrain(player,tunnel.x+tunnel.width-35,player.y,map,solids,0));
-  assert.equal(player.ceilingHeight,tunnel.bottom);
-
-  const graph=new navigation.NavigationGraph(map,walls);
-  for(const surface of terrain.filter(s=>s.walkable)) {
-    const goal={x:surface.x+surface.width/2,y:surface.y+surface.height/2,height:surface.top};
-    assert.ok(graph.find(map.spawns[0],goal).length,'every upper wing and bridge has a permanent stair route');
-  }
-  assert.ok(map.spawns.some(s=>s.height===0&&tunnels.some(t=>s.x>t.x&&s.x<t.x+t.width&&s.y>t.y&&s.y<t.y+t.height)),
-    'ground spawns can begin inside the tunnels');
-  assert.ok(map.spawns.filter(s=>s.height===4.5).length>=5,'the second floor participates in combat');
-  assert.deepEqual([...new Set(map.spawns.map(s=>s.height))].sort((a,b)=>a-b),[0,4.5],
-    'spawns reinforce the two-floor combat structure');
+test('an Orbital fall eliminates the player and grenades drop through the berth',t=>{
+  let now=100000,connect;
+  t.mock.method(Date,'now',()=>now);
+  t.mock.method(global,'setInterval',()=>0);
+  const events=[],handlers={};
+  const game=server.createGameServer({on(_,fn){connect=fn;},emit(...args){events.push(args);},
+    socketsLeave(){},to(){return this;}});
+  try {
+    connect({id:'pilot',user:{username:'qing'},on(name,fn){handlers[name]=fn;}});
+    game.waitingPlayers.push({id:'pilot',name:'qing',accountUsername:'qing',weapon:'sniper'});
+    handlers.startGame({enableBots:false,pvpMap:'orbital',debugDouble:true});
+    const map=game.gameMap,walls=game.gameWalls,player=game.activePlayers.find(p=>p.id==='pilot');
+    Object.assign(player,{x:480,y:615,height:4.5,groundHeight:4.5,jumpStartedAt:null});
+    assert.ok(maps.moveOnTerrain(player,480,510,map,[...map.terrain,...walls],now));
+    now+=1500;game.runBotsTick();
+    assert.equal(player.alive,false);
+    assert.ok(events.some(([event,id])=>event==='playerKilled'&&id===player.id));
+    const drop={x:480,y:490,height:1.6,vx:0,vy:0,vz:0,expiresAt:now+3000,updatedAt:now};
+    const onDock={...drop,x:204};
+    grenades.stepGrenade(drop,now+900,map,walls);
+    grenades.stepGrenade(onDock,now+900,map,walls);
+    assert.ok(drop.height<-2&&onDock.height>=.12);
+  } finally {game.close();}
 });
 
 test('Terminal 7 is a connected full-scale departures terminal with processing, market, gates and mezzanine',()=>{

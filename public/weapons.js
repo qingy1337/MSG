@@ -7,8 +7,8 @@ const WEAPONS = {
     key: 'shotgun', name: 'Shotgun',
     description: 'Eight-pellet hitscan blast.',
     weaponLength: 44, bulletSpeed: 14, bulletRadius: 3,
-    // Loaded barrels fire 200 ms apart, then reload after the second shot.
-    cooldownMs: 200, shotsPerReload: 2, reloadMs: 1000, automatic: false,
+    // Each click can fire a loaded barrel. The second shot starts the reload.
+    cooldownMs: 0, shotsPerReload: 2, reloadMs: 1000, automatic: false,
   },
   pistol: {
     key: 'pistol',
@@ -59,8 +59,8 @@ const WEAPONS = {
     bulletRadius: 10, // ~2x size
     cooldownMs: 1100,
     bloom: {
-      movingRadians: 0.05,
-      airborneRadians: 0.09,
+      movingRadians: 0.065,
+      airborneRadians: 0.117,
       settleMs: 420,
     },
     automatic: false,
@@ -100,9 +100,10 @@ function sniperBloomPixels(spread,height,fovDegrees=68) {
 const DEFAULT_WEAPON_KEY = 'autoRifle';
 const SECONDARY_WEAPON_KEY = 'pistol';
 const WEAPON_SWITCH_MS = 360;
+const AFTERBURN_DURATION_MS = 10000;
 
 // Node (server) export
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { WEAPONS, DEFAULT_WEAPON_KEY, SECONDARY_WEAPON_KEY, WEAPON_SWITCH_MS,
+  module.exports = { WEAPONS, DEFAULT_WEAPON_KEY, SECONDARY_WEAPON_KEY, WEAPON_SWITCH_MS, AFTERBURN_DURATION_MS,
     weaponBloomRadians,spreadWeaponAim,sniperBloomRadians,spreadSniperAim,sniperBloomPixels };
 }

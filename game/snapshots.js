@@ -1,6 +1,6 @@
 // Explicit wire contract. Never serialize bot brains, account identifiers, or paths.
 const FIELDS=['id','name','displayName','color','weapon','weaponSkinKey','primaryWeapon','primaryWeaponSkinKey','secondaryWeapon','secondaryWeaponSkinKey','weaponSwapUntil','spawnShieldUntil','x','y','angle','alive','health','maxHealth',
-  'isBot','team','botType','botRank','strikeEncounterId','wardenPhase','spawnReadyAt','bodyHeight','hoverOffset','height','groundHeight','ceilingHeight','jumpStartedAt','jumpBase','jumpVelocity','jumpInputSeq','jumpPlatformId','groundPlatformId','platformId','lastProcessedInput','movementEpoch','shotgunShotsRemaining','shotgunReloadUntil','grenades',
+  'isBot','team','botType','botRank','strikeEncounterId','wardenPhase','spawnReadyAt','bodyHeight','hoverOffset','height','groundHeight','ceilingHeight','jumpStartedAt','jumpBase','jumpVelocity','jumpInputSeq','jumpPlatformId','groundPlatformId','platformId','lastProcessedInput','movementEpoch','shotgunShotsRemaining','shotgunReloadUntil','grenades','ashCharge','ashUntil',
   'armorAppearance','armorStats'];
 // Static identity/loadout data is sent by gameStarting/floorStarting. At 20 Hz,
 // repeating names, colors, teams and both loadout slots for every bot wastes a
@@ -8,7 +8,7 @@ const FIELDS=['id','name','displayName','color','weapon','weaponSkinKey','primar
 const FRAME_FIELDS=['id','x','y','angle','alive','health','isBot',
   'wardenPhase','height','groundHeight','ceilingHeight','jumpStartedAt','jumpBase','jumpVelocity','jumpInputSeq',
   'jumpPlatformId','groundPlatformId','platformId','lastProcessedInput','movementEpoch',
-  'shotgunShotsRemaining','shotgunReloadUntil','grenades'];
+  'shotgunShotsRemaining','shotgunReloadUntil','grenades','ashCharge','ashUntil'];
 const DASH_FIELDS=['dashRemaining','dashCoastRemaining','dashX','dashY','dashReadyAt','dashUsedInAir'];
 function copyState(player,fields){const result={};for(const key of fields)if(player[key]!==undefined)result[key]=player[key];
   // Only an equipped, active exotic needs transient ability state. Keep armor

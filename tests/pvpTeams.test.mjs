@@ -22,6 +22,23 @@ test('every PvP map has collision-safe, separated team spawns at full capacity',
   }
 });
 
+test('each fireteam size starts at corresponding doors and elevations on the redesigned arenas',()=>{
+  for(const id of ['orbital','candyFactory','foundry']) {
+    const {map,walls}=maps.createPvpMap(0,id);
+    for(let count=2;count<=8;count++) {
+      const roster=Array.from({length:count},(_,id)=>({id})),teamsById=teams.balancedPvpTeams(roster);
+      const plan=spawns.pvpTeamSpawns(map,walls,roster,teamsById);
+      const positions=team=>roster.filter(p=>teamsById.get(p.id)===team).map(p=>plan.get(p.id));
+      const blue=positions('blue'),red=positions('red');
+      for(let i=0;i<Math.min(blue.length,red.length);i++) {
+        assert.equal(blue[i].x,map.width-red[i].x);
+        assert.equal(blue[i].y,id==='foundry'?map.height-red[i].y:red[i].y);
+        assert.equal(blue[i].height,red[i].height);
+      }
+    }
+  }
+});
+
 function match(t) {
   let now=100000;
   t.mock.method(global,'setInterval',()=>0);t.mock.method(Date,'now',()=>now);

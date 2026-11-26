@@ -51,10 +51,15 @@ const startBtn = document.getElementById("start-btn");
 const pvpModeRow = document.getElementById('pvp-mode-row');
 const pvpModeButtons = document.querySelectorAll('[data-pvp-mode]');
 const pvpTeamNote = document.getElementById('pvp-team-note');
+const pvpPerksToggle = document.getElementById('pvp-perks-toggle');
 pvpModeButtons.forEach(button=>button.addEventListener('click',()=>{
   if(currentLobby?.ownerId!==socket.id||button.dataset.pvpMode===currentLobby.pvpMode)return;
   emitLobbyAction('lobby:pvpMode',{pvpMode:button.dataset.pvpMode});
 }));
+pvpPerksToggle.addEventListener('click',()=>{
+  if(currentLobby?.ownerId!==socket.id||currentLobby.status!=='open')return;
+  emitLobbyAction('lobby:pvpPerks',{pvpPerks:!currentLobby.pvpPerks});
+});
 const teamColumns = document.getElementById('team-columns');
 const teamLobby = createTeamLobby(teamColumns,{
   document,teams:PVP_TEAMS,getLocalId:()=>socket.id,
@@ -1101,6 +1106,8 @@ function renderCurrentLobby() {
     button.setAttribute('aria-pressed',String(button.dataset.pvpMode===(currentLobby.pvpMode||'ffa')));
     button.disabled=currentLobby.ownerId!==socket.id;
   });
+  pvpPerksToggle.setAttribute('aria-checked',String(currentLobby.pvpPerks===true));
+  pvpPerksToggle.disabled=currentLobby.ownerId!==socket.id||currentLobby.status!=='open';
   const teamMode=currentLobby.mode==='pvp'&&currentLobby.pvpMode==='teams';
   pvpTeamNote.textContent=teamMode?'Choose your team. Last team standing wins.':
     'Every player for themselves. The leader chooses the match type.';
@@ -1162,7 +1169,7 @@ function renderLobbyBrowser() {
         `FLOOR ${lobby.floor||1} · DEPLOY NEXT FLOOR`:
         lobby.status === 'active' ? 'MATCH IN PROGRESS' : `${lobby.players.length} / ${lobby.maxPlayers} READY`;
       if(lobby.mode==='pvp')copy.querySelector('small').textContent+=
-        lobby.pvpMode==='teams'?' · TEAMS':' · FREE-FOR-ALL';
+        ` · ${lobby.pvpMode==='teams'?'TEAMS':'FREE-FOR-ALL'}${lobby.pvpPerks?' · PERKS ON':''}`;
       const action = document.createElement('button');
       action.className = 'lobby-join';
       action.textContent = lateJoin ? 'JOIN NEXT' : lobby.status === 'active' ? 'LIVE' : 'JOIN';

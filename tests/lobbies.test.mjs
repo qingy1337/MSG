@@ -102,6 +102,33 @@ test('players choose teams, keep their choices through loadout changes, and cann
   } finally {manager.close();}
 });
 
+test('PvP loadout perks are opt-in, visible before joining, and controlled by the lobby leader',t=>{
+  t.mock.method(global,'setInterval',()=>1);
+  t.mock.method(Math,'random',()=>29/0x100000000);
+  const io=fakeIo(),manager=lobbyModule.createLobbyServer(io);
+  const leader=new FakeSocket('perks-leader','perks-leader');
+  const guest=new FakeSocket('perks-guest','perks-guest');
+  const classic=new FakeSocket('classic-leader','classic-leader');
+  const opponent=new FakeSocket('classic-guest','classic-guest');
+  [leader,guest,classic,opponent].forEach(socket=>io.connect(socket));
+  t.after(()=>manager.close());
+  const created=request(leader,'lobby:create',{mode:'pvp',pvpMode:'teams'}).lobby;
+  assert.equal(created.pvpPerks,false);
+  assert.equal(request(guest,'lobby:join',{lobbyId:created.id}).ok,true);
+  assert.equal(request(guest,'lobby:pvpPerks',{pvpPerks:true}).ok,false);
+  assert.equal(request(leader,'lobby:pvpPerks',{pvpPerks:'true'}).ok,false);
+  assert.equal(request(leader,'lobby:pvpPerks',{pvpPerks:true}).ok,true);
+  const list=io.events.filter(event=>event.name==='lobby:list').at(-1).args[0];
+  assert.equal(list.find(lobby=>lobby.id===created.id).pvpPerks,true);
+  assert.equal(request(leader,'lobby:start').ok,true);
+  assert.equal(request(leader,'lobby:pvpPerks',{pvpPerks:false}).ok,false);
+  const ordinary=request(classic,'lobby:create',{mode:'pvp'}).lobby;
+  assert.equal(request(opponent,'lobby:join',{lobbyId:ordinary.id}).ok,true);
+  assert.equal(request(classic,'lobby:start',{pvpPerks:true}).ok,true);
+  const maps=io.events.filter(event=>event.name==='gameStarting').map(event=>event.args[0].map);
+  assert.deepEqual(maps.map(map=>[map.mode,map.pvpMode,map.pvpPerks]),[['pvp','teams',true],['pvp','ffa',false]]);
+});
+
 test('independent fireteams launch isolated PvE matches in parallel', t => {
   t.mock.method(global, 'setInterval', () => 1);
   t.mock.method(global, 'clearInterval', () => {});

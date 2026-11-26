@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {ASHES_AND_DUST,ASH_MUZZLE_DEPTH,createAshesAndDust} from './ashesAndDust.mjs';
 import {CLOUDBREAK, CLOUD_MUZZLE_DEPTH, CLOUD_MUZZLE_HEIGHT} from './cloudbreak.mjs';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
@@ -27,6 +28,7 @@ export function heavyWeaponViewZ(skinKey) {
 
 export function heavyWeaponMuzzleDepth(skinKey) {
   if (skinKey === CLOUDBREAK) return CLOUD_MUZZLE_DEPTH;
+  if (skinKey === ASHES_AND_DUST) return ASH_MUZZLE_DEPTH;
   if (skinKey === 'miniGun_midas') return 1.234;
   if (skinKey === 'miniGun_crimson_guard') return 1.17;
   if (skinKey === 'miniGun_default') return 1.15;
@@ -147,6 +149,7 @@ export function poseHeavyWeaponSkin(root, now = 0) {
 }
 
 export function createHeavyWeapon(weapon, skinKey, length) {
+  if (weapon === 'miniGun' && skinKey === ASHES_AND_DUST) return createAshesAndDust(length);
   const group = new THREE.Group(); group.scale.setScalar(length);
   const mat = (color, metalness = 0.5) => new THREE.MeshStandardMaterial({ color, metalness, roughness: 0.38 });
   const black = mat('#151e28'), steel = mat('#bac3d1', 0.75);

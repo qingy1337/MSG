@@ -60,7 +60,7 @@ export function createTerrainModel(s) {
   } else if(s.kind==='lift') {
     const temple=s.style==='temple';
     const liftCore=temple?material('#4b5147',0.38):dark;
-    const liftDeck=temple?material('#918e70',0.18):trim;
+    const liftDeck=temple?material('#918e70',0.18):s.style==='orbital'?material('#b4c7cc',.52):trim;
     const liftRib=temple?material('#b28b47',0.62):stone;
     const piston=box(w-0.12,1,d-0.12,w/2,0.5,d/2,liftCore);
     const deck=box(w,0.16,d,w/2,-0.08,d/2,liftDeck);
@@ -296,11 +296,31 @@ export function createTerrainModel(s) {
       }
       group.name='candy-enclosed-stair';return group;
     }
+    if(s.style==='foundry') {
+      const iron=material('#455653',.48),tread=material('#b2ad99',.38),trim=material('#ad7954',.55);
+      const step=d/s.steps;
+      for(let i=0;i<s.steps;i++){
+        const y=h*(i+1)/s.steps,z=(s.reverse?s.steps-i-.5:i+.5)*step;
+        add(new THREE.BoxGeometry(w-.146,y-.045,step),iron,w/2,(y-.045)/2,z);
+        add(new THREE.BoxGeometry(w-.146,.045,step),tread,w/2,y-.0225,z);
+      }
+      // One plate stringer per side closes the zigzag of the tread ends.
+      const low=s.reverse?d:0,high=d-low;
+      const profile=new THREE.Shape();
+      profile.moveTo(low,0);profile.lineTo(high,0);profile.lineTo(high,h+.06);
+      profile.lineTo(low,.09);profile.closePath();
+      for(const x of [.005,w-.073]) {
+        const cheek=new THREE.ExtrudeGeometry(profile,{depth:.068,bevelEnabled:false});
+        cheek.rotateY(-Math.PI/2);
+        add(cheek,trim,x+.068,0,0);
+      }
+      group.name='foundry-charging-stairs';return group;
+    }
     const stairBody=s.style==='temple'?material('#596553'):s.style==='orbital'?material('#7b8792',.72):
-      s.style==='airport'?material('#727e84',.56):s.style==='foundry'?material('#3e4d50',.7):
+      s.style==='airport'?material('#727e84',.56):
       s.style==='tower'?material('#637d7f',.64):dark;
     const stairTop=s.style==='temple'?material('#9a9b79'):s.style==='orbital'?material('#e8edf1',.56):
-      s.style==='airport'?material('#e9e5dc',.16):s.style==='foundry'?material('#aeb7ad',.58):
+      s.style==='airport'?material('#e9e5dc',.16):
       s.style==='tower'?material('#d9e5df',.52):trim;
     const moss=s.style==='temple'?material('#63804b',0.02):null;
     const vertical=s.axis==='y',length=vertical?d:w;
@@ -663,7 +683,7 @@ export function createTerrainModel(s) {
     }
     group.name='candy-ingredient-bank';return group;
   } else if(s.kind==='candyCooker') {
-    const enamel=material('#e8d1ad',.34),coral=material('#b94d40',.55),
+    const enamel=material('#ce8255',.51),coral=material('#a6543f',.55),
       steel=material('#496f6f',.75),dark=material('#304a4d',.7);
     const amber=new THREE.MeshStandardMaterial({color:'#ef9860',emissive:'#c94b2e',
       emissiveIntensity:.8,roughness:.36,metalness:.18});
@@ -707,6 +727,20 @@ export function createTerrainModel(s) {
     box(w-.54,.15,.15,w/2,h-.10,d*.78,enamel);
     group.userData.update=time=>{head.position.y=h*.72+Math.sin(time*2.6)*.055;};
     group.name='candy-mould-depositor';return group;
+  } else if(s.kind==='candyDriveCabinet') {
+    // Motor housing keyed into the drum plinth. One service panel per side,
+    // with the belt guard and its latch set into the outside of the casing.
+    const enamel=material('#ead2ad',.36),frame=material('#426e6b',.56),
+      seal=material('#704e42',.32),copper=material('#bb7252',.66);
+    box(w,.23,d,w/2,.115,d/2,frame);
+    box(w-.10,h-.42,d-.07,w/2,(h-.42)/2+.23,d/2,enamel);
+    box(w,.19,d,w/2,h-.095,d/2,frame);
+    for(const x of [.025,w-.025]) {
+      box(.035,h*.61,d*.75,x,h*.51,d/2,seal);
+      box(.05,h*.56,d*.71,x,h*.51,d/2,enamel);
+      box(.072,.28,.08,x,h*.55,d*.75,copper);
+    }
+    group.name='candy-drum-drive';return group;
   } else if(s.kind==='candyCoolingHousing') {
     const enamel=material('#e7d5bc',.32),steel=material('#456d70',.72),
       dark=material('#324b51',.65),coral=material('#c35e4b',.4);
@@ -724,14 +758,11 @@ export function createTerrainModel(s) {
       box(.10,.08,d-.12,x,h-.055,d/2,steel);
       box(.31,.04,d*.47,x,h-.01,d/2,dark);
     }
-    // The inlet mouths line up with both powered feed belts. The openings
-    // are too low for an actor, so the housing remains one honest solid.
-    for(const x of [.025,w-.025]) {
-      box(.045,.63,2.48,x,1.23,2.4,dark);
-      box(.05,.09,2.60,x,1.58,2.4,coral);
-    }
-    box(2.72,.63,.05,w/2,1.23,d-.025,dark);
-    box(2.84,.09,.055,w/2,1.58,d-.022,coral);
+    // The depositor feeds this mouth along the belt's centreline.
+    box(.045,.63,d*.77,.025,1.23,d/2,dark);
+    box(.05,.09,d*.82,.025,1.58,d/2,coral);
+    box(w*.36,.63,.05,w/2,1.23,d-.025,dark);
+    box(w*.38,.09,.055,w/2,1.58,d-.022,coral);
     group.name='candy-cooling-enclosure';return group;
   } else if(s.kind==='candyControlBooth') {
     const enamel=material('#ead7b7',.3),steel=material('#4c7776',.67),
@@ -753,10 +784,12 @@ export function createTerrainModel(s) {
     box(w-.02,.22,d-.02,w/2,.11,d/2,steel);
     for(const x of [.10,w-.10])for(const z of [.10,d-.10])
       box(.19,h-.22,.19,x,(h-.22)/2+.22,z,steel);
+    // A backed rack is real cover. Nest tray rows inside the corner posts.
+    box(w-.23,h-.28,.13,w/2,h/2+.07,.105,steel);
     for(let i=0;i<4;i++) {
       const y=.52+i*(h-.75)/3;
       box(w-.15,.09,d-.15,w/2,y,d/2,enamel);
-      for(let j=0;j<6;j++)box((w-.45)/7,.12,d*.48,.28+j*(w-.56)/6,y+.11,d/2,trays[(i+j)%2]);
+      for(let j=0;j<6;j++)box((w-.45)/7,.12,d*.48,.17+(j+.5)*(w-.34)/6,y+.11,d/2,trays[(i+j)%2]);
     }
     group.name='candy-mould-rack';return group;
   } else if(s.kind==='candyPipeRiser') {
@@ -765,6 +798,24 @@ export function createTerrainModel(s) {
     for(const y of [.12,h*.5,h-.12])
       add(new THREE.TorusGeometry(r+.018,.035,7,16),coral,w/2,y,d/2).rotation.x=Math.PI/2;
     group.name='candy-process-riser';return group;
+  } else if(s.kind==='candyIngredientLoad') {
+    const pallet=material('#805742',.08),paper=material('#d5bc8f',.04),
+      seam=material('#8d7558',.08),stamp=material('#457876',.24);
+    box(w,.18,d,w/2,.09,d/2,pallet);
+    // Alternating rows of paper sugar sacks are bound into a single dock load.
+    // Their outside dimensions follow the collider all the way up the stack.
+    const layer=(h-.18)/4;
+    for(let row=0;row<4;row++) {
+      const nx=row%2?2:1,nz=row%2?2:3,bw=w/nx,bd=d/nz;
+      for(let ix=0;ix<nx;ix++)for(let iz=0;iz<nz;iz++) {
+        const x=(ix+.5)*bw,z=(iz+.5)*bd,y=.18+(row+.5)*layer;
+        add(new RoundedBoxGeometry(bw-.026,layer-.018,bd-.026,2,.13),paper,x,y,z);
+        if(row===3)box(bw*.15,.017,bd*.65,x,y+layer/2-.008,z,stamp);
+        if(ix===0||ix===nx-1)for(const side of [-1,1])
+          box(.018,.027,bd*.71,x+side*(bw/2-.016),y,z,seam);
+      }
+    }
+    group.name='candy-receiving-sugar';return group;
   } else if(s.kind==='candyDockFacade') {
     const dark=material('#405c5e',.56),enamel=material('#e6d2b0',.3),coral=material('#ba5547',.45);
     box(w-.01,h-.02,d-.02,w/2,h/2,d/2,dark);
@@ -948,6 +999,17 @@ export function createTerrainModel(s) {
       cap.rotation.z=Math.PI/2;
       const ring=add(new THREE.TorusGeometry(r+.025,.075,8,24),frame,x,cy,cz);
       ring.rotation.y=Math.PI/2;
+      const side=x<cx?-1:1,face=x+side*.11;
+      const hatch=add(new THREE.CylinderGeometry(r*.64,r*.64,.09,24),steel,face,cy,cz);
+      hatch.rotation.z=Math.PI/2;
+      const hub=add(new THREE.CylinderGeometry(r*.23,r*.27,.12,16),frame,face+side*.08,cy,cz);
+      hub.rotation.z=Math.PI/2;
+      for(let i=0;i<6;i++) {
+        const a=i*Math.PI/3;
+        const latch=add(new THREE.CylinderGeometry(.07,.07,.055,6),frame,face+side*.04,
+          cy+Math.sin(a)*r*.8,cz+Math.cos(a)*r*.8);
+        latch.rotation.z=Math.PI/2;
+      }
     }
     for(const x of [w*.28,w*.5,w*.72]) {
       const band=add(new THREE.TorusGeometry(r+.018,.045,6,24),steel,x,cy,cz);
@@ -1561,6 +1623,19 @@ export function createTerrainModel(s) {
     add(new THREE.CylinderGeometry(r*.72,r*.82,h*.58,18),shell,cx,h*.43,cz);
     const display=box(w*.52,h*.30,.045,cx,h*.72,-.025,screen,.045);display.rotation.x=-.18;
     box(w*.42,.07,d*.22,cx,h*.88,d*.27,edge,.018);
+  } else if(s.kind==='orbitalRadiator') {
+    const ceramic=material('#d8e3e5',.42),graphite=material('#2e414e',.65),
+      titanium=material('#809aa2',.75),copper=material('#bf805d',.64);
+    // A continuous pressure vessel backs the radiator fins, keeping its
+    // dark slots readable as shallow recesses even from across the station.
+    box(w,h*.14,d,w/2,h*.07,d/2,ceramic);
+    box(w-.14,h*.78,d-.22,w/2,h*.53,d/2,graphite);
+    for(const z of [.07,d-.07]) {
+      for(let i=0;i<8;i++)box(w-.48,.11,.12,w/2,h*(.22+.082*i),z,titanium);
+      for(const x of [.19,w-.19])box(.16,h*.73,.14,x,h*.53,z,copper);
+    }
+    box(w,h*.08,d,w/2,h*.96,d/2,ceramic);
+    group.name='station-radiator-bank';return group;
   } else if(s.kind==='orbitalTunnelRoof') {
     const ceramic=material('#e6ebef',.48),frame=material('#6d7984',.82),inner=material('#323b45',.68);
     const light=new THREE.MeshStandardMaterial({color:'#b9f7ff',emissive:'#48ddeb',emissiveIntensity:2.4,
@@ -1575,19 +1650,116 @@ export function createTerrainModel(s) {
     for(const side of [.18,(alongX?d:w)-.18])
       box(alongX?w-.28:.055,.035,alongX?.055:d-.28,
         alongX?w/2:side,-.055,alongX?side:d/2,light);
+    // The corridor side faces are the interior skins of the adjoining
+    // pressure walls. Running lights and station numbers sit below the roof.
+    const port=s.livery==='port',stripe=material(port?'#377f92':'#be774c',.45);
+    for(const side of [-1,1]) {
+      const face=side<0?0:d,inward=-side,at=side<0?w*.29:w*.71;
+      box(w-.10,.18,.036,w/2,-1.70,face+inward*.025,stripe);
+      box(1.46,.81,.045,at,-.95,face+inward*.032,frame);
+      // Stencilled 01 / 02. Flip the far face so the number reads inside.
+      const stroke=(x,y,wide,high)=>box(wide,high,.018,at+x*inward,-.95+y,face+inward*.067,ceramic);
+      for(const x of [-.41,-.15])stroke(x,0,.048,.45);
+      for(const y of [-.20,.20])stroke(-.28,y,.24,.05);
+      if(port)stroke(.23,0,.059,.45);
+      else {
+        for(const y of [-.20,0,.20])stroke(.24,y,.28,.05);
+        stroke(.36,.10,.05,.20);stroke(.12,-.10,.05,.20);
+      }
+    }
+  } else if(s.kind==='stationCollar'||s.kind==='stationPier') {
+    const shell=material('#d2dadf',.46),alloy=material('#425668',.6),
+      stripe=material(s.livery==='port'?'#37878e':'#bb724e',.45);
+    box(w,h,d,w/2,h/2,d/2,shell);
+    if(s.kind==='stationCollar') {
+      for(const z of [.11,d-.11])box(w-.10,h*.57,.24,w/2,h*.52,z,alloy);
+      box(w*.65,.065,.17,w/2,-.03,d-.19,stripe);
+    } else {
+      for(const y of [.5,h-.5])box(w+.018,.21,d+.018,w/2,y,d/2,stripe);
+    }
+    group.name='boarding-collar';return group;
+  } else if(s.kind==='stationWindow') {
+    const shell=material('#dce5e9',.48),gasket=material('#334854',.66),
+      pane=new THREE.MeshStandardMaterial({color:'#9cdbef',transparent:true,opacity:.17,
+        roughness:.12,metalness:.12,depthWrite:false});
+    box(w,1.05,d,w/2,.525,d/2,shell);
+    box(w,h-3.95,d,w/2,(h+3.95)/2,d/2,shell);
+    for(const level of [1.11,3.89])box(w,.12,d-.025,w/2,level,d/2,gasket);
+    for(let i=0;i<6;i++) {
+      const bay=w/6;
+      box(bay-.12,2.66,.065,(i+.5)*bay,2.5,d/2,pane).castShadow=false;
+      box(.12,2.66,d-.08,i*bay+.06,2.5,d/2,gasket);
+    }
+    group.name='berth-observation-window';return group;
+  } else if(s.kind==='stationCeiling') {
+    const shell=material('#c4cfd4',.46),soffit=material('#495a68',.56),
+      lens=new THREE.MeshBasicMaterial({color:'#dfF7ff'});
+    box(w,h,d,w/2,h/2,d/2,shell);
+    const n=Math.max(1,Math.round(w/4));
+    for(let i=0;i<n;i++) {
+      const x=(i+.5)*w/n;
+      box(w/n-.18,.065,.46,x,-.032,d*.41,soffit);
+      box(w/n-.48,.025,.20,x,-.078,d*.41,lens);
+    }
+    group.name='concourse-soffit';return group;
+  } else if(s.kind==='stationManifold') {
+    const casing=material('#aebec6',.56),grille=material('#3d5361',.6),edge=material('#d2a46d',.55);
+    box(w,h,d,w/2,h/2,d/2,casing);
+    box(w*.82,h*.66,.09,w/2,h*.52,-.025,grille);
+    for(let i=0;i<8;i++)box(w*.75,.09,.12,w/2,h*.26+i*h*.074,-.045,casing);
+    box(w*.38,.095,.08,w/2,h*.89,-.035,edge);
+    group.name='berth-air-handling-core';return group;
+  } else if(s.kind==='stationKeel') {
+    const shell=material('#465c6c',.57),rim=material('#9aaab0',.53),trench=material('#2d3b48',.6);
+    const head=!s.livery,sign=s.livery==='starboard'?-1:1,span=head?w:d;
+    box(w,h,d,w/2,h/2,d/2,shell);
+    const panel=(length,high,offset,y,at,mat)=>{
+      const x=head?at:w/2+sign*(w/2+offset),z=head?d+offset:at;
+      box(head?length:.18,high,head?.18:length,x,y,z,mat);
+    };
+    const n=Math.ceil(span/4);
+    for(let i=0;i<n;i++) {
+      const at=(i+.5)*span/n;
+      panel(span/n-.22,h*.49,.035,h*.55,at,trench);
+      panel(span/n-.28,.12,.13,h*.77,at,rim);
+      panel(.19,h*.83,.105,h*.49,i*span/n+.14,rim);
+    }
+    group.name='berth-pressure-hull';return group;
+  } else if(s.kind==='stationJaw') {
+    const frame=material('#415564',.68),rod=material('#a4bcc5',.79),
+      mark=material(s.livery==='port'?'#408d99':'#c38257',.42);
+    const root=s.livery==='port'?.13:w-.13,tip=w-root;
+    box(.26,h,d,root,h/2,d/2,frame);
+    for(const z of [d*.20,d*.80]) {
+      beam([root,.24,z],[tip,h*.8,z],.13,rod);
+      beam([root,h*.82,z],[tip,h*.82,z],.19,frame);
+    }
+    box(.25,h*.48,d*.86,tip,h*.76,d/2,mark);
+    group.name='berth-mooring-clamp';return group;
   } else if(s.kind==='orbitalDeck') {
-    const shell=material('#dbe1e6',.58),edge=material('#66727e',.84),surface=material('#f1f4f6',.42);
-    const light=new THREE.MeshStandardMaterial({color:'#9bf5ff',emissive:'#42d9e8',emissiveIntensity:1.9,
-      roughness:.2,metalness:.22,toneMapped:false});
-    box(w,h-.055,d,w/2,(h-.055)/2,d/2,shell);
-    box(w-.07,.055,d-.07,w/2,h-.027,d/2,surface);
-    const alongX=w>=d,length=alongX?w:d;
-    for(let at=.55;at<length-.2;at+=1.15)
-      box(alongX?.035:w-.14,.02,alongX?d-.14:.035,alongX?at:w/2,h+.012,alongX?d/2:at,edge);
-    for(const side of [.11,(alongX?d:w)-.11])
-      box(alongX?w-.08:.10,.17,alongX?.10:d-.08,
-        alongX?w/2:side,-.05,alongX?side:d/2,edge);
-    box(alongX?w*.46:.045,.026,alongX?.045:d*.46,w/2,h+.022,d/2,light);
+    const shell=material('#d3dce1',.48),edge=material('#617783',.7),
+      ceramic=material('#e3e9ed',.40),mark=material(s.livery==='starboard'?'#c78255':'#398797',.42);
+    // The walking surface itself carries the enamel inlay. All strips share
+    // one height and meet edge to edge, so a grazing view has no decal flicker.
+    box(w,h-.075,d,w/2,(h-.075)/2,d/2,shell);
+    const strip=(x,z,width,depth,mat)=>add(new THREE.BoxGeometry(width,.075,depth),mat,
+      x+width/2,h-.0375,z+depth/2);
+    if(s.bridge) {
+      const line=.095,margin=.27;
+      strip(0,0,w,margin,edge);strip(0,margin,w,line,mark);
+      strip(0,margin+line,w,d-2*(margin+line),ceramic);
+      strip(0,d-margin-line,w,line,mark);strip(0,d-margin,w,margin,edge);
+      // Stressed chords and diagonal ties run below the crossing. Keep the walking deck open.
+      for(const z of [.12,d-.12]) {
+        box(w,.16,.16,w/2,-.55,z,edge);
+        for(let i=0;i<8;i++)
+          beam([w*i/8,i%2?-.55:.03,z],[w*(i+1)/8,i%2?.03:-.55,z],.06,shell,6);
+      }
+    } else {
+      const x=s.livery==='port'?.48:w-.80;
+      strip(0,0,x,d,ceramic);strip(x,0,.32,d,mark);strip(x+.32,0,w-x-.32,d,ceramic);
+    }
+    group.name=s.bridge?'station-transfer-bridge':'station-docking-arm';return group;
   } else if(s.kind==='orbitalCore') {
     const base=material('#58636e',.84),shell=material('#e4e9ed',.62),ring=material('#8a969f',.86);
     const energy=new THREE.MeshStandardMaterial({color:'#abf7ff',emissive:'#48ddec',emissiveIntensity:2.8,
@@ -1602,16 +1774,42 @@ export function createTerrainModel(s) {
     for(const y of [.48,h*.52,h-.32])add(new THREE.TorusGeometry(r*.98,.07,7,28),y===h*.52?energy:ring,cx,y,cz).rotation.x=Math.PI/2;
     add(new THREE.CylinderGeometry(r*.84,r*1.02,.26,24),shell,cx,h-.13,cz);
   } else if(s.kind==='orbitalPod') {
-    const shell=material('#e3e8ec',.58),edge=material('#687581',.82),joint=material('#aab4bc',.7);
-    const glass=new THREE.MeshPhysicalMaterial({color:'#7696ad',transparent:true,opacity:.56,roughness:.1,
-      metalness:.18,depthWrite:false});
-    box(w,h-.18,d,w/2,(h-.18)/2,d/2,shell);
-    box(w-.16,.16,d-.16,w/2,h-.08,d/2,joint);
-    const alongX=w>=d;
-    for(const side of [-1,1])box(alongX?w*.46:.028,h*.42,alongX?.028:d*.46,
-      alongX?w/2:w/2+side*(w/2+.018),h*.56,alongX?d/2+side*(d/2+.018):d/2,glass,.025);
-    for(let at=.42;at<(alongX?w:d)-.2;at+=.8)box(alongX?.06:w-.1,h-.35,alongX?d-.1:.06,
-      alongX?at:w/2,(h-.35)/2,alongX?d/2:at,edge);
+    // Sectioned pressure cabin. The window band replaces a slice of hull;
+    // the glass, mullions and roof collar all follow the same chamfered ends.
+    const ceramic=material('#d6e1e4',.47),frame=material('#526573',.68),
+      collar=material('#a1b2b9',.66),window=material('#365d73',.52);
+    window.roughness=.22;
+    const radius=Math.min(.30,w*.08,d*.08);
+    const ring=inset=>{
+      const a=inset,b=w-inset,c=d-inset,r=radius;
+      return [[a+r,a],[b-r,a],[b,a+r],[b,c-r],[b-r,c],[a+r,c],[a,c-r],[a,a+r]];
+    };
+    const outline=ring(.015);
+    const hull=(bottom,top,lowInset,highInset,finish)=>{
+      const lo=ring(lowInset),hi=ring(highInset),points=[],indices=[];
+      for(let i=0;i<8;i++){
+        const j=(i+1)%8,k=points.length/3;
+        points.push(lo[i][0],bottom,lo[i][1],hi[i][0],top,hi[i][1],
+          hi[j][0],top,hi[j][1],lo[j][0],bottom,lo[j][1]);
+        indices.push(k,k+1,k+2,k,k+2,k+3);
+      }
+      if(top===h)for(let i=1;i<7;i++)indices.push(1,(i+1)*4+1,i*4+1);
+      const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(points,3));
+      g.setIndex(indices);g.computeVertexNormals();add(g,finish,0,0,0);
+    };
+    hull(0,.18,.065,.015,frame);hull(.18,h*.54,.015,.015,ceramic);
+    hull(h*.54,h*.58,.015,.085,collar);hull(h*.58,h*.82,.085,.085,window);
+    hull(h*.82,h*.85,.085,.015,frame);hull(h*.85,h,.015,.12,ceramic);
+    for(let i=0;i<8;i+=2){
+      const [x,z]=outline[i],[ex,ez]=outline[i+1],alongX=z===ez;
+      const count=Math.max(1,Math.round(Math.hypot(ex-x,ez-z)/1.6));
+      for(let n=0;n<count;n++){
+        const t=(n+.5)/count;
+        box(alongX?.065:.18,h*.24,alongX?.18:.065,x+(ex-x)*t+(alongX?0:(x<w/2?.075:-.075)),
+          h*.70,z+(ez-z)*t+(alongX?(z<d/2?.075:-.075):0),frame);
+      }
+    }
+    group.name='station-pressure-cabin';return group;
   } else if(s.kind==='orbitalAntenna') {
     const base=material('#68737d',.86),shell=material('#e3e8ec',.62),dish=material('#cfd7dd',.74);
     const signal=new THREE.MeshStandardMaterial({color:'#a7f5ff',emissive:'#3bd7e9',emissiveIntensity:2.2,
@@ -1727,6 +1925,38 @@ export function createTerrainModel(s) {
     }
     if(s.style==='foundry') {
       const frame=material('#586b6e',.7),deck=material('#b4c0b8',.54),edge=material('#d5ad7d',.56);
+      if(s.pouringDeck) {
+        // The top plate is the actual walk surface. Below it the web and
+        // lower flange carry the span as a riveted plate girder.
+        add(new THREE.BoxGeometry(w,.095,d),deck,w/2,h-.0475,d/2);
+        const alongX=w>=d,length=alongX?w:d,cross=alongX?d:w;
+        for(const side of [.11,cross-.11]) {
+          const x=alongX?w/2:side,z=alongX?side:d/2;
+          add(new THREE.BoxGeometry(alongX?w:.11,h-.15,alongX?.11:d),frame,x,(h-.15)/2+.055,z);
+          add(new THREE.BoxGeometry(alongX?w:.22,.055,alongX?.22:d),frame,x,.0275,z);
+        }
+        const bays=Math.max(2,Math.ceil(length/2.3));
+        for(let i=0;i<bays;i++){
+          const at=length*(i+.5)/bays;
+          add(new THREE.BoxGeometry(alongX?.13:w-.35,h-.12,alongX?d-.35:.13),frame,
+            alongX?at:w/2,h/2-.035,alongX?d/2:at);
+        }
+        group.name='foundry-pouring-deck';return group;
+      }
+      if(s.continuous) {
+        add(new THREE.BoxGeometry(w,h-.045,d),frame,w/2,(h-.045)/2,d/2);
+        const plate=(x,z,bw,bd,mat)=>add(new THREE.BoxGeometry(bw,.045,bd),mat,
+          x+bw/2,h-.0225,z+bd/2);
+        // The painted service ring is inlaid into the plate, including its
+        // returns; the entire walking face stays at one elevation.
+        const margin=2.7,line=.10;
+        for(const [z,depth,mat] of [[0,margin,deck],[margin,line,edge],[d-margin-line,line,edge],[d-margin,margin,deck]])
+          plate(0,z,w,depth,mat);
+        const run=d-2*(margin+line);
+        for(const [x,width,mat] of [[0,margin,deck],[margin,line,edge],[margin+line,w-2*(margin+line),deck],
+          [w-margin-line,line,edge],[w-margin,margin,deck]])plate(x,margin+line,width,run,mat);
+        group.name='foundry-casting-floor';return group;
+      }
       box(w,h,d,w/2,h/2,d/2,frame);
       // One continuous deck plate replaces the repeated orange grate bars.
       // The plate is inset, so its edge cannot flicker against the frame.
@@ -1750,6 +1980,171 @@ export function createTerrainModel(s) {
     // rather than another floating platform slab.
     if(alongX)for(const z of [0.10,d-0.10])box(w-0.08,0.18,0.14,w/2,-0.06,z,dark);
     else for(const x of [0.10,w-0.10])box(0.14,0.18,d-0.08,x,-0.06,d/2,dark);
+  } else if(['foundryCupola','foundryCupolaBody','foundryCupolaFlue'].includes(s.kind)) {
+    const r=w/2,cx=w/2,cz=d/2;
+    const iron=material('#374b50',.62),steel=material('#687a78',.52),
+      oxide=material('#a54f38',.34),bronze=material('#bd8452',.57);
+    const heat=new THREE.MeshStandardMaterial({color:'#ffd88a',emissive:'#ff742f',
+      emissiveIntensity:1.65,roughness:.65});
+    const course=(low,high,radius,mat,upperRadius=radius)=>
+      add(new THREE.CylinderGeometry(upperRadius,radius,high-low,48),mat,cx,(low+high)/2,cz);
+    if(s.kind==='foundryCupola') {
+      course(0,.26,r,iron);
+      course(.26,h-.45,r*.97,oxide);
+      course(h-.45,h,r*.98,iron,r*.74);
+      // Recessed hot inspection ports, cradled in iron refractory castings.
+      for(let i=0;i<8;i++) {
+        const a=(i+.5)*Math.PI/4;
+        const face=(bw,bh,depth,y,rad,mat)=>{
+          const piece=box(bw,bh,depth,cx+rad*Math.sin(a),y,cz+rad*Math.cos(a),mat);
+          piece.rotation.y=a;
+        };
+        face(.88,1.18,.13,1.43,r*.963,iron);
+        face(.65,.70,.055,1.44,r*.986,bronze);
+        face(.49,.52,.032,1.44,r*.995,heat);
+        for(const y of [1.34,1.54])face(.50,.043,.036,y,r*.999,iron);
+      }
+    } else if(s.kind==='foundryCupolaBody') {
+      course(0,h-.16,r*.915,oxide);
+      for(const y of [.19,1.62,h-.24])course(y-.075,y+.075,r,iron);
+      const belt=h*.59;
+      course(belt-.35,belt+.35,r*.975,steel);
+      for(let i=0;i<8;i++) {
+        const a=i*Math.PI/4,x=cx+r*.945*Math.sin(a),z=cz+r*.945*Math.cos(a);
+        beam([x,1.72,z],[x,belt-.35,z],.102,bronze,12);
+        for(const y of [1.83,belt-.5])beam([x,y-.055,z],[x,y+.055,z],.13,iron);
+      }
+      // Segmented jacket plates above the blast belt catch the daylight.
+      for(let i=0;i<12;i++) {
+        const a=i*Math.PI/6;
+        add(new THREE.CylinderGeometry(r*.932,r*.932,2.15,4,1,true,a+.012,Math.PI/6-.024),
+          i%3===0?material('#994932',.42):oxide,cx,5.9,cz);
+        const dog=box(.12,.15,.10,cx+r*.982*Math.sin(a),belt,cz+r*.982*Math.cos(a),bronze);
+        dog.rotation.y=a;
+      }
+      for(const sign of [-1,1]){
+        const z=cz+sign*r*.91;
+        box(1.12,1.45,.16,cx,5.82,z,iron);
+        box(.86,1.10,.07,cx,5.82,z+sign*.099,bronze);
+        box(.71,.87,.06,cx,5.82,z+sign*.141,heat);
+        for(const x of [-.23,0,.23])box(.07,.89,.055,cx+x,5.82,z+sign*.18,iron);
+      }
+      // Back-to-back charging hatches face the two galleries.
+      for(const sign of [-1,1]) {
+        const face=cx+sign*r*.915,y=2.44;
+        box(.105,1.25,1.52,face,y,cz,iron);
+        box(.055,.98,1.25,face+sign*.066,y,cz,steel);
+        for(const offset of [-.38,.38])
+          box(.07,.85,.09,face+sign*.106,y,cz+offset,iron);
+        box(.11,.09,.47,face+sign*.132,y-.16,cz,bronze);
+      }
+      course(h-.16,h,r*.97,steel,r*.68);
+    } else {
+      course(0,h,r*.93,steel);
+      for(const y of [.12,h*.53,h-.14])course(y-.065,y+.065,r,iron);
+    }
+    group.name=s.kind;return group;
+  } else if(s.kind==='foundryBrickwork') {
+    const body=material('#945f49',.11),base=material('#564d46',.23),coping=material('#be9071',.18);
+    box(w,.26,d,w/2,.13,d/2,base);
+    box(w-.045,h-.42,d-.045,w/2,(h-.42)/2+.26,d/2,body);
+    box(w,.16,d,w/2,h-.08,d/2,coping);
+    // One vertex-colored mesh wraps the stretcher bond around all four faces.
+    const clays=['#a3694f','#b47c5e','#99634e','#a97459'].map(c=>new THREE.Color(c));
+    const pos=[],colors=[];
+    for(const alongX of [true,false])for(const side of [-1,1])for(let row=0,lo=.29;lo<h-.19;row++,lo+=.34) {
+      const length=alongX?w:d;
+      for(let col=0,start=row%2?-.44:0;start<length;col++,start+=.88) {
+        const l=Math.max(.035,start+.015),u=Math.min(length-.035,start+.86);
+        if(u<=l)continue;
+        const hi=Math.min(h-.18,lo+.315),face=side>0?(alongX?d:w)-.012:.012;
+        const tint=clays[(row*3+col+Math.floor(col/3))%clays.length];
+        for(const [a,y] of [[l,lo],[u,lo],[u,hi],[l,lo],[u,hi],[l,hi]]) {
+          pos.push(alongX?a:face,y,alongX?face:a);colors.push(tint.r,tint.g,tint.b);
+        }
+      }
+    }
+    const bricks=new THREE.BufferGeometry();
+    bricks.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+    bricks.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
+    bricks.computeVertexNormals();
+    add(bricks,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.9,side:THREE.DoubleSide}),0,0,0);
+    group.name='foundry-firebrick-pier';return group;
+  } else if(s.kind==='foundryRoofTruss') {
+    const iron=material('#405954',.55),paint=material('#7a9488',.43);
+    box(w,.18,d,w/2,.10,d/2,iron);
+    box(w,.20,d,w/2,h-.11,d/2,iron);
+    const n=2*Math.ceil(w/6);
+    for(let i=0;i<n;i++){
+      beam([w*i/n,i%2?h-.21:.19,d/2],[w*(i+1)/n,i%2?.19:h-.21,d/2],.078,paint,6);
+    }
+    group.name='foundry-roof-truss';return group;
+  } else if(s.kind==='foundryBillets') {
+    const cradle=material('#565e56',.58),iron=material('#727d79',.72),oxide=material('#89766b',.64);
+    box(w,.24,d,w/2,.12,d/2,cradle);
+    // A shipping cradle filled with rectangular cast stock. Fine gaps and
+    // alternating oxidised ends make the load legible from the dispatch doors.
+    const tier=(h-.24)/4,lane=d/4;
+    for(let row=0;row<4;row++)for(let col=0;col<4;col++) {
+      const length=w-.14-((col+row)%3)*.08;
+      box(length,tier-.025,lane-.025,w/2,.24+(row+.5)*tier,(col+.5)*lane,
+        (row+col)%3===0?oxide:iron);
+    }
+    group.name='foundry-dispatch-billets';return group;
+  } else if(s.kind==='foundryHeatHood') {
+    const firebrick=material('#955e46',.17),shell=material('#435858',.55),
+      band=material('#c58d63',.55),shield=material('#aab9aa',.42);
+    box(w,.28,d,w/2,.14,d/2,shell);
+    box(w-.08,h-.60,d-.10,w/2,(h-.60)/2+.28,d/2,firebrick);
+    box(w,.32,d,w/2,h-.16,d/2,shell);
+    // Exchanger cassettes sit in the shield above the ingot carrier.
+    for(const z of [.035,d-.035])for(let i=0;i<3;i++) {
+      const x=(i+.5)*w/3;
+      box(w/3-.18,h*.58,.06,x,h*.54,z,shield);
+      box(w/3-.27,.08,.075,x,h*.30,z,band);
+    }
+    group.name='foundry-casting-heat-shield';return group;
+  } else if(s.kind==='foundryLanding') {
+    const concrete=material('#889889',.18),nose=material('#c5b796',.55);
+    box(w,h-.12,d,w/2,(h-.12)/2,d/2,concrete);
+    box(w,.12,d,w/2,h-.06,d/2,nose);
+    group.name='foundry-stair-landing';return group;
+  } else if(s.kind==='foundryExtraction') {
+    const enamel=material('#788e81',.42),iron=material('#435753',.65),
+      brass=material('#d19d69',.54),fin=material('#a9b9a6',.55);
+    // The two banks of filter louvers face the stair bays. Their shallow
+    // recesses sit inside the shell's collision envelope.
+    box(w,.30,d,w/2,.15,d/2,iron);
+    box(w-.26,h-.63,d-.34,w/2,(h-.63)/2+.3,d/2,enamel);
+    box(w,.33,d,w/2,h-.165,d/2,iron);
+    for(const side of [-1,1])for(const z of [d*.265,d*.735]) {
+      const x=w/2+side*(w/2-.11);
+      box(.09,h*.56,d*.40,x,h*.54,z,iron);
+      for(let i=0;i<7;i++)box(.08,.11,d*.37,x+side*.058,h*.31+i*h*.074,z,fin);
+    }
+    for(const z of [.09,d-.09]) {
+      box(w*.72,.34,.17,w/2,h*.74,z,brass);
+      for(const x of [w*.14,w*.86])box(.13,h*.72,.18,x,h*.49,z,iron);
+    }
+    // The impeller inspection covers sit on the ends, where players first
+    // see the machine as they round the landing. Their faces are recessed.
+    for(const side of [-1,1]) {
+      const z=side<0?.088:d-.088,cx=w/2,y=h*.4,r=h*.245;
+      const shroud=add(new THREE.CylinderGeometry(r,r,.10,32),iron,cx,y,z);
+      shroud.rotation.x=Math.PI/2;
+      add(new THREE.TorusGeometry(r*.88,.032,6,32),brass,cx,y,z+side*.061);
+      for(let i=0;i<8;i++) {
+        const angle=i*Math.PI/4;
+        const vane=box(.10,r*.65,.045,cx+Math.sin(angle)*r*.44,y+Math.cos(angle)*r*.44,
+          z+side*.055,fin);vane.rotation.z=-angle+.32;
+      }
+    }
+    group.name='foundry-extraction-house';return group;
+  } else if(s.kind==='foundryStack') {
+    const steel=material('#82948a',.54),seam=material('#586c64',.7);
+    box(w-.12,h,d-.12,w/2,h/2,d/2,steel);
+    for(const level of [.12,h*.55,h-.12])box(w,.15,d,w/2,level,d/2,seam);
+    group.name='foundry-stack';return group;
   } else if(s.kind==='foundryEnclosure') {
     const lower=material('#81978a',.48),upper=material('#bdcbb6',.48),
       frame=material('#ddb784',.58),glass=new THREE.MeshPhysicalMaterial({
@@ -1940,15 +2335,21 @@ export function createTerrainModel(s) {
       emissiveIntensity:2.1,metalness:.12,roughness:.34,toneMapped:false});
     box(w,h,d,w/2,h/2,d/2,frame);
     box(w-.18,.065,d-.22,w/2,h-.04,d/2,bed);
-    for(const z of [.10,d-.10])box(w-.08,.11,.11,w/2,h-.045,z,edge);
+    for(const x of [.09,w-.09])box(.11,.11,d-.05,x,h+.025,d/2,edge);
+    const from=s.direction<0?d:0,sign=s.direction<0?-1:1;
+    const outlet=from-sign*.98,inlet=from+sign*.27;
+    beam([w/2,1.92,outlet],[w/2,h+.09,inlet],.095,hot,10);
+    for(const side of [-.16,.16])
+      beam([w/2+side,1.9,outlet],[w/2+side,h+.085,inlet],.09,frame,8);
+
     const slugs=[];
     for(let i=0;i<5;i++) {
-      const slug=box(.36,.025,d*.54,.3+i*(w-.6)/5,h+.004,d/2,hot);
+      const slug=box(w*.65,.025,.13,w/2,h+.004,.16+i*(d-.32)/5,hot);
       slug.name='foundry-hot-ingot';slug.castShadow=false;slugs.push(slug);
     }
     group.userData.update=time=>{
       const travel=time*.26;
-      for(let i=0;i<slugs.length;i++)slugs[i].position.x=.3+(w-.6)*((i/slugs.length+travel)%1);
+      for(let i=0;i<slugs.length;i++)slugs[i].position.z=from+sign*(.16+(d-.32)*((i/slugs.length+travel)%1));
       hot.emissiveIntensity=1.85+.35*Math.sin(time*4);
     };
     group.name='foundry-hot-casting-line';
@@ -2096,6 +2497,12 @@ export function createTerrainModel(s) {
     for(const side of [0.12,(alongX?d:w)-0.12])
       box(alongX?w-0.1:0.16,0.26,alongX?0.16:d-0.1,
         alongX?w/2:side,h-0.13,alongX?side:d/2,trim);
+  } else if(s.kind==='crane'&&s.style==='foundry') {
+    const rail=material('#bf8755',.62),iron=material('#475953',.7);
+    for(const z of [.28,d/2,d-.28])box(w,.18,.34,w/2,h-.09,z,iron);
+    for(const x of [.19,w-.19])box(.18,h-.16,d,x,(h-.16)/2,d/2,rail);
+    box(w-.16,.16,1.7,w/2,.08,d*.535,iron);
+    group.name='foundry-ladle-runway';return group;
   } else if(s.kind==='crane') {
     const crane=material(s.accent||'#e9a34e',0.72),black=material('#30383a',0.8);
     box(w,h,d,w/2,h/2,d/2,crane);

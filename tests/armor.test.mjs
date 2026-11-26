@@ -180,9 +180,10 @@ function account(username,set='lifeline',exotic=false,quartermaster=false) {
   }
   store.usersByUsername.set(username,user);return user;
 }
-function match(t,{pve=true,floor=1,team=1,set='lifeline',exotic=false,quartermaster=false}={}) {
+function match(t,{pve=true,pvpPerks=false,floor=1,team=1,set='lifeline',exotic=false,quartermaster=false}={}) {
   let now=100000;
   t.mock.method(global,'setInterval',()=>0);t.mock.method(Date,'now',()=>now);
+  if(pvpPerks)t.mock.method(Math,'random',()=>29/0x100000000);
   const events=[],handlers={};
   const io={on(){},emit(name,data,meta){events.push({name,data,meta});},
     to(ids){return {emit(name,data,meta){events.push({name,data,meta,to:ids});}};},socketsLeave(){}};
@@ -193,7 +194,7 @@ function match(t,{pve=true,floor=1,team=1,set='lifeline',exotic=false,quartermas
     game.registerSocketHandlers(socket);
     game.waitingPlayers.push({id:socket.id,name:user.username,accountUsername:user.username,weapon:'sniper',primaryWeapon:'sniper'});
   }
-  game.handleStartGame(sockets[0],{enableBots:pve,startFloor:floor,debugDouble:!pve,pvpMap:'maze'});
+  game.handleStartGame(sockets[0],{enableBots:pve,startFloor:floor,debugDouble:!pve,pvpMap:'maze',pvpPerks});
   const humans=game.activePlayers.filter(p=>!p.isBot&&!p.debugCloneOf).sort((a,b)=>a.id.localeCompare(b.id));
   t.after(()=>game.close());
   return {game,handlers,events,users,humans,sockets,get now(){return now;},advance(ms){now+=ms;}};
@@ -302,6 +303,47 @@ test('PvP sends equipped appearances but normal health, movement, and grenade ch
   assert.ok(Math.abs(p.x-308.5)<1e-8);assert.equal(p.dashRemaining,0);
   f.handlers.grenadeCharge();f.advance(350);f.handlers.throwGrenade({angle:0,pitch:0,charge:999999});
   assert.equal(f.events.find(event=>event.name==='grenadeThrown').data.vx,310);
+});
+
+test('perk-enabled PvP applies armor health and healing, timed refills, and faster weapon cycles',t=>{
+  const build={pve:false,pvpPerks:true};
+  for(const [set,maxHealth,regen] of [['bastion',141,.5],['lifeline',113,4],['vector',101,0]]) {
+    const f=match(t,{...build,set}),p=f.humans[0];
+    assert.equal(p.health,maxHealth);
+    assert.equal(p.maxHealth,maxHealth);
+    p.health=80;f.advance(1000);f.game.runBotsTick();
+    assert.equal(p.health,80+regen);
+  }
+  const f=match(t,{...build,set:'vector',quartermaster:true}),p=f.humans[0];
+  const initial=f.events.find(event=>event.name==='gameStarting').data;
+  assert.equal(initial.players.find(player=>player.id===p.id).armorStats.fireRate,6);
+  p.grenades=0;f.advance(29999);f.game.runBotsTick();assert.equal(p.grenades,0);
+  f.advance(1);f.game.runBotsTick();assert.equal(p.grenades,3);
+  const frame=f.events.filter(event=>event.name==='gameState').at(-1).data.find(player=>player.id===p.id);
+  assert.equal(frame.grenades,3,'refill reaches the HUD even while both players stand still');
+  assert.equal(frame.grenadeRefillAt,f.now+30000);
+  p.weapon='shotgun';p.lastShotAt=0;
+  f.handlers.shoot({angle:0,pitch:0});f.handlers.shoot({angle:0,pitch:0});
+  assert.ok(Math.abs(p.shotgunReloadUntil-f.now-1000/1.06)<.001);
+  assert.equal(armor.weaponInterval(1000,p.armorStats,initial.map,true),1000/1.06,'PvE floor buffs stay disabled');
+});
+
+test('perk-enabled PvP shares movement and Slipstream dash rules with client prediction',t=>{
+  const f=match(t,{pve:false,pvpPerks:true,set:'vector',exotic:true}),p=f.humans[0];
+  f.game.gameWalls.length=0;f.game.gameMap.terrain=[];
+  Object.assign(p,{x:300,y:300,height:0,groundHeight:0});
+  f.handlers.playerUpdate({angle:0,inputs:[{seq:1,epoch:0,dx:1,dy:0,dt:.05}]});
+  assert.ok(Math.abs(p.x-(300+8.5*1.175))<1e-8);
+  f.handlers.jump();
+  f.advance(130);
+  const predicted={...p};
+  const input={seq:2,epoch:0,dx:1,dy:0,dt:.05,dash:true};
+  movement.applyMovementInput(predicted,input,f.game.gameMap,[],f.now);
+  f.handlers.playerUpdate({angle:0,inputs:[input]});
+  assert.ok(p.dashRemaining>0);
+  assert.ok(Math.abs(p.x-predicted.x)<1e-8);
+  f.handlers.grenadeCharge();f.advance(350);f.handlers.throwGrenade({angle:0,pitch:0});
+  assert.ok(f.events.find(event=>event.name==='grenadeThrown').data.vx>310);
 });
 
 test('PvE bonuses survive retries, combine with room health buffs, and cannot be changed mid-run',t=>{

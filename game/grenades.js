@@ -1,5 +1,5 @@
 const {rayBox}=require('./hitscan');
-const {sampleHeightfield}=require('../public/arenaMap');
+const {sampleHeightfield,hasGroundFloor}=require('../public/arenaMap');
 const {GRENADE_FULL_CHARGE_MS}=require('../public/grenadeCharge');
 const R=2.4; // 12 cm, in horizontal arena units
 function throwGrenade(player,angle,pitch,charge,now,id) {
@@ -31,7 +31,7 @@ function stepGrenade(g,now,map,walls) {
         if(hit>=0&&hit<=fraction)fraction=Math.max(0,hit-1e-5);
       }
       const field=map.terrain?.find(s=>s.kind==='heightfield');
-      const terrainFloor=field?sampleHeightfield(field,g.x,g.y):0;
+      const terrainFloor=field?sampleHeightfield(field,g.x,g.y):hasGroundFloor(map,g.x,g.y,R)?0:-Infinity;
       const lo=axis==='height'?terrainFloor+R*.05:(axis==='x'?bounds.minX:bounds.minY)+R;
       const hi=axis==='height'?(map.ceiling??100)-R*.05:(axis==='x'?bounds.maxX:bounds.maxY)-R;
       const next=g[axis]+delta*fraction;

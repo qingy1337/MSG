@@ -62,7 +62,7 @@ function updateWeaponReady(viewed,now) {
   }
   if(!weapon){weaponReadyTrack.hidden=true;return;}
   const duration=ARMOR.weaponInterval(weapon==='sniper'?WEAPONS.sniper.cooldownMs:WEAPONS.shotgun.reloadMs,
-    viewed.armorStats,gameMap.mode,floorState.buff==='rapidFire');
+    viewed.armorStats,gameMap,floorState.buff==='rapidFire');
   const remaining=weapon==='sniper'?
     duration-(now-(sniperShotTimes.get(viewed.id)??-Infinity)):
     (viewed.shotgunReloadUntil||0)-(Date.now()+floorClockOffset);
@@ -160,7 +160,7 @@ function updateArenaLabel(map) {
     map.mode==='pve'?`FLOOR / ${String(map.floor||1).padStart(2,'0')}`:(map.name||'ARENA').toUpperCase();
   const subtitle=document.createElement('span');
   subtitle.textContent=strike?`ACT ${encounter?.act||strikeState?.actId||1} · ${encounter?.title||'OBJECTIVE'}`:
-    map.mode==='pve'?'LIVE SECTOR':`PVP MAP${Number.isSafeInteger(map.variant)?` · VARIANT ${map.variant+1}`:''}`;
+    map.mode==='pve'?'LIVE SECTOR':`PVP MAP${Number.isSafeInteger(map.variant)?` · VARIANT ${map.variant+1}`:''}${map.pvpPerks?' · PERKS ON':''}`;
   label.replaceChildren(document.createTextNode(title),subtitle);
 }
 
@@ -428,7 +428,7 @@ function attemptFire(now = performance.now()) {
   const cfg = WEAPONS[localPlayer.weapon] || WEAPONS.pistol;
   if(Date.now()+floorClockOffset<(localPlayer.weaponSwapUntil||0))return;
   if(localPlayer.weapon==='shotgun'&&Date.now()+floorClockOffset<(localPlayer.shotgunReloadUntil||0))return;
-  if (now - lastShotAt < ARMOR.weaponInterval(cfg.cooldownMs,localPlayer.armorStats,gameMap.mode,floorState.buff==='rapidFire')) return;
+  if (now - lastShotAt < ARMOR.weaponInterval(cfg.cooldownMs,localPlayer.armorStats,gameMap,floorState.buff==='rapidFire')) return;
   sendPosition(now); socket.emit('shoot', { angle: localPlayer.angle, pitch }); lastShotAt = now;
 }
 
@@ -459,11 +459,11 @@ function gameLoop(now) {
   if(previousBloomRadius!==bloomRadius){previousBloomRadius=bloomRadius;
     crosshair.style.setProperty('--sniper-bloom-radius',bloomRadius);}
   arena.setMinigunTriggerHeld(firing&&localPlayer?.alive&&localPlayer.weapon==='miniGun');
-  arena.render(renderedPlayers, socket.id, dt, pitch);
+  arena.render(renderedPlayers, socket.id, dt, pitch, Date.now()+floorClockOffset);
   const canInteract=updateStrikeInteractionHud(now);
-  const chargeMultiplier=1+ARMOR.effects(localPlayer?.armorStats,gameMap.mode).charge/100;
+  const chargeMultiplier=1+ARMOR.effects(localPlayer?.armorStats,gameMap).charge/100;
   updateGrenadeHud(viewed?.grenades??0,grenadeChargeAt==null||!localPlayer?.alive?null:(performance.now()-grenadeChargeAt)*chargeMultiplier);
-  updateDashHud(localPlayer,gameMap.mode,Date.now()+floorClockOffset);
+  updateDashHud(localPlayer,gameMap,Date.now()+floorClockOffset);
   updateMinigunSpool(firing&&localPlayer?.alive&&localPlayer.weapon==='miniGun'&&minigunSpinAt!=null?
     performance.now()-minigunSpinAt:null,WEAPONS.miniGun.spinUpMs);
   const statusHidden=!viewed?.alive;
@@ -497,7 +497,7 @@ window.addEventListener('keydown', e => {
   if (!gameActive || /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
   const key = e.key.toLowerCase();
   if(key==='shift'&&locked()) {
-    if(!e.repeat&&!riding()&&localPlayer?.alive&&gameMap.mode==='pve'&&localPlayer.armorStats?.airDash) {
+    if(!e.repeat&&!riding()&&localPlayer?.alive&&ARMOR.perksEnabled(gameMap)&&localPlayer.armorStats?.airDash) {
       e.preventDefault();dashRequested=true;
     }
     return;

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { createAutoRifle } from './autoRifle.mjs';
+import {ASHES_AND_DUST} from './ashesAndDust.mjs';
 import {CLOUDBREAK} from './cloudbreak.mjs';
 import { createPistol } from './pistol.mjs';
 import { createShotgun } from './shotgun.mjs';
@@ -177,7 +178,7 @@ export function createLoadoutCharacter(weaponKey, skinKey, secondarySkinKey, pla
   const primaryScale = ({ shotgun: 1.05, autoRifle: 0.95, miniGun: 0.72, sniper: sniperScale })[weaponKey] || 0.95;
   primary.scale.multiplyScalar(primaryScale);
   primaryMount.add(primary);
-  box(0.13, 0.23, 0.16, 0, -0.16, -0.12, undersuit, 'primary-grip', 0.035, primaryMount);
+  if (skinKey !== ASHES_AND_DUST) box(0.13, 0.23, 0.16, 0, -0.16, -0.12, undersuit, 'primary-grip', 0.035, primaryMount);
 
   const pistolMount = new THREE.Group();
   pistolMount.name = 'held-pistol';

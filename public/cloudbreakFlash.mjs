@@ -43,7 +43,8 @@ const strokes = [
   [[-.32,.28,-1.52], [-.96,.45,-1.64], [-.79,.52,-1.88], [-1.53,.79,-2.15]],
   [[.16,.17,-1.6], [.62,-.43,-1.84], [.54,-.56,-2.06], [1.19,-.74,-2.44]],
 ];
-function lightning() {
+export const CLOUDBREAK_BOLT_LENGTH=-strokes[0].at(-1)[2];
+export function createCloudbreakBolt(connectEnds=false) {
   const positions = [], colors = [], indices = [], bends = [];
   const fringe = new THREE.Color('#588dff'), ice = new THREE.Color('#e4fcff');
   for (let branch = 0; branch < strokes.length; branch++) {
@@ -51,13 +52,15 @@ function lightning() {
     for (let plane = 0; plane < 2; plane++) {
       const first = positions.length / 3;
       for (let i = 0; i < path.length; i++) {
-        const [x, y, z] = path[i];
+        const [px, py, z] = path[i];
+        const tip=connectEnds&&branch===0&&i===path.length-1;
+        const x=tip?0:px,y=tip?0:py;
         const width = (branch ? .16 : .29) * (1 - i / (path.length - 1));
         for (const [j, edge] of [-1,-.24,.24,1].entries()) {
           positions.push(x + (plane ? 0 : edge*width), y + (plane ? edge*width : 0), z);
           // Evaluate the bend at the centerline so both planes and each
           // branching junction stay joined as the silhouette changes.
-          bends.push(.38*Math.sin(5*z), .43*Math.sin(3*z+x), .16*Math.sin(4*y));
+          bends.push(tip?0:.38*Math.sin(5*z),tip?0:.43*Math.sin(3*z+x),tip?0:.16*Math.sin(4*y));
           const core = j === 1 || j === 2;
           colors.push(...(core ? ice : fringe).toArray(), core ? 1 : 0);
           if (i && j) {
@@ -121,7 +124,7 @@ export class CloudbreakFlash extends THREE.Group {
     this.name = 'cloudbreak-flash';
     this.scale.setScalar(size);
     this.trails = windTrails();
-    this.bolt = lightning();
+    this.bolt = createCloudbreakBolt();
     this.bolt.renderOrder = 1;
     this.glint = ignitionGlint();
     this.add(this.trails, this.bolt, this.glint);

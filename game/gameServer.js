@@ -1,4 +1,4 @@
-const { WEAPONS, DEFAULT_WEAPON_KEY, SECONDARY_WEAPON_KEY, WEAPON_SWITCH_MS,
+const { WEAPONS, DEFAULT_WEAPON_KEY, SECONDARY_WEAPON_KEY, WEAPON_SWITCH_MS, AFTERBURN_DURATION_MS,
   weaponBloomRadians,spreadWeaponAim } = require("../public/weapons");
 const { traceShot, tracePiercingShot, rayBox } = require("./hitscan");
 const {traceShotgun,shotgunPelletDamageAtDistance}=require('./shotgun');
@@ -10,8 +10,7 @@ const { floorDifficulty, tickOgre } = require('./pveDifficulty');
 const {rollPveBuff,weaponCooldown}=require('./pveBuffs');
 const {armorLoadout}=require('../lib/armor');
 const {advanceArmorAbilities}=require('./armorAbilities');
-const {GRENADE_REFILL_MS}=require('../public/armor');
-const {effects:armorEffects}=require('../public/armor');
+const {GRENADE_REFILL_MS,effects:armorEffects}=require('../public/armor');
 const { advanceKnockback,addKnockbackImpulse } = require('../public/arenaMap');
 const {NavigationService}=require('./navigationService');
 const {playerSnapshot,playerFrame}=require('./snapshots');
@@ -25,7 +24,7 @@ const { perceive, chooseIntent, angleDelta, alertNearbyBots } = require('./botAw
 const { recordEnemyHit, currentEnemyFear, fearRetreatGoal, enemyCanAttack } = require('./enemyReactions');
 const { MOVEMENT, advanceJump, startJump } = require("../public/movement");
 const { DEFAULT_MAP, createPveMap, createPvpMap, moveOnTerrain, regeneratePlayers, updateCargoLifts,
-  groundHeight, supportHeight, authoredSupportAt, canOccupy, horizontalClearance } = require('../public/arenaMap');
+  groundHeight, supportHeight, authoredSupportAt, canOccupy, horizontalClearance, withinPlayableFootprint, hasGroundFloor } = require('../public/arenaMap');
 const {PVP_MAPS}=require('../public/pvpMaps');
 const {PVP_TEAMS,balancedPvpTeams}=require('../public/pvpTeams');
 const {pvpTeamSpawns}=require('./pvpTeamSpawns');
@@ -73,6 +72,10 @@ const colors = [
 ];
 
 const MAX_HEALTH = 101;
+const AFTERBURN_DAMAGE_TO_CHARGE = 500;
+const CLOUDBREAK_TRIGGER_METRES = 9;
+const CLOUDBREAK_JUMP_METRES = 5;
+const CLOUDBREAK_JUMP_DAMAGE = [7,4];
 const WEAPON_DAMAGE = {
   pistol: 10.5,
   autoRifle: 10,    // Original falloff curve; its final damage is capped below.
@@ -148,13 +151,13 @@ function createGameServer(io, options = {}) {
   function matchArmor(player) {
     const loadout=player.armorStats?{armorStats:player.armorStats,armorAppearance:player.armorAppearance||{}}:
       armorLoadout(usersByUsername.get(player.accountUsername));
-    return {...loadout,armorStats:armorEffects(loadout.armorStats,gameMap.mode)};
+    return {...loadout,armorStats:armorEffects(loadout.armorStats,gameMap)};
   }
   function applyFloorHealthBuff() {
     const doubled=currentPveBuff()==='doubleHealth';
     for(const player of activePlayers)if(!player.isBot) {
       const oldMax=player.maxHealth||MAX_HEALTH;
-      const base=MAX_HEALTH+armorEffects(player.armorStats,gameMap.mode).health;
+      const base=MAX_HEALTH+armorEffects(player.armorStats,gameMap).health;
       player.maxHealth=doubled?base*2:base;
       const bonus=Math.max(0,player.maxHealth-oldMax);
       player.health=player.alive?Math.min(player.maxHealth,Math.max(0,(player.health||0)+bonus)):0;
@@ -169,6 +172,7 @@ function createGameServer(io, options = {}) {
   let recentTerrain=[];
   let lastPvpMapId=null;
   const cooperative=()=>gameMap.mode==='pve'||gameMap.mode==='strike'||gameMap.activity==='strike';
+  const weaponPerksEnabled=()=>cooperative()||gameMap.pvpPerks===true;
   const riding = () => gameMap.mode === 'pve'&&gameMap.activity!=='strike'&&['riding','opening'].includes(floorState.phase);
   const travelCabin=()=>riding()?(floorState.phase==='opening'?gameMap.arrivalElevator:gameMap.elevator):null;
   function publishFloorState() {
@@ -323,7 +327,7 @@ function createGameServer(io, options = {}) {
       const now=Date.now();updateCargoLifts(gameMap,activePlayers,now);advanceJump(p,now);
       activatePveEncounter();
       if(currentPveBuff()!=='infiniteGrenades')p.grenades--;
-      const charge=(now-started)*(1+armorEffects(p.armorStats,gameMap.mode).charge/100);
+      const charge=(now-started)*(1+armorEffects(p.armorStats,gameMap).charge/100);
       const g=throwGrenade(p,data.angle,data.pitch,charge,now,nextGrenadeId++);
       grenades.push(g);
       if (p.accountUsername) {
@@ -381,6 +385,18 @@ function createGameServer(io, options = {}) {
     return null;
   }
 
+  function initialAfterburn(player) {
+    if(!weaponPerksEnabled() || (player.primaryWeapon||player.weapon)!=='miniGun' ||
+      (player.primaryWeaponSkinKey||player.weaponSkinKey)!=='miniGun_ashes_and_dust')return {};
+    return {ashCharge:0,ashUntil:0,ashPrimed:false};
+  }
+
+  function chargeAfterburn(player,damage,now) {
+    if(player?.ashCharge===undefined || !player.alive || now<player.ashUntil)return;
+    player.ashCharge=Math.min(1,player.ashCharge+damage/AFTERBURN_DAMAGE_TO_CHARGE);
+    if(player.ashCharge>1-1e-10)player.ashCharge=1;
+  }
+
   function activateHumanPlayer(player, spawnPosition, now) {
     const cooperativeMatch=cooperative();
     const armor=matchArmor(player),baseHealth=MAX_HEALTH+armor.armorStats.health;
@@ -388,6 +404,7 @@ function createGameServer(io, options = {}) {
     return {
       ...player,
       ...armor,
+      ...initialAfterburn(player),
       x:spawnPosition.x,
       y:spawnPosition.y,
       angle:0,
@@ -456,7 +473,10 @@ function createGameServer(io, options = {}) {
       new Set(teamRoster.map(player=>teams.get(player.id))).size!==2))return;
     const teamSpawns=teamMode?pvpTeamSpawns(layout.map,layout.walls,teamRoster,teams):null;
     if(teamMode&&!teamSpawns)return;
-    if(!enableBots)layout.map.pvpMode=teamMode?'teams':'ffa';
+    if(!enableBots) {
+      layout.map.pvpMode=teamMode?'teams':'ffa';
+      layout.map.pvpPerks=config.pvpPerks===true;
+    }
 
     gameInProgress.status = true;
     matchParticipantIds.clear();
@@ -501,6 +521,7 @@ function createGameServer(io, options = {}) {
       const activePlayer={
         ...player,
         ...armor,
+        ...initialAfterburn(player),
         x: spawnPosition.x,
         y: spawnPosition.y,
         angle: 0,
@@ -622,9 +643,10 @@ function createGameServer(io, options = {}) {
       !gameInProgress.status||gameOverTimeout||riding())return;
     if(player.automaticFire)return;
     const now=Date.now(),config=WEAPONS[player.weapon];
-    let nextShotAt=Math.max(now,(player.lastShotAt||0)+weaponCooldown(config.cooldownMs,currentPveBuff(),player.armorStats,gameMap.mode));
+    let nextShotAt=Math.max(now,(player.lastShotAt||0)+weaponCooldown(config.cooldownMs,currentPveBuff(),player.armorStats,gameMap));
     if(player.weapon==='miniGun'){
-      if(player.miniGunSpinStartedAt==null||player.miniGunLastAttemptAt==null||
+      if(player.ashCharge!==undefined)player.ashPrimed=player.ashCharge===1;
+      if(player.ashPrimed||player.miniGunSpinStartedAt==null||player.miniGunLastAttemptAt==null||
         now-player.miniGunLastAttemptAt>config.triggerReleaseMs)player.miniGunSpinStartedAt=now;
       player.miniGunLastAttemptAt=now;
       nextShotAt=Math.max(nextShotAt,player.miniGunSpinStartedAt+config.spinUpMs);
@@ -644,6 +666,7 @@ function createGameServer(io, options = {}) {
   function handleAutomaticFireStop(socket) {
     const player=activePlayers.find(p=>p.id===socket.id);
     if(player?.automaticFire?.weapon==='miniGun')player.miniGunLastAttemptAt=Date.now();
+    if(player?.ashPrimed)player.ashPrimed=false;
     if(player)player.automaticFire=null;
   }
 
@@ -653,7 +676,7 @@ function createGameServer(io, options = {}) {
       if(!held)continue;
       if(!player.alive||!gameInProgress.status||gameOverTimeout||riding()||
         held.weapon!==player.weapon){player.automaticFire=null;continue;}
-      const interval=weaponCooldown(WEAPONS[player.weapon].cooldownMs,currentPveBuff(),player.armorStats,gameMap.mode);
+      const interval=weaponCooldown(WEAPONS[player.weapon].cooldownMs,currentPveBuff(),player.armorStats,gameMap);
       if(held.intervalMs!==interval) {
         held.intervalMs=interval;held.scheduleStartAt=held.nextShotAt;held.roundsScheduled=0;
       }
@@ -680,6 +703,7 @@ function createGameServer(io, options = {}) {
     const useSecondary=player.weapon!==SECONDARY_WEAPON_KEY;
     player.weapon=useSecondary?SECONDARY_WEAPON_KEY:player.primaryWeapon;
     player.weaponSkinKey=useSecondary?player.secondaryWeaponSkinKey:player.primaryWeaponSkinKey;
+    if(player.ashPrimed)player.ashPrimed=false;
     player.miniGunSpinStartedAt=null;
     player.miniGunLastAttemptAt=null;
     player.automaticFire=null;
@@ -687,6 +711,31 @@ function createGameServer(io, options = {}) {
     io.emit('weaponSwitched',{id:player.id,weapon:player.weapon,weaponSkinKey:player.weaponSkinKey,
       weaponSwapUntil:player.weaponSwapUntil});
     queueSnapshot();return true;
+  }
+
+  function cloudbreakChain(player,shot) {
+    if(Math.hypot((shot.endX-shot.x)*.05,(shot.endY-shot.y)*.05,shot.endHeight-shot.height)>CLOUDBREAK_TRIGGER_METRES)return;
+    const visited=new Set([player.id,shot.targetId]);
+    const roofs=[gameMap.elevator,gameMap.arrivalElevator].filter(Boolean)
+      .map(e=>({...e,bottom:e.ceiling,top:e.ceiling+.12}));
+    const chain=[];
+    let from={x:shot.endX,y:shot.endY,height:shot.endHeight};
+    while(chain.length<CLOUDBREAK_JUMP_DAMAGE.length) {
+      let nearest=null,bestDistance=CLOUDBREAK_JUMP_METRES;
+      for(const target of activePlayers) {
+        if(!target.alive||visited.has(target.id)||!canDamage(player,target))continue;
+        const height=(target.height||0)+(target.hoverOffset||0)+(target.bodyHeight||2.2)*.5;
+        const dx=target.x-from.x,dy=target.y-from.y,dz=height-from.height;
+        const distance=Math.hypot(dx*.05,dy*.05,dz);
+        if(distance>bestDistance)continue;
+        const blocks=s=>!s.nonSolid&&rayBox(from.x,from.y,dx,dy,s,from.height,dz)<1;
+        if(solids().some(blocks)||roofs.some(blocks))continue;
+        bestDistance=distance;nearest={id:target.id,x:target.x,y:target.y,height};
+      }
+      if(!nearest)break;
+      visited.add(nearest.id);chain.push(nearest);from=nearest;
+    }
+    if(chain.length)return chain;
   }
 
   function fireHitscan(player, angle, pitch = 0, shotTime = Date.now(), batchShot = false) {
@@ -697,11 +746,14 @@ function createGameServer(io, options = {}) {
     if(player.weapon==='miniGun'&&!player.isBot&&!player.automaticFire) {
       const released=player.miniGunLastAttemptAt==null||
         now-player.miniGunLastAttemptAt>weaponConfig.triggerReleaseMs;
-      if(released)player.miniGunSpinStartedAt=now;
+      if(released) {
+        player.miniGunSpinStartedAt=now;
+        if(player.ashCharge!==undefined)player.ashPrimed=player.ashCharge===1;
+      }
       player.miniGunLastAttemptAt=now;
       if(now-(player.miniGunSpinStartedAt??now)<weaponConfig.spinUpMs)return false;
     }
-    const cooldown = weaponCooldown(weaponConfig.cooldownMs,currentPveBuff(),player.armorStats,gameMap.mode);
+    const cooldown = weaponCooldown(weaponConfig.cooldownMs,currentPveBuff(),player.armorStats,gameMap);
     // Fractional intervals lose a fraction of a millisecond at epoch-sized
     // timestamps. Do not drop alternate scheduled rounds to float rounding.
     if (shotTime - (player.lastShotAt || 0) + .001 < cooldown) return false;
@@ -711,7 +763,7 @@ function createGameServer(io, options = {}) {
         player.shotgunShotsRemaining=WEAPONS.shotgun.shotsPerReload;
       player.shotgunShotsRemaining--;
       player.shotgunReloadUntil=player.shotgunShotsRemaining===0?
-        now+weaponCooldown(WEAPONS.shotgun.reloadMs,currentPveBuff(),player.armorStats,gameMap.mode):0;
+        now+weaponCooldown(WEAPONS.shotgun.reloadMs,currentPveBuff(),player.armorStats,gameMap):0;
       queueSnapshot();
     }
     if(!player.isBot)activatePveEncounter();
@@ -743,17 +795,32 @@ function createGameServer(io, options = {}) {
     const aim=spreadWeaponAim(angle,pitch,bloom);
     const shot = trace(player, aim.angle, gameWalls, activePlayers,
       target => canDamage(player, target), aim.pitch, gameMap);
+    if(player.weapon==='miniGun' && player.ashCharge!==undefined) {
+      if(player.ashPrimed && player.ashCharge===1) {
+        player.ashPrimed=false;
+        player.ashCharge=0;
+        player.ashUntil=shotTime+AFTERBURN_DURATION_MS;
+      }
+      if(shotTime<player.ashUntil)shot.ashEmpowered=true;
+    }
     if(bloom>0)shot.bloom=bloom;
     shot.bulletId = nextBulletId++;
     const reactorHit=strikeDestructibleHit(player,shot);
     if(reactorHit) {
-      reactorHit.damage=strikeWeaponDamage(player,reactorHit.distance);
+      reactorHit.damage=strikeWeaponDamage(player,reactorHit.distance)*(shot.ashEmpowered?1.5:1);
       shot.strikeTargetId=reactorHit.target.id;shot.strikeTargetDamage=reactorHit.damage;
+    }
+    if(!reactorHit&&shot.targetId&&weaponPerksEnabled()&&!player.isBot&&player.weapon==='pistol'&&
+      player.weaponSkinKey==='pistol_cloudbreak') {
+      const chain=cloudbreakChain(player,shot);
+      if(chain)shot.cloudbreakChain=chain;
     }
     if(batchShot)pendingCombatShots.push(shot);
     else io.emit("shotFired", shot);
     for(const targetId of shot.targetIds||(shot.targetId?[shot.targetId]:[]))
-      handlePlayerHit({ targetId, shooterId: player.id });
+      handlePlayerHit({ targetId, shooterId: player.id, ashEmpowered:shot.ashEmpowered });
+    shot.cloudbreakChain?.forEach((target,i)=>handlePlayerHit({targetId:target.id,shooterId:player.id,
+      kind:'lightning',origin:i?shot.cloudbreakChain[i-1]:{x:shot.endX,y:shot.endY}},CLOUDBREAK_JUMP_DAMAGE[i]));
     if(reactorHit)damageStrikeDestructible(reactorHit,player,now);
     return true;
   }
@@ -810,11 +877,15 @@ function createGameServer(io, options = {}) {
     if (shooter?.botType==='dread') damage=DREAD_COMBAT.damage;
     if (shooter?.botType==='warden') damage=wardenCarbineConfig(shooter).damage;
     if (specialDamage !== undefined) damage = specialDamage;
+    if(payload?.ashEmpowered)damage*=1.5;
 
     const previousHealth=Math.max(0,target.health??MAX_HEALTH);
     target.health = Math.max(0,previousHealth-damage);
+    const appliedDamage=previousHealth-target.health;
+    const opposingPvpDamage=gameMap.pvpPerks===true&&shooter&&shooter!==target;
+    if((target.isBot||opposingPvpDamage)&&!payload?.ashEmpowered)chargeAfterburn(shooter,appliedDamage,now);
+    if(shooter?.isBot||opposingPvpDamage)chargeAfterburn(target,4*appliedDamage,now);
     if(cooperative()&&target.isBot&&!shooter?.isBot&&shooter?.accountUsername) {
-      const appliedDamage=previousHealth-target.health;
       if(Number.isFinite(appliedDamage)&&appliedDamage>0) {
         let contributions=botDamageByAccount.get(target);
         if(!contributions){contributions=new Map();botDamageByAccount.set(target,contributions);}
@@ -842,6 +913,9 @@ function createGameServer(io, options = {}) {
     }
     if (target.health <= 0) {
       target.alive = false;
+      if(target.ashCharge!==undefined) {
+        target.ashCharge=0;target.ashUntil=0;target.ashPrimed=false;
+      }
       if(gameMap.activity==='strike'&&!target.isBot)prepareStrikeReviveBeacon(target,now);
       const death=deathDescriptor(target,payload?.origin||shooter,payload?.kind||shooter?.weapon||'pistol',gameMap,gameWalls);
       const kill=gameMap.mode==='pvp'?{
@@ -1139,7 +1213,9 @@ function createGameServer(io, options = {}) {
       // Authored PvP spawns may live on catwalks. Collision must therefore be
       // evaluated in 3D: the supporting deck is legal at its top and raised
       // bridges do not incorrectly block a ground spawn beneath them.
-      return !canOccupy(px,py,footHeight,walls,PLAYER_RADIUS,0.001,2.2);
+      return (footHeight===0&&!hasGroundFloor(gameMap,px,py))||
+        (gameMap.floorPolygon&&!withinPlayableFootprint(gameMap,px,py,PLAYER_RADIUS))||
+        !canOccupy(px,py,footHeight,walls,PLAYER_RADIUS,0.001,2.2);
     }
 
     // Evaluate candidate with respect to existing players
@@ -4047,7 +4123,7 @@ function createGameServer(io, options = {}) {
         const slots=Array.from({length:12},(_,i)=>floorSpawn(gameMap,false,i));
         const spawn=slots.find(s=>activePlayers.every(other=>other.isBot||!other.alive||
           Math.hypot(other.x-s.x,other.y-s.y)>=32))||slots[0];
-        const baseHealth=MAX_HEALTH+armorEffects(p.armorStats,gameMap.mode).health;
+        const baseHealth=MAX_HEALTH+armorEffects(p.armorStats,gameMap).health;
         Object.assign(p,spawn,{alive:true,health:baseHealth,maxHealth:baseHealth,angle:0,height:0,groundHeight:0,
           ceilingHeight:gameMap.arrivalElevator.ceiling,jumpStartedAt:null,jumpBase:0,jumpVelocity:0,
           jumpInputSeq:null,jumpPlatformId:null,platformId:null,groundPlatformId:null,knockback:null,
@@ -4083,15 +4159,23 @@ function createGameServer(io, options = {}) {
     const jumpNow = Date.now();
     processAutomaticFire(jumpNow);
     navigation.beginTick();
-    if (cooperative()) {
-      advanceArmorAbilities(activePlayers,gameMap.mode,jumpNow);
+    if (weaponPerksEnabled()) {
+      if(advanceArmorAbilities(activePlayers,gameMap,jumpNow))queueSnapshot();
       const beforeHealth=activePlayers.map(player=>player.health);
-      regeneratePlayers(activePlayers, Math.max(0, (jumpNow - lastRegenAt) / 1000),gameMap.mode);
-      for(let i=0;i<activePlayers.length;i++)if(activePlayers[i].health!==beforeHealth[i]){
+      regeneratePlayers(activePlayers, Math.max(0, (jumpNow - lastRegenAt) / 1000),gameMap);
+      for(let i=0;i<activePlayers.length;i++){
         const player=activePlayers[i];
+        if(player.alive && player.ashUntil>lastRegenAt) {
+          const start=Math.max(lastRegenAt,player.ashUntil-AFTERBURN_DURATION_MS);
+          const end=Math.min(jumpNow,player.ashUntil);
+          player.health=Math.min(player.maxHealth??MAX_HEALTH,player.health+Math.max(0,end-start)/1000);
+        }
+        if(player.health===beforeHealth[i])continue;
         pendingHealth.set(player.id,{id:player.id,health:player.health,maxHealth:player.maxHealth??MAX_HEALTH});
       }
       lastRegenAt = jumpNow;
+    }
+    if (cooperative()) {
       if(gameMap.activity==='strike'){advanceStrike(jumpNow);advanceStrikeHazards(jumpNow);}
       else {
         advanceFloor(jumpNow);
@@ -4106,6 +4190,8 @@ function createGameServer(io, options = {}) {
     for (const player of activePlayers) {
       advanceKnockback(player,jumpNow,gameMap,solids());
       if (advanceJump(player, jumpNow)) jumping = true;
+      if(gameMap.floorHasGaps&&player.alive&&player.height<-2.2)
+        handlePlayerHit({targetId:player.id,kind:'fall'},player.health);
     }
     advanceHotSurfaces(jumpNow);
     if(gameMap.activity==='strike') {

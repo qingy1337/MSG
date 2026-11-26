@@ -9,8 +9,8 @@ function rollPveBuff(seed,floor) {
   return value%10===0?BUFFS[Math.floor(value/10)%BUFFS.length]:null;
 }
 
-function weaponCooldown(base,buff,stats=null,mode='pve') {
-  return require('../public/armor').weaponInterval(base,stats,mode,buff==='rapidFire');
+function weaponCooldown(base,buff,stats=null,rules='pve') {
+  return require('../public/armor').weaponInterval(base,stats,rules,buff==='rapidFire');
 }
 
 module.exports={BUFFS,rollPveBuff,weaponCooldown};

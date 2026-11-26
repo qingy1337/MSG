@@ -10,7 +10,7 @@ import {muzzleFlashScaleForWeapon} from '../public/muzzleFlash.mjs';
 import {SHOTGUN_SPREAD_RADIANS,shotgunReticleDiameter} from '../public/shotgunCrosshair.mjs';
 
 const shooter={id:'s',x:100,y:250,height:0,alive:true,weapon:'shotgun',weaponSkinKey:'shotgun_bubble_trouble'};
-const target={id:'t',x:160,y:250,height:0,alive:true,health:200};
+const target={id:'t',x:160,y:250,height:0,alive:true,health:201};
 const map={width:1800,height:1200,ceiling:7.5,terrain:[]};
 test('shotgun reticle ring projects the authoritative pellet cone at the camera FOV',()=>{
   assert.equal(SHOTGUN_SPREAD_RADIANS,0.085);
@@ -21,15 +21,15 @@ test('shotgun reticle ring projects the authoritative pellet cone at the camera 
 });
 
 test('shotgun pellets spread, respect walls and friendly filtering, and lose damage at range',()=>{
-  assert.equal(shotgun.shotgunPelletDamageAtDistance(100),12);
-  assert.equal(shotgun.shotgunPelletDamageAtDistance(120),12);
-  assert.equal(shotgun.shotgunPelletDamageAtDistance(185),9.4);
-  assert.equal(shotgun.shotgunPelletDamageAtDistance(230),7.6);
-  assert.equal(shotgun.shotgunPelletDamageAtDistance(300),4.8);
-  assert.equal(shotgun.shotgunPelletDamageAtDistance(395),1);
+  assert.equal(shotgun.shotgunPelletDamageAtDistance(100),12.5);
+  assert.equal(shotgun.shotgunPelletDamageAtDistance(120),12.5);
+  assert.equal(shotgun.shotgunPelletDamageAtDistance(185),9.9);
+  assert.equal(shotgun.shotgunPelletDamageAtDistance(230),8.1);
+  assert.equal(shotgun.shotgunPelletDamageAtDistance(300),5.3);
+  assert.equal(shotgun.shotgunPelletDamageAtDistance(395),1.5);
   assert.equal(shotgun.shotgunPelletDamageAtDistance(560),1);
   const fire=(players,walls=[],allow=()=>true)=>shotgun.traceShotgun(shooter,0,0,walls,players,allow,map,()=>0);
-  const close=fire([target]);assert.equal(close.pellets.length,8);assert.equal(close.damage.get('t'),96);
+  const close=fire([target]);assert.equal(close.pellets.length,8);assert.equal(close.damage.get('t'),100);
   assert.equal(new Set(close.pellets.map(p=>`${p.angle}/${p.pitch}`)).size,8);
   const far=fire([{...target,x:500}]);assert.ok((far.damage.get('t')||0)<30);
   assert.equal(fire([target],[{x:130,y:0,width:10,height:1200,top:7.5}]).damage.size,0);
@@ -39,7 +39,7 @@ test('shotgun pellets spread, respect walls and friendly filtering, and lose dam
   assert.equal(split.damage.size,2,'a spread can hit multiple enemies');
 });
 
-test('server enforces the shotgun shot delay and the reload gate',t=>{
+test('server accepts both shotgun barrels in the same tick and enforces the reload',t=>{
   let now=100000;
   t.mock.method(global,'setInterval',()=>0);t.mock.method(Date,'now',()=>now);
   let connect;const handlers={},events=[];
@@ -49,29 +49,21 @@ test('server enforces the shotgun shot delay and the reload gate',t=>{
     game.gameInProgress.status=true;
     game.activePlayers.push({...shooter},{...target});
     handlers.shoot({angle:0,damage:999,pellets:999});
-    assert.equal(game.activePlayers[1].health,104);
+    assert.equal(game.activePlayers[1].health,101);
     assert.equal(events.filter(e=>e.name==='shotFired').length,1);
     assert.equal(events.find(e=>e.name==='shotFired').data.pellets.length,8);
     assert.equal(events.find(e=>e.name==='shotFired').data.shotgunBarrel,0);
     assert.equal(events.find(e=>e.name==='shotFired').data.weaponSkinKey,'shotgun_bubble_trouble');
-    handlers.shoot({angle:0});assert.equal(game.activePlayers[1].health,104,
-      'the second loaded shot cannot fire immediately');
-    now+=199;
-    handlers.shoot({angle:0,cooldownMs:0,lastShotAt:0});
-    assert.equal(events.filter(e=>e.name==='shotFired').length,1,'cannot bypass the 200 ms delay');
-    assert.equal(game.activePlayers[0].shotgunShotsRemaining,1,'blocked shots do not consume ammo');
-    now++;
-    handlers.shoot({angle:0});assert.equal(game.activePlayers[1].health,8,
-      'the second loaded shot is ready at exactly 200 ms');
+    handlers.shoot({angle:0});
+    assert.equal(game.activePlayers[1].health,1,'two clicks at the same timestamp fire both barrels');
     assert.equal(events.filter(e=>e.name==='shotFired').at(-1).data.shotgunBarrel,1);
     assert.equal(game.activePlayers[0].shotgunShotsRemaining,0);
     now+=999;
     handlers.shoot({angle:0,shotgunShotsRemaining:2,shotgunReloadUntil:0});
     assert.equal(events.filter(e=>e.name==='shotFired').length,2,'cannot bypass the reload');
     game.gameWalls.push({x:130,y:0,width:10,height:600,top:7.5});
-    now++;handlers.shoot({angle:0});assert.equal(game.activePlayers[1].health,8);
+    now++;handlers.shoot({angle:0});assert.equal(game.activePlayers[1].health,1);
     assert.equal(game.activePlayers[0].shotgunShotsRemaining,1);
-    now+=200;
     handlers.shoot({angle:0});
     assert.equal(game.activePlayers[0].shotgunShotsRemaining,0);
     assert.equal(events.filter(e=>e.name==='shotFired').length,4,'next reload gives another two shots');
@@ -80,7 +72,7 @@ test('server enforces the shotgun shot delay and the reload gate',t=>{
 
 test('shotgun has a selectable registry entry, free default skin and detailed models at both scales',()=>{
   assert.equal(weapons.WEAPONS.shotgun.automatic,false);
-  assert.equal(weapons.WEAPONS.shotgun.cooldownMs,200);
+  assert.equal(weapons.WEAPONS.shotgun.cooldownMs,0);
   assert.equal(weapons.WEAPONS.shotgun.reloadMs,1000);
   assert.equal(weapons.WEAPONS.shotgun.description,'Eight-pellet hitscan blast.');
   assert.equal(skins.DEFAULT_SKIN_BY_WEAPON.shotgun,'shotgun_default');

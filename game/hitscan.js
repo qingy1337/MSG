@@ -1,4 +1,4 @@
-const {DEFAULT_MAP,sampleHeightfield,surfaceHeight,authoredSupportAt}=require('../public/arenaMap');
+const {DEFAULT_MAP,hasGroundFloor,sampleHeightfield,surfaceHeight,authoredSupportAt}=require('../public/arenaMap');
 function rayHeightfield(x,y,dx,dy,field,height,slope,carvedAt=()=>false) {
   let near=0,far=Infinity;
   for(const [origin,direction,min,max] of [[x,dx,field.x,field.x+field.width],[y,dy,field.y,field.y+field.height]]) {
@@ -244,7 +244,11 @@ function traceLine(shooter, angle, walls, players, canHit, pitch, map, piercing)
   );
   let targetId = null;
   let hit = "boundary";
-  if (slope < 0 && -height / slope < distance) { distance = -height / slope; hit = 'floor'; }
+  const groundDistance=-height/slope;
+  if(slope<0&&groundDistance>=0&&groundDistance<distance&&
+    hasGroundFloor(map,shooter.x+dx*groundDistance,shooter.y+dy*groundDistance)) {
+    distance=groundDistance;hit='floor';
+  }
   // `ceiling` still provides a physics/rendering scale for roofless maps. It
   // only clips bullets when the map actually has a global roof; tunnels and
   // overhangs are represented by their own bottom/top solids below.
